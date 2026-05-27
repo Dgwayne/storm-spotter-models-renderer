@@ -26,25 +26,23 @@ products:
   t2m:
     display: "2m Temperature"
     wgrib2_match: ":TMP:2 m above ground:"
-    units_in: "K"
+    # GRIB encodes Kelvin per WMO convention, but GDAL's GRIB driver
+    # auto-normalizes temperature to Celsius on read (per the GRIB
+    # CF-conformance defaults). Convert Celsius -> Fahrenheit so the
+    # .clr ramp (keyed in degF) lines up with the actual data.
+    units_in: "C"
     units_out: "degF"
-    # No gdal_calc unit conversion — the .clr file is keyed directly
-    # on native Kelvin values (T(K)=(T(F)-32)*5/9+273.15). gdal_calc
-    # was silently producing single-value output for both the
-    # parenthesized and simplified K-to-F forms, leaving every frame
-    # as a flat color band. Kelvin-keyed ramp sidesteps the bug; the
-    # legend still reads °F via the units_out field.
-    convert: ""
+    convert: "A * 1.8 + 32"
     clr: "t2m.clr"
     pal: "hrrr_t2m.pal"
 
   td2m:
     display: "2m Dewpoint"
     wgrib2_match: ":DPT:2 m above ground:"
-    units_in: "K"
+    # GDAL auto-normalizes K -> C, same as t2m. See note there.
+    units_in: "C"
     units_out: "degF"
-    # See t2m above — Kelvin-keyed .clr, no gdal_calc.
-    convert: ""
+    convert: "A * 1.8 + 32"
     clr: "td2m.clr"
     pal: "hrrr_td2m.pal"
 

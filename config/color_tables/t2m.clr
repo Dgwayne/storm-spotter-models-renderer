@@ -1,23 +1,20 @@
-# 2m Temperature — keyed on KELVIN (native GRIB units)
-# Breakpoints derived from the legacy degF ramp via T(K)=(T(F)-32)*5/9+273.15
-# Legend displays as degF via the catalog units_out field.
-# IMPORTANT: gdaldem color-relief does NOT support inline comments after
-# the data values — every value/RGBA line must be unannotated.
-nv      0   0   0   0
-233.15  140 0   140 255
-238.71  180 30  180 255
-244.26  190 60  220 255
-249.82  170 90  230 255
-255.37  130 130 255 255
-260.93  100 160 255 255
-266.48  80  200 255 255
-273.15  150 220 255 255
-277.59  120 230 200 255
-283.15  100 220 120 255
-288.71  180 230 100 255
-294.26  230 220 80  255
-299.82  240 180 60  255
-305.37  240 130 50  255
-310.93  230 70  40  255
-316.48  200 30  30  255
-322.04  140 20  20  255
+# 2m Temperature (degF) — NWS-style surface temperature ramp.
+# IMPORTANT: no inline comments after data rows — gdaldem can't parse them.
+nv  0   0   0   0
+-40 140 0   140 255
+-30 180 30  180 255
+-20 190 60  220 255
+-10 170 90  230 255
+0   130 130 255 255
+10  100 160 255 255
+20  80  200 255 255
+32  150 220 255 255
+40  120 230 200 255
+50  100 220 120 255
+60  180 230 100 255
+70  230 220 80  255
+80  240 180 60  255
+90  240 130 50  255
+100 230 70  40  255
+110 200 30  30  255
+120 140 20  20  255
