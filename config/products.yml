@@ -28,7 +28,12 @@ products:
     wgrib2_match: ":TMP:2 m above ground:"
     units_in: "K"
     units_out: "degF"
-    convert: "(A - 273.15) * 9.0/5.0 + 32.0"
+    # K → °F. Algebraic form A*1.8 - 459.67 is mathematically equivalent
+    # to the textbook (A-273.15)*9/5+32 but avoids parentheses, which
+    # gdal_calc was silently mis-handling against the rest of the
+    # pipeline (every output landed on a single ramp value, producing
+    # a flat magenta/yellow band).
+    convert: "A * 1.8 - 459.67"
     clr: "t2m.clr"
     pal: "hrrr_t2m.pal"
 
@@ -37,7 +42,12 @@ products:
     wgrib2_match: ":DPT:2 m above ground:"
     units_in: "K"
     units_out: "degF"
-    convert: "(A - 273.15) * 9.0/5.0 + 32.0"
+    # K → °F. Algebraic form A*1.8 - 459.67 is mathematically equivalent
+    # to the textbook (A-273.15)*9/5+32 but avoids parentheses, which
+    # gdal_calc was silently mis-handling against the rest of the
+    # pipeline (every output landed on a single ramp value, producing
+    # a flat magenta/yellow band).
+    convert: "A * 1.8 - 459.67"
     clr: "td2m.clr"
     pal: "hrrr_td2m.pal"
 
