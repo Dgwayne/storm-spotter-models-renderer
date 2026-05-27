@@ -129,7 +129,13 @@ models:
       - precip1h
     # CONUS bbox (Lambert -> reprojected to EPSG:3857 by gdalwarp at render time)
     bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
-    image_size: [1024, 1024]
+    # Sized close to HRRR's native 1799x1059 Lambert grid so the
+    # reprojection doesn't subsample the model's 3 km resolution.
+    # At 1024^2 the effective pixel was ~13 km, washing out storm
+    # cells. 2048^2 puts effective resolution at ~6 km — still
+    # supersampling slightly for radar-edge sharpness, but real HRRR
+    # detail starts to show.
+    image_size: [2048, 2048]
     # f00..f18 always; f00..f48 on synoptic runs.
     forecast_hours_default: { start: 0, end: 18, step: 1 }
     forecast_hours_synoptic: { start: 0, end: 48, step: 1, runs: [0, 6, 12, 18] }
