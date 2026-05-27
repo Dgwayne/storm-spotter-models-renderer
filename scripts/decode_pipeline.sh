@@ -206,7 +206,15 @@ PNG_SIZE=$(stat -c%s "${PNG_OUT}" 2>/dev/null || stat -f%z "${PNG_OUT}")
 echo "  png ${PNG_SIZE} bytes"
 
 # --- 8. Upload to R2 ----------------------------------------------------------
+# Cache-Control header travels with the object — Cloudflare's CDN
+# respects it and refreshes more aggressively after a force_rerender,
+# instead of serving up-to-4-hour-old cached frames per the default
+# Cloudflare browser cache TTL. 5-min cache strikes the balance:
+# users still see the previous frame instantly on a repeated GET,
+# but any pipeline-bug rerender lands on every edge node within
+# minutes rather than hours.
 rclone copyto "${PNG_OUT}" "r2:${R2_BUCKET}/${OUT_REL}" \
-  --s3-no-check-bucket --no-traverse
+  --s3-no-check-bucket --no-traverse \
+  --header-upload "Cache-Control: public, max-age=300"
 
 echo "  uploaded ${OUT_REL}"
