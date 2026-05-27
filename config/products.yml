@@ -64,7 +64,8 @@ products:
 
   mslp:
     display: "Mean Sea-Level Pressure"
-    wgrib2_match: ":(MSLET|PRMSL):mean sea level:"
+    # HRRR uses MSLMA, NAM uses MSLET, GFS uses PRMSL.
+    wgrib2_match: ":(MSLMA|MSLET|PRMSL):mean sea level:"
     units_in: "Pa"
     units_out: "hPa"
     convert: "A / 100.0"
@@ -82,7 +83,9 @@ products:
 
   precip1h:
     display: "1-hour Precipitation"
-    wgrib2_match: ":APCP:surface:.*1 hour acc"
+    # 1-hour bucket ending at the current fh: "(fh-1)-fh hour acc".
+    # decode_pipeline.sh substitutes {fh} and {fh_minus_1} before matching.
+    wgrib2_match: ":APCP:surface:{fh_minus_1}-{fh} hour acc"
     units_in: "kg/m^2"
     units_out: "in"
     convert: "A / 25.4"

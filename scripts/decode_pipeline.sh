@@ -27,6 +27,9 @@ COLOR_TABLES="${REPO_ROOT}/config/color_tables"
 
 # --- Resolve product + model config from YAML ----------------------------------
 WGRIB2_MATCH=$(yq -r ".products.${PRODUCT}.wgrib2_match" "$CONFIG")
+# Substitute fh placeholders so per-hour accumulation products work.
+WGRIB2_MATCH="${WGRIB2_MATCH//\{fh\}/${FH}}"
+WGRIB2_MATCH="${WGRIB2_MATCH//\{fh_minus_1\}/$((FH - 1))}"
 COMPOSITE_UV=$(yq -r ".products.${PRODUCT}.composite_uv // false" "$CONFIG")
 CONVERT_EXPR=$(yq -r ".products.${PRODUCT}.convert // \"\"" "$CONFIG")
 CLR_FILE=$(yq -r ".products.${PRODUCT}.clr" "$CONFIG")
@@ -124,18 +127,22 @@ wgrib2 "${GRIB_LOCAL}" -netcdf "${NC}" >/dev/null
 # --- 5. Build a single-band raster (handles composite UV magnitude) -----------
 RAW_TIF="${WORK}/raw.tif"
 if [ "${COMPOSITE_UV}" = "true" ]; then
-  # Pull UGRD/VGRD bands, compute magnitude, then convert to kt.
+  # Pull UGRD/VGRD subdatasets by name match (wgrib2 names vary by level).
   U_TIF="${WORK}/u.tif"
   V_TIF="${WORK}/v.tif"
-  gdal_translate -q -of GTiff -b 1 NETCDF:"${NC}":UGRD_10maboveground "${U_TIF}" \
-    2>/dev/null || gdal_translate -q -of GTiff NETCDF:"${NC}":UGRD_500mb "${U_TIF}"
-  gdal_translate -q -of GTiff -b 1 NETCDF:"${NC}":VGRD_10maboveground "${V_TIF}" \
-    2>/dev/null || gdal_translate -q -of GTiff NETCDF:"${NC}":VGRD_500mb "${V_TIF}"
+  U_SUBDS=$(gdalinfo "${NC}" | awk -F= '/SUBDATASET_[0-9]+_NAME/ && /UGRD/ {print $2; exit}')
+  V_SUBDS=$(gdalinfo "${NC}" | awk -F= '/SUBDATASET_[0-9]+_NAME/ && /VGRD/ {print $2; exit}')
+  if [ -z "${U_SUBDS}" ] || [ -z "${V_SUBDS}" ]; then
+    echo "  no UGRD/VGRD subdataset found; skip"
+    exit 0
+  fi
+  gdal_translate -q -of GTiff "${U_SUBDS}" "${U_TIF}"
+  gdal_translate -q -of GTiff "${V_SUBDS}" "${V_TIF}"
   gdal_calc.py --quiet -A "${U_TIF}" -B "${V_TIF}" \
     --outfile="${WORK}/mag.tif" --calc="sqrt(A*A + B*B)" --NoDataValue=-9999 --type=Float32
   # Convert m/s -> kt
   gdal_calc.py --quiet -A "${WORK}/mag.tif" --outfile="${RAW_TIF}" \
-    --calc="${CONVERT_EXPR//A/A}" --NoDataValue=-9999 --type=Float32
+    --calc="${CONVERT_EXPR}" --NoDataValue=-9999 --type=Float32
 else
   # Single variable: list NetCDF subdatasets, take the first that isn't 'time_bnds'.
   SUBDS=$(gdalinfo "${NC}" | awk -F= '/SUBDATASET_[0-9]+_NAME/ && !/time_bnds/ {print $2; exit}')
