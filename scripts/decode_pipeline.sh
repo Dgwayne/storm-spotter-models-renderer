@@ -120,41 +120,62 @@ done
 GRIB_SIZE=$(stat -c%s "${GRIB_LOCAL}" 2>/dev/null || stat -f%z "${GRIB_LOCAL}")
 echo "  fetched ${GRIB_SIZE} bytes"
 
-# --- 4. Decode to NetCDF / GTiff ----------------------------------------------
-NC="${WORK}/out.nc"
-wgrib2 "${GRIB_LOCAL}" -netcdf "${NC}" >/dev/null
+# --- 4. Read GRIB directly with gdal (preserves Lambert Conformal SRS) -------
+# Skipping wgrib2 -netcdf because that pipeline silently strips the LCC
+# geolocation metadata on conda-forge wgrib2 builds, leaving gdalwarp
+# unable to reproject — every output frame ends up fully transparent
+# inside the CONUS bbox. gdal's native GRIB driver reads the LCC grid
+# directly and gdalwarp picks up the correct transformation.
 
-# --- 5. Build a single-band raster (handles composite UV magnitude) -----------
 RAW_TIF="${WORK}/raw.tif"
 if [ "${COMPOSITE_UV}" = "true" ]; then
-  # Pull UGRD/VGRD subdatasets by name match (wgrib2 names vary by level).
-  U_TIF="${WORK}/u.tif"
-  V_TIF="${WORK}/v.tif"
-  U_SUBDS=$(gdalinfo "${NC}" | awk -F= '/SUBDATASET_[0-9]+_NAME/ && /UGRD/ {print $2; exit}')
-  V_SUBDS=$(gdalinfo "${NC}" | awk -F= '/SUBDATASET_[0-9]+_NAME/ && /VGRD/ {print $2; exit}')
-  if [ -z "${U_SUBDS}" ] || [ -z "${V_SUBDS}" ]; then
-    echo "  no UGRD/VGRD subdataset found; skip"
+  # Composite UV: two bands in the GRIB file (UGRD followed by VGRD).
+  # gdal exposes each GRIB message as a band; identify by GRIB_ELEMENT
+  # metadata so we don't depend on byte ordering.
+  U_BAND=""
+  V_BAND=""
+  NBANDS=$(gdalinfo "${GRIB_LOCAL}" | awk '/^Band [0-9]+ / {print $2}' | tr -d 'Bx ' | wc -l)
+  for b in $(seq 1 "${NBANDS}"); do
+    EL=$(gdalinfo -mdd Band_${b} "${GRIB_LOCAL}" 2>/dev/null \
+      | awk -F= '/GRIB_ELEMENT=/ {print $2; exit}')
+    case "${EL}" in
+      UGRD) U_BAND="${b}" ;;
+      VGRD) V_BAND="${b}" ;;
+    esac
+  done
+  # Fallback for older gdal that doesn't surface GRIB_ELEMENT via -mdd:
+  # the byte-range fetch produces messages in the order they appear in
+  # the idx, so band 1 = UGRD, band 2 = VGRD if the regex captured
+  # both per `:(UGRD|VGRD):` (idx is sorted by msg number).
+  if [ -z "${U_BAND}" ] && [ -z "${V_BAND}" ] && [ "${NBANDS}" -ge 2 ]; then
+    U_BAND=1
+    V_BAND=2
+  fi
+  if [ -z "${U_BAND}" ] || [ -z "${V_BAND}" ]; then
+    echo "  could not identify UGRD/VGRD bands; skip"
     exit 0
   fi
-  gdal_translate -q -of GTiff "${U_SUBDS}" "${U_TIF}"
-  gdal_translate -q -of GTiff "${V_SUBDS}" "${V_TIF}"
+  U_TIF="${WORK}/u.tif"
+  V_TIF="${WORK}/v.tif"
+  gdal_translate -q -of GTiff -b "${U_BAND}" "${GRIB_LOCAL}" "${U_TIF}"
+  gdal_translate -q -of GTiff -b "${V_BAND}" "${GRIB_LOCAL}" "${V_TIF}"
   gdal_calc.py --quiet -A "${U_TIF}" -B "${V_TIF}" \
-    --outfile="${WORK}/mag.tif" --calc="sqrt(A*A + B*B)" --NoDataValue=-9999 --type=Float32
-  # Convert m/s -> kt
-  gdal_calc.py --quiet -A "${WORK}/mag.tif" --outfile="${RAW_TIF}" \
-    --calc="${CONVERT_EXPR}" --NoDataValue=-9999 --type=Float32
-else
-  # Single variable: list NetCDF subdatasets, take the first that isn't 'time_bnds'.
-  SUBDS=$(gdalinfo "${NC}" | awk -F= '/SUBDATASET_[0-9]+_NAME/ && !/time_bnds/ {print $2; exit}')
-  if [ -z "${SUBDS}" ]; then
-    SUBDS="NETCDF:${NC}"
-  fi
-  gdal_translate -q -of GTiff -b 1 "${SUBDS}" "${WORK}/var.tif"
+    --outfile="${WORK}/mag.tif" --calc="sqrt(A*A + B*B)" \
+    --NoDataValue=-9999 --type=Float32
   if [ -n "${CONVERT_EXPR}" ]; then
-    gdal_calc.py --quiet -A "${WORK}/var.tif" --outfile="${RAW_TIF}" \
+    gdal_calc.py --quiet -A "${WORK}/mag.tif" --outfile="${RAW_TIF}" \
       --calc="${CONVERT_EXPR}" --NoDataValue=-9999 --type=Float32
   else
-    cp "${WORK}/var.tif" "${RAW_TIF}"
+    cp "${WORK}/mag.tif" "${RAW_TIF}"
+  fi
+else
+  # Single-variable product: one band per matching message. We always
+  # take band 1 because the idx regex should narrow to exactly one.
+  if [ -n "${CONVERT_EXPR}" ]; then
+    gdal_calc.py --quiet -A "${GRIB_LOCAL}" --A_band=1 --outfile="${RAW_TIF}" \
+      --calc="${CONVERT_EXPR}" --NoDataValue=-9999 --type=Float32
+  else
+    gdal_translate -q -of GTiff -b 1 "${GRIB_LOCAL}" "${RAW_TIF}"
   fi
 fi
 
