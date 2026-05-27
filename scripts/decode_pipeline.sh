@@ -164,15 +164,22 @@ if [ "${COMPOSITE_UV}" = "true" ]; then
   fi
 else
   # Single-variable product:
-  #   1) GRIB → GTiff with band 1 selected (preserves LCC SRS)
-  #   2) Unit-conversion the GTiff with gdal_calc
-  gdal_translate -q -of GTiff -b 1 "${GRIB_LOCAL}" "${WORK}/native.tif"
+  #   1) GRIB → GTiff with band 1 selected, forced to Float32 so any
+  #      GRIB scale_factor/add_offset is applied (raw scaled integers
+  #      would land outside any sane ramp range).
+  #   2) Unit-conversion the GTiff with gdal_calc (when configured).
+  gdal_translate -q -of GTiff -ot Float32 -b 1 "${GRIB_LOCAL}" "${WORK}/native.tif"
   if [ -n "${CONVERT_EXPR}" ]; then
     gdal_calc.py --quiet -A "${WORK}/native.tif" --outfile="${RAW_TIF}" \
       --calc="${CONVERT_EXPR}" --NoDataValue=-9999 --type=Float32 --overwrite
   else
     cp "${WORK}/native.tif" "${RAW_TIF}"
   fi
+  # Diagnostic: print the value range of the raster that gdaldem will
+  # see. Lets us tell if the GRIB was decoded into the expected unit
+  # space (e.g. Kelvin 230-320 for temperature) or something else.
+  echo "  raw.tif stats:"
+  gdalinfo -stats "${RAW_TIF}" 2>/dev/null | grep -E "Min|Max|Mean|StdDev" | head -4 | sed 's/^/    /'
 fi
 
 # --- 6. Reproject to Web Mercator with fixed CONUS bbox -----------------------
