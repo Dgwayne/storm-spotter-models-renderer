@@ -68,10 +68,14 @@ if ! curl -sfI "${IDX_URL}" > /dev/null; then
   exit 0
 fi
 
-# Skip if R2 already has it (idempotent re-runs).
-if rclone lsf "r2:${R2_BUCKET}/${OUT_REL}" 2>/dev/null | grep -q .; then
-  echo "  already on R2; skip"
-  exit 0
+# Skip if R2 already has it (idempotent re-runs). The FORCE_RERENDER env var
+# bypasses this — set via the workflow_dispatch input when recovering from a
+# bug that produced a corrupt batch of frames (e.g. all-transparent PNGs).
+if [ -z "${FORCE_RERENDER:-}" ]; then
+  if rclone lsf "r2:${R2_BUCKET}/${OUT_REL}" 2>/dev/null | grep -q .; then
+    echo "  already on R2; skip"
+    exit 0
+  fi
 fi
 
 # --- 2. Fetch idx and compute byte range for matching message(s) ---------------
