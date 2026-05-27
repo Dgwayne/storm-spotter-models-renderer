@@ -130,56 +130,48 @@ echo "  fetched ${GRIB_SIZE} bytes"
 # unable to reproject — every output frame ends up fully transparent
 # inside the CONUS bbox. gdal's native GRIB driver reads the LCC grid
 # directly and gdalwarp picks up the correct transformation.
+#
+# Pipeline order (single-variable case):
+#   1. gdal_translate GRIB → native GTiff (preserves LCC SRS)
+#   2. gdal_calc on the GTiff to convert units (Kelvin → °F, Pa → hPa, etc.)
+#   3. gdalwarp the converted GTiff to EPSG:3857 (downstream)
+#   4. gdaldem color-relief (downstream)
+#
+# Doing the convert on a GTiff (rather than directly on the GRIB)
+# guarantees gdal_calc sees a uniformly-typed Float32 raster with
+# clean band 1 selection. gdal_calc on GRIB sometimes mis-reads
+# scaled GRIB packing and drops the unit conversion entirely, which
+# was the cause of the flat magenta/yellow bands on the temperature
+# and dewpoint products.
 
 RAW_TIF="${WORK}/raw.tif"
 if [ "${COMPOSITE_UV}" = "true" ]; then
-  # Composite UV: two bands in the GRIB file (UGRD followed by VGRD).
-  # gdal exposes each GRIB message as a band; identify by GRIB_ELEMENT
-  # metadata so we don't depend on byte ordering.
-  U_BAND=""
-  V_BAND=""
-  NBANDS=$(gdalinfo "${GRIB_LOCAL}" | awk '/^Band [0-9]+ / {print $2}' | tr -d 'Bx ' | wc -l)
-  for b in $(seq 1 "${NBANDS}"); do
-    EL=$(gdalinfo -mdd Band_${b} "${GRIB_LOCAL}" 2>/dev/null \
-      | awk -F= '/GRIB_ELEMENT=/ {print $2; exit}')
-    case "${EL}" in
-      UGRD) U_BAND="${b}" ;;
-      VGRD) V_BAND="${b}" ;;
-    esac
-  done
-  # Fallback for older gdal that doesn't surface GRIB_ELEMENT via -mdd:
-  # the byte-range fetch produces messages in the order they appear in
-  # the idx, so band 1 = UGRD, band 2 = VGRD if the regex captured
-  # both per `:(UGRD|VGRD):` (idx is sorted by msg number).
-  if [ -z "${U_BAND}" ] && [ -z "${V_BAND}" ] && [ "${NBANDS}" -ge 2 ]; then
-    U_BAND=1
-    V_BAND=2
-  fi
-  if [ -z "${U_BAND}" ] || [ -z "${V_BAND}" ]; then
-    echo "  could not identify UGRD/VGRD bands; skip"
-    exit 0
-  fi
+  # Composite UV: two GRIB messages (UGRD + VGRD), each as a band.
+  # The byte-range GET preserves idx ordering (UGRD first, then VGRD)
+  # so band 1 = UGRD, band 2 = VGRD.
   U_TIF="${WORK}/u.tif"
   V_TIF="${WORK}/v.tif"
-  gdal_translate -q -of GTiff -b "${U_BAND}" "${GRIB_LOCAL}" "${U_TIF}"
-  gdal_translate -q -of GTiff -b "${V_BAND}" "${GRIB_LOCAL}" "${V_TIF}"
+  gdal_translate -q -of GTiff -b 1 "${GRIB_LOCAL}" "${U_TIF}"
+  gdal_translate -q -of GTiff -b 2 "${GRIB_LOCAL}" "${V_TIF}"
   gdal_calc.py --quiet -A "${U_TIF}" -B "${V_TIF}" \
     --outfile="${WORK}/mag.tif" --calc="sqrt(A*A + B*B)" \
-    --NoDataValue=-9999 --type=Float32
+    --NoDataValue=-9999 --type=Float32 --overwrite
   if [ -n "${CONVERT_EXPR}" ]; then
     gdal_calc.py --quiet -A "${WORK}/mag.tif" --outfile="${RAW_TIF}" \
-      --calc="${CONVERT_EXPR}" --NoDataValue=-9999 --type=Float32
+      --calc="${CONVERT_EXPR}" --NoDataValue=-9999 --type=Float32 --overwrite
   else
     cp "${WORK}/mag.tif" "${RAW_TIF}"
   fi
 else
-  # Single-variable product: one band per matching message. We always
-  # take band 1 because the idx regex should narrow to exactly one.
+  # Single-variable product:
+  #   1) GRIB → GTiff with band 1 selected (preserves LCC SRS)
+  #   2) Unit-conversion the GTiff with gdal_calc
+  gdal_translate -q -of GTiff -b 1 "${GRIB_LOCAL}" "${WORK}/native.tif"
   if [ -n "${CONVERT_EXPR}" ]; then
-    gdal_calc.py --quiet -A "${GRIB_LOCAL}" --A_band=1 --outfile="${RAW_TIF}" \
-      --calc="${CONVERT_EXPR}" --NoDataValue=-9999 --type=Float32
+    gdal_calc.py --quiet -A "${WORK}/native.tif" --outfile="${RAW_TIF}" \
+      --calc="${CONVERT_EXPR}" --NoDataValue=-9999 --type=Float32 --overwrite
   else
-    gdal_translate -q -of GTiff -b 1 "${GRIB_LOCAL}" "${RAW_TIF}"
+    cp "${WORK}/native.tif" "${RAW_TIF}"
   fi
 fi
 
