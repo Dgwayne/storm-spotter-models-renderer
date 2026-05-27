@@ -39,11 +39,12 @@ IMG_W=$(yq -r ".models.${MODEL}.image_size[0]" "$CONFIG")
 IMG_H=$(yq -r ".models.${MODEL}.image_size[1]" "$CONFIG")
 
 # Expand the key template (Python so we get printf-style {fh:02d}/{fh:03d}).
+# Pass run/fh as strings then int() to avoid Python rejecting "02" as a literal.
 S3_KEY=$(python3 - <<PY
 date = "${RUN_DATE}"
-run = ${RUN_HOUR}
-fh = ${FH}
-tmpl = """${S3_KEY_TEMPLATE}"""
+run = int("${RUN_HOUR}")
+fh = int("${FH}")
+tmpl = r"""${S3_KEY_TEMPLATE}"""
 print(tmpl.format(date=date, run=run, fh=fh))
 PY
 )
