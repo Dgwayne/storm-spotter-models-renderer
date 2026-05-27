@@ -1,0 +1,56 @@
+name: Render HRRR
+
+on:
+  schedule:
+    # Every 15 minutes. HRRR runs every hour and publishes ~50-60 min after each
+    # run hour. decode_pipeline.sh is idempotent (skips already-rendered frames)
+    # and exits clean if the source GRIB isn't published yet.
+    - cron: '5,20,35,50 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: render-hrrr
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps (wgrib2, gdal, rclone, yq)
+        run: |
+          set -e
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            wgrib2 gdal-bin python3-gdal python3-pip curl jq
+          # rclone (latest)
+          curl -s https://rclone.org/install.sh | sudo bash
+          # yq v4 (Go binary; the apt package is python yq with different syntax)
+          sudo curl -sSfL -o /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          pip3 install --quiet PyYAML
+
+      - name: Configure rclone for Cloudflare R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = ${{ secrets.R2_ENDPOINT }}
+          acl = private
+          EOF
+
+      - name: Render HRRR
+        run: bash scripts/render_hrrr.sh

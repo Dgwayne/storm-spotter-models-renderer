@@ -1,0 +1,29 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# Local rendering outputs (should never be committed)
+tmp/
+work/
+*.grib2
+*.grib2.idx
+*.nc
+*.tif
+*.png
+!config/color_tables/*.png  # in case you want to commit legend previews
+
+# Local rclone config
+rclone.conf
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local secrets
+.env
+.env.local

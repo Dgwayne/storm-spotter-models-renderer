@@ -1,0 +1,54 @@
+name: Render GFS
+
+on:
+  schedule:
+    # GFS runs at 00/06/12/18Z. f000-f120 typically published 4-6 hours after
+    # run time. We fire 30 min past every hour and the script picks the most
+    # recent synoptic run (anything older than 5 hours).
+    - cron: '30 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: render-gfs
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps
+        run: |
+          set -e
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            wgrib2 gdal-bin python3-gdal python3-pip curl jq
+          curl -s https://rclone.org/install.sh | sudo bash
+          sudo curl -sSfL -o /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          pip3 install --quiet PyYAML
+
+      - name: Configure rclone for Cloudflare R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = ${{ secrets.R2_ENDPOINT }}
+          acl = private
+          EOF
+
+      - name: Render GFS
+        run: bash scripts/render_gfs.sh

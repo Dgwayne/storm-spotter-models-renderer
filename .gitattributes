@@ -1,0 +1,15 @@
+# Force LF on everything that will run on Linux (GitHub Actions runners).
+# CRLF in bash scripts causes "\r: command not found" errors.
+
+* text=auto eol=lf
+
+*.sh        text eol=lf
+*.py        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.clr       text eol=lf
+
+# Markdown/license can be LF too for consistency.
+*.md        text eol=lf
+LICENSE     text eol=lf
+.gitignore  text eol=lf
