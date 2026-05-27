@@ -71,10 +71,26 @@ fi
 # Skip if R2 already has it (idempotent re-runs). The FORCE_RERENDER env var
 # bypasses this — set via the workflow_dispatch input when recovering from a
 # bug that produced a corrupt batch of frames (e.g. all-transparent PNGs).
+#
+# Performance: render_hrrr.sh pre-fetches the entire bucket listing into
+# $EXISTING_KEYS_FILE and we grep that in-memory set instead of calling
+# `rclone lsf` per-key — one R2 listing per workflow tick instead of
+# 152 × 7 listings.
 if [ -z "${FORCE_RERENDER:-}" ]; then
-  if rclone lsf "r2:${R2_BUCKET}/${OUT_REL}" 2>/dev/null | grep -q .; then
-    echo "  already on R2; skip"
-    exit 0
+  if [ -n "${EXISTING_KEYS_FILE:-}" ] && [ -f "${EXISTING_KEYS_FILE}" ]; then
+    # The pre-list rclone listed files relative to `v1/<MODEL>/`, so
+    # strip that prefix from OUT_REL before grepping the cache.
+    relative_key="${OUT_REL#v1/${MODEL}/}"
+    if grep -qxF "${relative_key}" "${EXISTING_KEYS_FILE}"; then
+      # Silent skip — too noisy to log 1000+ existing-key skips per tick.
+      exit 0
+    fi
+  else
+    # Fallback for single-frame manual runs that don't pre-list.
+    if rclone lsf "r2:${R2_BUCKET}/${OUT_REL}" 2>/dev/null | grep -q .; then
+      echo "  already on R2; skip"
+      exit 0
+    fi
   fi
 fi
 
