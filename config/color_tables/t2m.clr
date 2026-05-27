@@ -1,24 +1,23 @@
 # 2m Temperature — keyed on KELVIN (native GRIB units)
-# Display in app is converted to °F via the WeatherModelProductCatalogEntry's
-# `units` field; this ramp matches the °F breakpoints from the legacy ramp
-# converted to K (T(K) = (T(F)-32)*5/9 + 273.15).
-#
-# Range:  -40°F=233.15K  →  120°F=322.04K
+# Breakpoints derived from the legacy degF ramp via T(K)=(T(F)-32)*5/9+273.15
+# Legend displays as degF via the catalog units_out field.
+# IMPORTANT: gdaldem color-relief does NOT support inline comments after
+# the data values — every value/RGBA line must be unannotated.
 nv      0   0   0   0
-233.15  140 0   140 255    # -40°F  magenta
-238.71  180 30  180 255    # -30°F
-244.26  190 60  220 255    # -20°F
-249.82  170 90  230 255    # -10°F
-255.37  130 130 255 255    #   0°F
-260.93  100 160 255 255    #  10°F
-266.48  80  200 255 255    #  20°F
-273.15  150 220 255 255    #  32°F  ice blue
-277.59  120 230 200 255    #  40°F
-283.15  100 220 120 255    #  50°F  green
-288.71  180 230 100 255    #  60°F
-294.26  230 220 80  255    #  70°F  yellow
-299.82  240 180 60  255    #  80°F
-305.37  240 130 50  255    #  90°F
-310.93  230 70  40  255    # 100°F
-316.48  200 30  30  255    # 110°F
-322.04  140 20  20  255    # 120°F  deep red
+233.15  140 0   140 255
+238.71  180 30  180 255
+244.26  190 60  220 255
+249.82  170 90  230 255
+255.37  130 130 255 255
+260.93  100 160 255 255
+266.48  80  200 255 255
+273.15  150 220 255 255
+277.59  120 230 200 255
+283.15  100 220 120 255
+288.71  180 230 100 255
+294.26  230 220 80  255
+299.82  240 180 60  255
+305.37  240 130 50  255
+310.93  230 70  40  255
+316.48  200 30  30  255
+322.04  140 20  20  255
