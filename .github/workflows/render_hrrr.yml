@@ -37,6 +37,8 @@ jobs:
             python=3.11
             wgrib2
             gdal
+            libgdal-netcdf
+            libgdal-grib
             rclone
             pyyaml
             curl
