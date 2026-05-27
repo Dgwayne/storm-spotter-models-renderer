@@ -22,20 +22,34 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
 
+    defaults:
+      run:
+        shell: bash -el {0}
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install system deps
+      - name: Set up micromamba (wgrib2 + gdal + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: renderer
+          create-args: >-
+            python=3.11
+            wgrib2
+            gdal
+            rclone
+            pyyaml
+            curl
+          channels: conda-forge
+          cache-environment: true
+          init-shell: bash
+
+      - name: Install yq (Go binary)
         run: |
           set -e
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            wgrib2 gdal-bin python3-gdal python3-pip curl jq
-          curl -s https://rclone.org/install.sh | sudo bash
           sudo curl -sSfL -o /usr/local/bin/yq \
             https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
-          pip3 install --quiet PyYAML
 
       - name: Configure rclone for Cloudflare R2
         run: |
