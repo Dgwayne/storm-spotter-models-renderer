@@ -22,6 +22,10 @@ products:
     convert: ""
     clr: "refc.clr"
     pal: "hrrr_refc.pal"
+    # Smooth, interpolated color gradient (no -nearest_color_entry) so
+    # reflectivity renders like RadarOmega instead of hard 5-dBZ bands.
+    # All other products omit this flag and keep crisp binned colors.
+    interpolate_color: true
 
   t2m:
     display: "2m Temperature"

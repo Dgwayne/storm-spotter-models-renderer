@@ -32,6 +32,10 @@ WGRIB2_MATCH="${WGRIB2_MATCH//\{fh\}/${FH}}"
 WGRIB2_MATCH="${WGRIB2_MATCH//\{fh_minus_1\}/$((FH - 1))}"
 COMPOSITE_UV=$(yq -r ".products.${PRODUCT}.composite_uv // false" "$CONFIG")
 CONVERT_EXPR=$(yq -r ".products.${PRODUCT}.convert // \"\"" "$CONFIG")
+# When true, gdaldem interpolates RGBA linearly between color stops
+# (smooth gradient). When false/absent we pass -nearest_color_entry to
+# snap each pixel to the nearest stop (hard binned colors).
+INTERPOLATE=$(yq -r ".products.${PRODUCT}.interpolate_color // false" "$CONFIG")
 CLR_FILE=$(yq -r ".products.${PRODUCT}.clr" "$CONFIG")
 CLR_PATH="${COLOR_TABLES}/${CLR_FILE}"
 
@@ -211,8 +215,13 @@ gdalwarp -q -overwrite \
   "${RAW_TIF}" "${MERC_TIF}"
 
 # --- 7. Color-relief to RGBA + PNG translate ----------------------------------
+# Products with interpolate_color: true (e.g. refc) get smooth gradients;
+# all others snap to the nearest color stop for crisp binned output.
 RGBA_TIF="${WORK}/rgba.tif"
-gdaldem color-relief -q -alpha -nearest_color_entry \
+NEAREST_FLAG="-nearest_color_entry"
+[ "${INTERPOLATE}" = "true" ] && NEAREST_FLAG=""
+# shellcheck disable=SC2086
+gdaldem color-relief -q -alpha ${NEAREST_FLAG} \
   "${MERC_TIF}" "${CLR_PATH}" "${RGBA_TIF}"
 
 PNG_OUT="${WORK}/F$(printf '%03d' "$FH").png"
