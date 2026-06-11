@@ -11,14 +11,15 @@ The Storm Spotter Tools Pro velocity dealiaser fetches these as a trusted
 far-range / low-Nyquist velocity correctly — the part a sounding fixes
 that a self-contained VAD profile cannot.
 
-Reuses the exact pattern the image renderer already uses: the public NOAA
-HRRR S3 bucket, the .idx byte-range trick (so we download only the ~18
-matching GRIB messages, not the whole file), wgrib2 for point extraction,
-and rclone -> Cloudflare R2. Costs $0/month on the same GitHub Actions
-cron + R2 setup as the rest of this repo.
+Reuses the renderer's pattern: public NOAA HRRR S3 + the .idx byte-range
+trick (download only the ~16 matching messages, not the whole GRIB), and
+rclone -> Cloudflare R2. Point extraction uses gdal (gdallocationinfo),
+not wgrib2 -lon, because the conda-forge wgrib2 build mishandles HRRR's
+Lambert Conformal grid geolocation (same reason decode_pipeline.sh reads
+GRIB with gdal). $0/month on the existing Actions cron + R2 setup.
 
 Env: R2_BUCKET, R2_ENDPOINT, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
-Tools: wgrib2, rclone, python3 (stdlib only — urllib, no requests needed)
+Tools: gdal (gdallocationinfo), rclone, python3 (stdlib only)
 """
 
 from __future__ import annotations
@@ -43,13 +44,7 @@ S3_BUCKET = "noaa-hrrr-bdp-pds"
 # anchor the global fold direction the dealiaser needs.
 LEVELS = [1000, 925, 850, 700, 500, 250]
 MATCH = re.compile(r":(UGRD|VGRD|HGT):(%s) mb:" % "|".join(map(str, LEVELS)))
-VAR_RE = re.compile(r":(UGRD|VGRD|HGT):(\d+) mb:")
-VAL_RE = re.compile(r"val=([-\d.eE+]+|nan)")
-
-# How many run-hours back to look for a published f00 (HRRR f00 publishes
-# ~45–55 min after init; the previous run is always available as fallback).
 LOOKBACK_HOURS = 6
-
 BUCKET = os.environ["R2_BUCKET"]
 
 
@@ -71,7 +66,6 @@ def _get(url: str, byte_range: str | None = None) -> bytes:
 
 
 def find_latest_run() -> tuple[str, dt.datetime] | None:
-    """Newest HRRR run whose f00 wrfsfcf .idx is published. (grib_url, run_dt)."""
     now = dt.datetime.now(dt.timezone.utc)
     for off in range(1, LOOKBACK_HOURS + 1):
         t = (now - dt.timedelta(hours=off)).replace(minute=0, second=0, microsecond=0)
@@ -85,23 +79,27 @@ def find_latest_run() -> tuple[str, dt.datetime] | None:
     return None
 
 
-def fetch_subset(grib_url: str, work: Path) -> Path | None:
-    """Byte-range GET only the UGRD/VGRD/HGT mandatory-level messages."""
+def fetch_subset(grib_url: str, work: Path) -> tuple[Path, list[tuple[str, int]]] | None:
+    """Byte-range GET the matching messages. Returns (grib_path, band_meta)
+    where band_meta[i] = (var, level_mb) for GRIB band i+1, in file order
+    (== the order gdal enumerates bands)."""
     idx = _get(grib_url + ".idx").decode()
     parsed = []
     for line in idx.splitlines():
         a = line.split(":")
-        if len(a) >= 3:
+        if len(a) >= 5:
             try:
-                parsed.append((int(a[0]), int(a[1]), line))
+                parsed.append((int(a[0]), int(a[1]), a[3], a[4], line))
             except ValueError:
                 pass
     parsed.sort()
-    ranges = []
-    for i, (_, off, line) in enumerate(parsed):
+    ranges: list[str] = []
+    band_meta: list[tuple[str, int]] = []
+    for i, (_, off, var, lvl, line) in enumerate(parsed):
         if MATCH.search(line):
             end = parsed[i + 1][1] - 1 if i + 1 < len(parsed) else ""
             ranges.append(f"{off}-{end}")
+            band_meta.append((var, int(lvl.split()[0])))  # "500 mb" -> 500
     if not ranges:
         return None
     grib = work / "in.grib2"
@@ -109,32 +107,36 @@ def fetch_subset(grib_url: str, work: Path) -> Path | None:
         for r in ranges:
             f.write(_get(grib_url, r))
     print(f"  fetched {grib.stat().st_size} bytes, {len(ranges)} messages")
-    return grib
+    print(f"  bands: {band_meta}")
+    return grib, band_meta
 
 
-def extract_site(grib: Path, lon: float, lat: float) -> dict[int, dict[str, float]]:
-    """wgrib2 -lon point extraction -> {level_mb: {UGRD,VGRD,HGT}}."""
+def extract_site(
+    grib: Path, band_meta: list[tuple[str, int]], lon: float, lat: float, debug: bool = False
+) -> dict[int, dict[str, float]]:
+    """gdallocationinfo point extraction -> {level_mb: {UGRD,VGRD,HGT}}."""
     try:
         out = subprocess.check_output(
-            ["wgrib2", str(grib), "-lon", str(lon), str(lat)],
+            ["gdallocationinfo", "-valonly", "-wgs84", str(grib), str(lon), str(lat)],
             text=True,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
         )
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as e:
+        if debug:
+            print(f"  [debug] gdallocationinfo failed: {e.output!r}")
         return {}
+    vals = out.split()
+    if debug:
+        print(f"  [debug] lon={lon} lat={lat} -> {len(vals)} vals: {vals[:6]}...")
     prof: dict[int, dict[str, float]] = {}
-    for line in out.splitlines():
-        vm = VAR_RE.search(line)
-        valm = VAL_RE.search(line)
-        if not vm or not valm:
+    for (var, lvl), vs in zip(band_meta, vals):
+        try:
+            val = float(vs)
+        except ValueError:
             continue
-        vs = valm.group(1)
-        if vs == "nan":
+        if abs(val) > 9.9e19:
             continue
-        val = float(vs)
-        if abs(val) > 9.9e19:  # GRIB missing
-            continue
-        prof.setdefault(int(vm.group(2)), {})[vm.group(1)] = val
+        prof.setdefault(lvl, {})[var] = val
     return prof
 
 
@@ -148,10 +150,11 @@ def main() -> int:
     print(f"==> HRRR run {run_dt:%Y%m%d%H}Z: {grib_url}")
 
     work = Path(tempfile.mkdtemp())
-    grib = fetch_subset(grib_url, work)
-    if grib is None:
+    sub = fetch_subset(grib_url, work)
+    if sub is None:
         print("no matching messages in idx; exit 0")
         return 0
+    grib, band_meta = sub
 
     sites = []
     with open(SITES_CSV) as f:
@@ -162,8 +165,8 @@ def main() -> int:
     out_dir.mkdir()
     n_ok = 0
     n_levels_total = 0
-    for sid, lat, lon in sites:
-        prof = extract_site(grib, lon, lat)
+    for idx_site, (sid, lat, lon) in enumerate(sites):
+        prof = extract_site(grib, band_meta, lon, lat, debug=(idx_site == 0))
         levels = sorted(
             lvl for lvl, d in prof.items() if {"UGRD", "VGRD", "HGT"} <= d.keys()
         )
@@ -183,10 +186,9 @@ def main() -> int:
         n_levels_total += len(levels)
 
     if n_ok == 0:
-        print("extracted 0 site profiles — check wrfsfcf level availability; exit 1")
+        print("extracted 0 site profiles — see [debug] above; exit 1")
         return 1
-    avg_levels = n_levels_total / n_ok
-    print(f"  built {n_ok}/{len(sites)} site profiles ({avg_levels:.1f} levels avg)")
+    print(f"  built {n_ok}/{len(sites)} site profiles ({n_levels_total / n_ok:.1f} levels avg)")
 
     manifest = {
         "schemaVersion": 1,
