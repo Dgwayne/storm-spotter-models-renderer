@@ -36,13 +36,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up micromamba (wgrib2 + rclone + python)
+      - name: Set up micromamba (gdal + rclone + python)
         uses: mamba-org/setup-micromamba@v2
         with:
           environment-name: soundings
           create-args: >-
             python=3.11
-            wgrib2
+            gdal
+            libgdal-grib
             rclone
           cache-environment: true
           init-shell: bash
