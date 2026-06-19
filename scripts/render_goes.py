@@ -146,6 +146,7 @@ def _render_frame(src_tif: Path, product: str, work: Path) -> Path:
 
 def main() -> int:
     bucket = os.environ["R2_BUCKET"]
+    force = bool(os.environ.get("FORCE_RERENDER"))
     now = dt.datetime.now(dt.timezone.utc)
     slots = _frame_slots(now)
     existing = _list_r2(bucket)
@@ -156,7 +157,7 @@ def main() -> int:
     for product, (infix, _clr) in PRODUCTS.items():
         for slot in slots:
             key = _r2_key(product, slot)
-            if _r2_exists(existing, key):
+            if not force and _r2_exists(existing, key):
                 continue
             with tempfile.TemporaryDirectory() as td:
                 work = Path(td)

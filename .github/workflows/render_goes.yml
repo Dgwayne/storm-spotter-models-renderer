@@ -12,6 +12,11 @@ on:
   schedule:
     - cron: '3,18,33,48 * * * *'   # every 15 min, offset a few min past the slot
   workflow_dispatch:
+    inputs:
+      force_rerender:
+        description: 'Re-render every frame in the window even if already on R2 (e.g. after a color-table change).'
+        type: boolean
+        default: false
 
 concurrency:
   group: render-goes
@@ -26,6 +31,7 @@ jobs:
       R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      FORCE_RERENDER: ${{ inputs.force_rerender && '1' || '' }}
 
     defaults:
       run:

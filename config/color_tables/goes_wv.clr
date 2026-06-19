@@ -1,13 +1,14 @@
-# Water vapor (GOES band 9), keyed on IEM's 8-bit byte values. Classic
-# WV enhancement: dry = warm yellow/orange, moist = blue, very moist =
-# bright. Byte 0 = nodata -> transparent. First-pass — tune against a
-# rendered frame.  Format: value R G B A
+# Water vapor (GOES band 9), keyed on IEM's 8-bit byte values. The real
+# data sits in ~97-160 (median ~129), so the ramp is centered there:
+# low byte = dry (warm) -> yellow/orange; high byte = moist (cold) ->
+# blue -> bright. Byte 0 = nodata -> transparent.  Format: value R G B A
 nv 0 0 0 0
 0 0 0 0 0
-1 50 30 0 255
-110 210 165 60 255
-150 120 110 70 255
-185 30 45 95 255
-215 60 120 200 255
-240 225 235 245 255
+48 120 60 0 255
+100 205 150 55 255
+118 200 185 120 255
+130 110 130 165 255
+142 55 85 165 255
+155 40 70 150 255
+162 235 242 250 255
 255 255 255 255 255
