@@ -79,7 +79,10 @@ WINDOW_MIN = 30
 # during outbreaks (where GLM can report tens of thousands of flashes)
 # without thinning the visible footprint.
 GRID_DEG = 0.01
-TIME_BUCKET_SEC = 60
+# Per-cell temporal dedup. 30 s keeps a busy cell from collapsing to one
+# flash/min (which made the app's continuous reveal blink), while still
+# bounding count.
+TIME_BUCKET_SEC = 30
 
 # Hard safety cap on emitted points (keep newest). Grid-dedup normally
 # keeps us well under this; the cap just guarantees a bounded file.
@@ -191,19 +194,41 @@ def _ensure_granule(bucket: str, key: str) -> Path | None:
         return None
 
 
-def _flashes_from_granule(path: Path) -> tuple[np.ndarray, np.ndarray]:
-    """Return (lat, lon) finite arrays of flash centroids for one granule."""
+# Unix seconds at the GLM/J2000 epoch (2000-01-01 12:00:00 UTC). GLM
+# flash time offsets are "seconds since" this instant.
+_J2000_UNIX = 946728000
+
+
+def _flashes_from_granule(
+    path: Path, granule_epoch: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return (lat, lon, epoch) finite arrays for one granule. `epoch` is the
+    ACTUAL per-flash UTC Unix second — from `flash_time_offset_of_first_event`
+    (seconds since the J2000 epoch) — so flashes spread across the ~20 s
+    granule and the app can reveal them at their true times instead of in a
+    granule-sized clump. Falls back to the granule start time per-flash when
+    the offset variable is missing/masked."""
     try:
         with Dataset(str(path)) as ds:
             if "flash_lat" not in ds.variables:
-                return np.array([]), np.array([])
+                return np.array([]), np.array([]), np.array([])
             lat = np.ma.filled(ds.variables["flash_lat"][:], np.nan).astype("float64")
             lon = np.ma.filled(ds.variables["flash_lon"][:], np.nan).astype("float64")
+            if "flash_time_offset_of_first_event" in ds.variables:
+                off = np.ma.filled(
+                    ds.variables["flash_time_offset_of_first_event"][:], np.nan
+                ).astype("float64")
+                epoch = _J2000_UNIX + off
+            else:
+                epoch = np.full(lat.shape, float(granule_epoch))
     except Exception as exc:
         print(f"  parse failed {path.name}: {exc}", file=sys.stderr)
-        return np.array([]), np.array([])
+        return np.array([]), np.array([]), np.array([])
+    # Replace any non-finite flash time with the granule start so a masked
+    # offset doesn't silently drop an otherwise-valid flash.
+    epoch = np.where(np.isfinite(epoch), epoch, float(granule_epoch))
     good = np.isfinite(lat) & np.isfinite(lon)
-    return lat[good], lon[good]
+    return lat[good], lon[good], epoch[good]
 
 
 def _prune_cache(cutoff_epoch: int) -> None:
@@ -246,17 +271,18 @@ def main() -> int:
             path = _ensure_granule(bucket, key)
             if path is None:
                 continue
-            lat, lon = _flashes_from_granule(path)
+            lat, lon, fep = _flashes_from_granule(path, epoch)
             if lat.size == 0:
                 continue
             sel = keep(lon)
-            lat, lon = lat[sel], lon[sel]
-            tbucket = epoch // TIME_BUCKET_SEC
-            for la, lo in zip(lat, lon):
+            lat, lon, fep = lat[sel], lon[sel], fep[sel]
+            for la, lo, e in zip(lat, lon, fep):
+                ei = int(e)
+                tbucket = ei // TIME_BUCKET_SEC
                 gk = (int(round(la / GRID_DEG)), int(round(lo / GRID_DEG)), tbucket)
                 prev = dedup.get(gk)
-                if prev is None or epoch > prev[2]:
-                    dedup[gk] = (la, lo, epoch)
+                if prev is None or ei > prev[2]:
+                    dedup[gk] = (la, lo, ei)
 
     flashes = sorted(dedup.values(), key=lambda f: f[2])  # oldest -> newest
     if len(flashes) > MAX_FLASHES:

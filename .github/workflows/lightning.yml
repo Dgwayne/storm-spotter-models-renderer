@@ -87,6 +87,8 @@ jobs:
               FAILS=$((FAILS + 1))
               echo "  pass ${PASS} failed (${FAILS} total)"
             fi
-            [ "$(date -u +%s)" -lt "$END" ] && sleep 25 || true
+            # ~15 s keeps the feed fresh for the app's continuous reveal
+            # (GLM granules publish ~20 s).
+            [ "$(date -u +%s)" -lt "$END" ] && sleep 15 || true
           done
           echo "==> loop done after ${PASS} passes (${FAILS} failures)"
