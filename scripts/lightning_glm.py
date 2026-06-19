@@ -67,9 +67,12 @@ WEST_BUCKETS = ["noaa-goes18", "noaa-goes17"]
 # lon < cutoff (better toward the Pacific / AK / HI).
 CUTOFF_LON = -106.0
 
-# Rolling display window. The app fades flashes by age inside this window
-# and drops them past it, so this is also the max flash age shown.
-WINDOW_MIN = 15
+# Rolling window the feed carries. The APP picks a shorter display window
+# (5/10/20/30 min) client-side and, when the single-site radar animation
+# plays, slices this by each frame's scan time to sync lightning with the
+# storm — so the feed must carry enough history to cover the largest app
+# window + recent radar frames. 30 min does both.
+WINDOW_MIN = 30
 
 # Dedup grid: collapse flashes sharing a ~1.1 km cell within the same
 # 1-minute bucket to a single representative point. Bounds payload size
