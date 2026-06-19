@@ -194,20 +194,17 @@ def _ensure_granule(bucket: str, key: str) -> Path | None:
         return None
 
 
-# Unix seconds at the GLM/J2000 epoch (2000-01-01 12:00:00 UTC). GLM
-# flash time offsets are "seconds since" this instant.
-_J2000_UNIX = 946728000
-
-
 def _flashes_from_granule(
     path: Path, granule_epoch: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return (lat, lon, epoch) finite arrays for one granule. `epoch` is the
-    ACTUAL per-flash UTC Unix second — from `flash_time_offset_of_first_event`
-    (seconds since the J2000 epoch) — so flashes spread across the ~20 s
-    granule and the app can reveal them at their true times instead of in a
-    granule-sized clump. Falls back to the granule start time per-flash when
-    the offset variable is missing/masked."""
+    ACTUAL per-flash UTC Unix second — the granule start time
+    (`granule_epoch`, from the `_s...` filename) plus
+    `flash_time_offset_of_first_event`, which netCDF4 decodes to seconds
+    within the ~20 s granule. This spreads flashes across the granule so the
+    app reveals them at their true times instead of in a granule-sized clump.
+    Falls back to the granule start when the offset is missing or implausible
+    (e.g. a file that encoded it as absolute seconds-since-J2000 instead)."""
     try:
         with Dataset(str(path)) as ds:
             if "flash_lat" not in ds.variables:
@@ -218,15 +215,17 @@ def _flashes_from_granule(
                 off = np.ma.filled(
                     ds.variables["flash_time_offset_of_first_event"][:], np.nan
                 ).astype("float64")
-                epoch = _J2000_UNIX + off
             else:
-                epoch = np.full(lat.shape, float(granule_epoch))
+                off = np.full(lat.shape, np.nan)
     except Exception as exc:
         print(f"  parse failed {path.name}: {exc}", file=sys.stderr)
         return np.array([]), np.array([]), np.array([])
-    # Replace any non-finite flash time with the granule start so a masked
-    # offset doesn't silently drop an otherwise-valid flash.
-    epoch = np.where(np.isfinite(epoch), epoch, float(granule_epoch))
+    epoch = float(granule_epoch) + off
+    # Offsets should land within ~25 s of the granule start; anything else
+    # (masked NaN, or a file encoding absolute J2000 seconds) falls back to
+    # the granule time so the flash keeps a sane absolute timestamp.
+    bad = ~np.isfinite(epoch) | (np.abs(off) > 25)
+    epoch = np.where(bad, float(granule_epoch), epoch)
     good = np.isfinite(lat) & np.isfinite(lon)
     return lat[good], lon[good], epoch[good]
 
