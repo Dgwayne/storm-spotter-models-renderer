@@ -1,0 +1,15 @@
+# Enhanced infrared (GOES band 13), keyed on IEM's 8-bit byte values.
+# Byte 0 = gdalwarp nodata -> transparent. Low bytes = warm (ground / low
+# cloud) rendered grayscale; high bytes = cold convective tops get the
+# classic color enhancement. First-pass ramp — tune against a rendered
+# frame.  Format: value R G B A
+nv 0 0 0 0
+0 0 0 0 0
+1 10 10 14 255
+130 195 200 210 255
+160 70 70 82 255
+178 0 150 0 255
+198 248 248 0 255
+216 236 32 32 255
+236 150 0 175 255
+255 255 255 255 255

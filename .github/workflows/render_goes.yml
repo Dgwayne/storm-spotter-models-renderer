@@ -1,0 +1,62 @@
+name: Render GOES satellite
+
+# Rolling window of recent GOES satellite frames (IR / WV / Visible) for
+# the app's satellite animation. Each run renders any frames in the last
+# ~3 hours not already on R2 and rebuilds the manifest, so a delayed or
+# skipped scheduled tick is harmlessly backfilled by the next one.
+#
+# Source: IEM's archived georeferenced CONUS GeoTIFFs (15-min cadence).
+# Public repo => unlimited Actions minutes.
+
+on:
+  schedule:
+    - cron: '3,18,33,48 * * * *'   # every 15 min, offset a few min past the slot
+  workflow_dispatch:
+
+concurrency:
+  group: render-goes
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up micromamba (gdal + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: goes
+          create-args: >-
+            python=3.11
+            gdal
+            rclone
+          cache-environment: true
+          init-shell: bash
+
+      - name: Configure rclone for Cloudflare R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = ${{ secrets.R2_ENDPOINT }}
+          acl = private
+          EOF
+
+      - name: Render GOES frames
+        run: python scripts/render_goes.py
