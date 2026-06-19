@@ -2,31 +2,34 @@ name: Lightning (GLM)
 
 # Near-real-time GOES GLM lightning feed.
 #
-# GitHub's scheduled-cron floor is 5 min (and ticks can be delayed under
-# load), which is too slow for "live" lightning. So instead of doing one
-# pass per tick, each run sets up once (cached env) and then LOOPS for
-# ~4.5 min, rebuilding flashes.json from the newest GLM granules every
-# ~25 s. The next 5-min tick takes over via cancel-in-progress, giving a
-# continuous ~25 s effective cadence with only a brief handoff gap that
-# the app's 15-min rolling window hides.
+# GitHub's short crons (e.g. */5) are unreliable — they're frequently
+# delayed or skipped entirely under load, which freezes the feed and the
+# app (correctly) drops everything older than its 15-min window. So the
+# feed must NOT depend on frequent cron ticks.
 #
-# Public repo => unlimited Actions minutes, so the near-continuous loop
-# is free. The pipeline is additive: it shares the R2 bucket + secrets
-# with the model renderer but writes only under lightning/v1/.
+# Instead each run sets up once and then LOOPS for up to ~5h50m,
+# rebuilding flashes.json from the newest GLM granules every ~25 s. A
+# reliable low-frequency cron (every 2 h — long crons are honored far
+# more reliably than short ones) restarts it via cancel-in-progress, and
+# because one run lasts hours, even a delayed or skipped scheduled tick
+# can't stale the feed — the current run just keeps going on its own.
+#
+# Public repo => unlimited Actions minutes, so the long loop is free.
+# This is a data pipeline for the app, not a hosted server.
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '0 */2 * * *'    # every 2 h — reliable; just needs to restart the loop
   workflow_dispatch:
 
 concurrency:
   group: lightning-glm
-  cancel-in-progress: true   # a fresh tick always supersedes a lingering run
+  cancel-in-progress: true   # a fresh tick supersedes the long-running loop
 
 jobs:
   lightning:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 355
     env:
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
@@ -67,18 +70,23 @@ jobs:
           acl = private
           EOF
 
-      - name: Stream GLM lightning to R2 (~4.5 min loop)
+      - name: Stream GLM lightning to R2 (long loop)
         run: |
           set -uo pipefail
-          # Leave ~30 s of headroom under the 5-min tick so this run has
-          # exited (or is about to) before the next one starts.
-          END=$(( $(date -u +%s) + 270 ))
+          # Loop up to ~5h50m, refreshing every ~25 s. The 2-hourly cron
+          # normally cancels + restarts this well before the cap, so the
+          # cap only matters if a scheduled tick is delayed/skipped —
+          # then this run keeps the feed fresh on its own instead of
+          # going stale.
+          END=$(( $(date -u +%s) + 21000 ))
           PASS=0
+          FAILS=0
           while [ "$(date -u +%s)" -lt "$END" ]; do
             PASS=$((PASS + 1))
-            echo "---- pass ${PASS} $(date -u +%H:%M:%S)Z ----"
-            python scripts/lightning_glm.py || echo "  pass ${PASS} failed (continuing)"
-            # Don't oversleep past the deadline.
+            if ! python scripts/lightning_glm.py; then
+              FAILS=$((FAILS + 1))
+              echo "  pass ${PASS} failed (${FAILS} total)"
+            fi
             [ "$(date -u +%s)" -lt "$END" ] && sleep 25 || true
           done
-          echo "==> loop done after ${PASS} passes"
+          echo "==> loop done after ${PASS} passes (${FAILS} failures)"
