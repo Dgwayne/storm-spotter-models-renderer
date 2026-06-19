@@ -1,0 +1,84 @@
+name: Lightning (GLM)
+
+# Near-real-time GOES GLM lightning feed.
+#
+# GitHub's scheduled-cron floor is 5 min (and ticks can be delayed under
+# load), which is too slow for "live" lightning. So instead of doing one
+# pass per tick, each run sets up once (cached env) and then LOOPS for
+# ~4.5 min, rebuilding flashes.json from the newest GLM granules every
+# ~25 s. The next 5-min tick takes over via cancel-in-progress, giving a
+# continuous ~25 s effective cadence with only a brief handoff gap that
+# the app's 15-min rolling window hides.
+#
+# Public repo => unlimited Actions minutes, so the near-continuous loop
+# is free. The pipeline is additive: it shares the R2 bucket + secrets
+# with the model renderer but writes only under lightning/v1/.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: lightning-glm
+  cancel-in-progress: true   # a fresh tick always supersedes a lingering run
+
+jobs:
+  lightning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+    defaults:
+      run:
+        shell: bash -el {0}    # ensures the micromamba env is active per step
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up micromamba (netCDF4 + boto3 + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: lightning
+          create-args: >-
+            python=3.11
+            netcdf4
+            numpy
+            boto3
+            botocore
+            rclone
+          cache-environment: true
+          init-shell: bash
+
+      - name: Configure rclone for Cloudflare R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = ${{ secrets.R2_ENDPOINT }}
+          acl = private
+          EOF
+
+      - name: Stream GLM lightning to R2 (~4.5 min loop)
+        run: |
+          set -uo pipefail
+          # Leave ~30 s of headroom under the 5-min tick so this run has
+          # exited (or is about to) before the next one starts.
+          END=$(( $(date -u +%s) + 270 ))
+          PASS=0
+          while [ "$(date -u +%s)" -lt "$END" ]; do
+            PASS=$((PASS + 1))
+            echo "---- pass ${PASS} $(date -u +%H:%M:%S)Z ----"
+            python scripts/lightning_glm.py || echo "  pass ${PASS} failed (continuing)"
+            # Don't oversleep past the deadline.
+            [ "$(date -u +%s)" -lt "$END" ] && sleep 25 || true
+          done
+          echo "==> loop done after ${PASS} passes"
