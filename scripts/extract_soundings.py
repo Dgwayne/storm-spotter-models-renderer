@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""extract_soundings.py — HRRR wind profile per NEXRAD site -> R2.
+"""extract_soundings.py - HRRR vertical profile per NEXRAD site -> R2.
 
 For every CONUS NEXRAD radar in config/nexrad_sites.csv, pull the HRRR
-analysis wind (UGRD/VGRD) and geopotential height (HGT) at the mandatory
-isobaric levels, interpolate to the radar point, and upload one tiny JSON
-to R2 at v1/soundings/<SITE>.json.
+analysis temperature, dewpoint, geopotential height and wind at isobaric
+levels (plus a 2 m / 10 m surface level), interpolate to the radar point,
+and upload one small JSON to R2 at v1/soundings/<SITE>.json.
 
-The Storm Spotter Tools Pro velocity dealiaser fetches these as a trusted
-*reference wind* (independent of the aliased Doppler data) to unfold
-far-range / low-Nyquist velocity correctly — the part a sounding fixes
-that a self-contained VAD profile cannot.
+Two consumers:
+  * The velocity dealiaser uses the wind (hgt_msl_m / u_ms / v_ms) as a
+    trusted reference profile to unfold aliased Doppler velocity.
+  * The Soundings feature (skew-T / hodograph / analysis) uses the full
+    profile (pres_hpa / temp_c / dewpoint_c + wind).
 
-Reuses the renderer's pattern: public NOAA HRRR S3 + the .idx byte-range
-trick (download only the ~16 matching messages, not the whole GRIB), and
-rclone -> Cloudflare R2. Point extraction uses gdal (gdallocationinfo),
-not wgrib2 -lon, because the conda-forge wgrib2 build mishandles HRRR's
-Lambert Conformal grid geolocation (same reason decode_pipeline.sh reads
-GRIB with gdal). $0/month on the existing Actions cron + R2 setup.
+Reads the HRRR wrfprs 3D pressure file (25 mb levels) via the .idx
+byte-range trick - only the ~100 matching messages are downloaded, not the
+whole GRIB. Point extraction uses gdal (gdallocationinfo), not wgrib2 -lon,
+because the conda-forge wgrib2 build mishandles the HRRR Lambert Conformal
+geolocation. $0/month on the existing Actions cron + R2 setup.
 
 Env: R2_BUCKET, R2_ENDPOINT, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
 Tools: gdal (gdallocationinfo), rclone, python3 (stdlib only)
@@ -28,7 +28,6 @@ import csv
 import datetime as dt
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -39,13 +38,31 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SITES_CSV = REPO_ROOT / "config" / "nexrad_sites.csv"
 
 S3_BUCKET = "noaa-hrrr-bdp-pds"
-# Mandatory isobaric levels carried in the HRRR 2D (wrfsfcf) file — the
-# same file `wind500` already reads. ~0–10 km; coarse but plenty to
-# anchor the global fold direction the dealiaser needs.
-LEVELS = [1000, 925, 850, 700, 500, 250]
-MATCH = re.compile(r":(UGRD|VGRD|HGT):(%s) mb:" % "|".join(map(str, LEVELS)))
+# Isobaric levels to pull (mb). 50 mb spacing from 1000->100 keeps a clean
+# skew-T while limiting the number of GRIB messages we decode per site.
+LEVELS = list(range(1000, 99, -50))  # 1000,950,...,150,100  (19 levels)
+ISOBARIC_VARS = ("UGRD", "VGRD", "HGT", "TMP", "DPT")
 LOOKBACK_HOURS = 6
 BUCKET = os.environ["R2_BUCKET"]
+
+
+def classify(var: str, lvl: str) -> "str | None":
+    """Map a GRIB message (var, level) to a stable key, or None to skip."""
+    if var in ISOBARIC_VARS and lvl.endswith(" mb"):
+        try:
+            mb = int(lvl.split()[0])
+        except ValueError:
+            return None
+        return f"{var}:{mb}" if mb in LEVELS else None
+    if var == "PRES" and lvl == "surface":
+        return "PRES:sfc"
+    if var == "HGT" and lvl == "surface":
+        return "HGT:sfc"
+    if var in ("TMP", "DPT") and lvl == "2 m above ground":
+        return f"{var}:2m"
+    if var in ("UGRD", "VGRD") and lvl == "10 m above ground":
+        return f"{var}:10m"
+    return None
 
 
 def _head_ok(url: str) -> bool:
@@ -57,49 +74,50 @@ def _head_ok(url: str) -> bool:
         return False
 
 
-def _get(url: str, byte_range: str | None = None) -> bytes:
+def _get(url: str, byte_range=None) -> bytes:
     req = urllib.request.Request(url)
     if byte_range:
         req.add_header("Range", f"bytes={byte_range}")
-    with urllib.request.urlopen(req, timeout=120) as r:
+    with urllib.request.urlopen(req, timeout=180) as r:
         return r.read()
 
 
-def find_latest_run() -> tuple[str, dt.datetime] | None:
+def find_latest_run():
     now = dt.datetime.now(dt.timezone.utc)
     for off in range(1, LOOKBACK_HOURS + 1):
         t = (now - dt.timedelta(hours=off)).replace(minute=0, second=0, microsecond=0)
         d, h = t.strftime("%Y%m%d"), t.strftime("%H")
         url = (
             f"https://{S3_BUCKET}.s3.amazonaws.com/"
-            f"hrrr.{d}/conus/hrrr.t{h}z.wrfsfcf00.grib2"
+            f"hrrr.{d}/conus/hrrr.t{h}z.wrfprsf00.grib2"
         )
         if _head_ok(url + ".idx"):
             return url, t
     return None
 
 
-def fetch_subset(grib_url: str, work: Path) -> tuple[Path, list[tuple[str, int]]] | None:
-    """Byte-range GET the matching messages. Returns (grib_path, band_meta)
-    where band_meta[i] = (var, level_mb) for GRIB band i+1, in file order
-    (== the order gdal enumerates bands)."""
+def fetch_subset(grib_url: str, work: Path):
+    """Byte-range GET the matching messages. Returns (grib_path, band_keys)
+    where band_keys[i] is the key for GRIB band i+1, in file order."""
     idx = _get(grib_url + ".idx").decode()
     parsed = []
     for line in idx.splitlines():
         a = line.split(":")
         if len(a) >= 5:
             try:
-                parsed.append((int(a[0]), int(a[1]), a[3], a[4], line))
+                parsed.append((int(a[0]), int(a[1]), a[3], a[4]))
             except ValueError:
                 pass
     parsed.sort()
-    ranges: list[str] = []
-    band_meta: list[tuple[str, int]] = []
-    for i, (_, off, var, lvl, line) in enumerate(parsed):
-        if MATCH.search(line):
-            end = parsed[i + 1][1] - 1 if i + 1 < len(parsed) else ""
-            ranges.append(f"{off}-{end}")
-            band_meta.append((var, int(lvl.split()[0])))  # "500 mb" -> 500
+    ranges = []
+    band_keys = []
+    for i, (_, off, var, lvl) in enumerate(parsed):
+        key = classify(var, lvl)
+        if key is None:
+            continue
+        end = parsed[i + 1][1] - 1 if i + 1 < len(parsed) else ""
+        ranges.append(f"{off}-{end}")
+        band_keys.append(key)
     if not ranges:
         return None
     grib = work / "in.grib2"
@@ -107,14 +125,11 @@ def fetch_subset(grib_url: str, work: Path) -> tuple[Path, list[tuple[str, int]]
         for r in ranges:
             f.write(_get(grib_url, r))
     print(f"  fetched {grib.stat().st_size} bytes, {len(ranges)} messages")
-    print(f"  bands: {band_meta}")
-    return grib, band_meta
+    return grib, band_keys
 
 
-def extract_site(
-    grib: Path, band_meta: list[tuple[str, int]], lon: float, lat: float, debug: bool = False
-) -> dict[int, dict[str, float]]:
-    """gdallocationinfo point extraction -> {level_mb: {UGRD,VGRD,HGT}}."""
+def extract_site(grib: Path, band_keys, lon: float, lat: float, debug: bool = False):
+    """gdallocationinfo point extraction -> {key: value}."""
     try:
         out = subprocess.check_output(
             ["gdallocationinfo", "-valonly", "-wgs84", str(grib), str(lon), str(lat)],
@@ -127,23 +142,69 @@ def extract_site(
         return {}
     vals = out.split()
     if debug:
-        print(f"  [debug] lon={lon} lat={lat} -> {len(vals)} vals: {vals[:6]}...")
-    prof: dict[int, dict[str, float]] = {}
-    for (var, lvl), vs in zip(band_meta, vals):
+        print(f"  [debug] lon={lon} lat={lat} -> {len(vals)} vals for {len(band_keys)} bands")
+    d = {}
+    for key, vs in zip(band_keys, vals):
         try:
             val = float(vs)
         except ValueError:
             continue
-        if abs(val) > 9.9e19:
+        if abs(val) > 9.9e19:  # GRIB missing/fill
             continue
-        prof.setdefault(lvl, {})[var] = val
-    return prof
+        d[key] = val
+    return d
+
+
+def build_profile(d):
+    """Assemble the profile (surface-first), dropping below-ground isobaric
+    levels. Returns None if fewer than 4 usable levels."""
+    psfc = d.get("PRES:sfc")          # Pa
+    hsfc = d.get("HGT:sfc")           # m
+    levels = []
+
+    if psfc is not None and "TMP:2m" in d and "DPT:2m" in d and hsfc is not None:
+        sp = psfc / 100.0
+        t2 = d["TMP:2m"] - 273.15
+        td2 = min(d["DPT:2m"], d["TMP:2m"]) - 273.15
+        levels.append((sp, hsfc, t2, td2, d.get("UGRD:10m", 0.0), d.get("VGRD:10m", 0.0)))
+
+    for mb in LEVELS:
+        if psfc is not None and mb * 100.0 > psfc:  # below ground
+            continue
+        t = d.get(f"TMP:{mb}")
+        td = d.get(f"DPT:{mb}")
+        h = d.get(f"HGT:{mb}")
+        if t is None or td is None or h is None:
+            continue
+        levels.append((
+            float(mb),
+            h,
+            t - 273.15,
+            min(td, t) - 273.15,
+            d.get(f"UGRD:{mb}", 0.0),
+            d.get(f"VGRD:{mb}", 0.0),
+        ))
+
+    if len(levels) < 4:
+        return None
+
+    levels.sort(key=lambda x: -x[0])  # surface (highest pressure) first
+    elev = round(hsfc, 1) if hsfc is not None else round(levels[0][1], 1)
+    return {
+        "elev_m": elev,
+        "pres_hpa": [round(L[0], 1) for L in levels],
+        "hgt_msl_m": [round(L[1], 1) for L in levels],
+        "temp_c": [round(L[2], 2) for L in levels],
+        "dewpoint_c": [round(L[3], 2) for L in levels],
+        "u_ms": [round(L[4], 2) for L in levels],
+        "v_ms": [round(L[5], 2) for L in levels],
+    }
 
 
 def main() -> int:
     run = find_latest_run()
     if run is None:
-        print("no published HRRR f00 found in lookback window; exit 0")
+        print("no published HRRR wrfprs f00 found in lookback window; exit 0")
         return 0
     grib_url, run_dt = run
     run_iso = run_dt.isoformat()
@@ -154,7 +215,7 @@ def main() -> int:
     if sub is None:
         print("no matching messages in idx; exit 0")
         return 0
-    grib, band_meta = sub
+    grib, band_keys = sub
 
     sites = []
     with open(SITES_CSV) as f:
@@ -166,32 +227,29 @@ def main() -> int:
     n_ok = 0
     n_levels_total = 0
     for idx_site, (sid, lat, lon) in enumerate(sites):
-        prof = extract_site(grib, band_meta, lon, lat, debug=(idx_site == 0))
-        levels = sorted(
-            lvl for lvl, d in prof.items() if {"UGRD", "VGRD", "HGT"} <= d.keys()
-        )
-        if len(levels) < 2:
+        d = extract_site(grib, band_keys, lon, lat, debug=(idx_site == 0))
+        prof = build_profile(d)
+        if prof is None:
             continue
         payload = {
             "site": sid,
             "model": "HRRR",
             "run": run_iso,
-            "levels_mb": levels,
-            "hgt_msl_m": [round(prof[l]["HGT"], 1) for l in levels],
-            "u_ms": [round(prof[l]["UGRD"], 2) for l in levels],
-            "v_ms": [round(prof[l]["VGRD"], 2) for l in levels],
+            "lat": lat,
+            "lon": lon,
         }
+        payload.update(prof)
         (out_dir / f"{sid}.json").write_text(json.dumps(payload, separators=(",", ":")))
         n_ok += 1
-        n_levels_total += len(levels)
+        n_levels_total += len(prof["pres_hpa"])
 
     if n_ok == 0:
-        print("extracted 0 site profiles — see [debug] above; exit 1")
+        print("extracted 0 site profiles - see [debug] above; exit 1")
         return 1
     print(f"  built {n_ok}/{len(sites)} site profiles ({n_levels_total / n_ok:.1f} levels avg)")
 
     manifest = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "model": "HRRR",
         "run": run_iso,
         "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
