@@ -155,6 +155,14 @@ def extract_site(grib: Path, band_keys, lon: float, lat: float, debug: bool = Fa
     return d
 
 
+def _to_c(v: float) -> float:
+    """Temperature to Celsius. The conda-forge gdal GRIB driver returns HRRR
+    TMP/DPT already in Celsius (not Kelvin), so only subtract 273.15 when the
+    value is clearly Kelvin (atmospheric K is always > 100; C is always < 100).
+    Robust to either gdal behaviour."""
+    return v - 273.15 if v > 100.0 else v
+
+
 def build_profile(d):
     """Assemble the profile (surface-first), dropping below-ground isobaric
     levels. Returns None if fewer than 4 usable levels."""
@@ -164,8 +172,8 @@ def build_profile(d):
 
     if psfc is not None and "TMP:2m" in d and "DPT:2m" in d and hsfc is not None:
         sp = psfc / 100.0
-        t2 = d["TMP:2m"] - 273.15
-        td2 = min(d["DPT:2m"], d["TMP:2m"]) - 273.15
+        t2 = _to_c(d["TMP:2m"])
+        td2 = min(_to_c(d["DPT:2m"]), t2)
         levels.append((sp, hsfc, t2, td2, d.get("UGRD:10m", 0.0), d.get("VGRD:10m", 0.0)))
 
     for mb in LEVELS:
@@ -176,11 +184,12 @@ def build_profile(d):
         h = d.get(f"HGT:{mb}")
         if t is None or td is None or h is None:
             continue
+        tc = _to_c(t)
         levels.append((
             float(mb),
             h,
-            t - 273.15,
-            min(td, t) - 273.15,
+            tc,
+            min(_to_c(td), tc),
             d.get(f"UGRD:{mb}", 0.0),
             d.get(f"VGRD:{mb}", 0.0),
         ))
