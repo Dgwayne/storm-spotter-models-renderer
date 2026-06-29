@@ -133,16 +133,16 @@ models:
       - precip1h
     # CONUS bbox (Lambert -> reprojected to EPSG:3857 by gdalwarp at render time)
     bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
-    # Balance between sharpness and animation smoothness over this CONUS
-    # bbox. History: 1024^2 ≈ 13 km/px (washed out); 2048^2 ≈ 6 km/px (a
-    # little blurry); 4096^2 ≈ 3 km/px (native, sharpest) — but a 4096 PNG
-    # decodes to a ~64 MB RGBA texture, and swapping those per-frame while
-    # scrubbing the animation stutters on phones. 3072^2 ≈ 4 km/px keeps
-    # most of the sharpness gain over 2048 while cutting the per-frame
-    # texture to ~36 MB (vs 64 MB) so scrubbing stays smooth. PNG ~450 KB.
-    # HRRR cannot be sharper than its ~3 km source regardless — it always
-    # reads softer than the live NEXRAD radar layer (sub-km observations).
-    image_size: [3072, 3072]
+    # Smoothness over sharpness (decided after testing). Animation scrub
+    # cost is dominated by per-frame texture size: 2048^2 ≈ 16 MB RGBA,
+    # 3072^2 ≈ 36 MB, 4096^2 ≈ 64 MB. 4096 (native ~3 km) and even 3072
+    # made scrubbing stutter on phones, so we're back at 2048 — the
+    # original, which scrubbed smoothly. Tradeoff: ~6 km/px (a little soft)
+    # vs the model's native 3 km. Keep the cubic resampling below (it
+    # sharpens edges slightly at zero playback cost — purely a render-time
+    # kernel). If sharpness ever matters more than smooth animation, bump
+    # this back up (4096 = native ceiling; mobile-GPU texture cap ~4096).
+    image_size: [2048, 2048]
     # f00..f18 always; f00..f48 on synoptic runs.
     forecast_hours_default: { start: 0, end: 18, step: 1 }
     forecast_hours_synoptic: { start: 0, end: 48, step: 1, runs: [0, 6, 12, 18] }
