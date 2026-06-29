@@ -136,6 +136,15 @@ out_path = Path("/tmp") / f"manifest_{MODEL}.json"
 out_path.write_text(json.dumps(manifest, indent=2))
 
 # Upload to R2 at v1/<MODEL>/manifest.json
+#
+# Cache-Control is CRITICAL here. Without it Cloudflare applies its default
+# 4-hour Browser Cache TTL, which froze the manifest at the edge — the app
+# polls every ~60 s but kept getting a HIT on a manifest hours old, so new
+# runs/frames stayed invisible even though they were already on R2. The PNG
+# frames don't have this problem because decode_pipeline.sh stamps them with
+# max-age=300. 60 s matches the app's manifest poll cadence
+# (weatherModelManifestTtlSec) and still lets the edge absorb the bulk of
+# repeated polls, so R2 read cost stays low.
 subprocess.check_call(
     [
         "rclone",
@@ -144,6 +153,8 @@ subprocess.check_call(
         f"r2:{bucket}/v1/{MODEL}/manifest.json",
         "--s3-no-check-bucket",
         "--no-traverse",
+        "--header-upload",
+        "Cache-Control: public, max-age=60",
     ]
 )
 
