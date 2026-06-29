@@ -133,13 +133,18 @@ models:
       - precip1h
     # CONUS bbox (Lambert -> reprojected to EPSG:3857 by gdalwarp at render time)
     bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
-    # Sized close to HRRR's native 1799x1059 Lambert grid so the
-    # reprojection doesn't subsample the model's 3 km resolution.
-    # At 1024^2 the effective pixel was ~13 km, washing out storm
-    # cells. 2048^2 puts effective resolution at ~6 km — still
-    # supersampling slightly for radar-edge sharpness, but real HRRR
-    # detail starts to show.
-    image_size: [2048, 2048]
+    # Sized to resolve HRRR's native ~3 km Lambert grid (1799x1059) over
+    # this CONUS bbox. History: 1024^2 ≈ 13 km/px (storm cells washed
+    # out); 2048^2 ≈ 6 km/px (still coarser than the model's own data);
+    # 4096^2 ≈ 3 km/px, i.e. at native resolution — composite reflectivity
+    # cores and gradients now render as sharp as the model actually is.
+    # 4096 is also the safe ceiling: most mobile GPUs cap a single texture
+    # at 4096, and 8192 would only supersample 3 km data (no real detail
+    # gained) at 4x the bytes. Cost vs 2048: ~4x render time per new frame
+    # and ~4x PNG size (~200 KB -> ~800 KB). HRRR cannot be sharper than
+    # its 3 km source — it will always read softer than the live NEXRAD
+    # radar layer, which is sub-km observations, not model output.
+    image_size: [4096, 4096]
     # f00..f18 always; f00..f48 on synoptic runs.
     forecast_hours_default: { start: 0, end: 18, step: 1 }
     forecast_hours_synoptic: { start: 0, end: 48, step: 1, runs: [0, 6, 12, 18] }

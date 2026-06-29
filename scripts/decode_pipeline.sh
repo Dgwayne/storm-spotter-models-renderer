@@ -203,6 +203,11 @@ else
 fi
 
 # --- 6. Reproject to Web Mercator with fixed CONUS bbox -----------------------
+# Cubic convolution (vs bilinear) gives noticeably crisper edges when the
+# coarse model grid is upsampled to the output raster — reflectivity cores
+# and fronts keep their gradient instead of smearing. Slight overshoot near
+# sharp boundaries is harmless here (it stays within the color ramp; nodata
+# is masked via -dstnodata so edges don't bleed into the -9999 fill).
 MERC_TIF="${WORK}/merc.tif"
 # shellcheck disable=SC2086
 gdalwarp -q -overwrite \
@@ -210,7 +215,7 @@ gdalwarp -q -overwrite \
   -te_srs EPSG:4326 \
   -te ${BBOX} \
   -ts "${IMG_W}" "${IMG_H}" \
-  -r bilinear \
+  -r cubic \
   -dstnodata -9999 \
   "${RAW_TIF}" "${MERC_TIF}"
 
