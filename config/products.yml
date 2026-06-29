@@ -133,18 +133,16 @@ models:
       - precip1h
     # CONUS bbox (Lambert -> reprojected to EPSG:3857 by gdalwarp at render time)
     bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
-    # Sized to resolve HRRR's native ~3 km Lambert grid (1799x1059) over
-    # this CONUS bbox. History: 1024^2 ≈ 13 km/px (storm cells washed
-    # out); 2048^2 ≈ 6 km/px (still coarser than the model's own data);
-    # 4096^2 ≈ 3 km/px, i.e. at native resolution — composite reflectivity
-    # cores and gradients now render as sharp as the model actually is.
-    # 4096 is also the safe ceiling: most mobile GPUs cap a single texture
-    # at 4096, and 8192 would only supersample 3 km data (no real detail
-    # gained) at 4x the bytes. Cost vs 2048: ~4x render time per new frame
-    # and ~4x PNG size (~200 KB -> ~800 KB). HRRR cannot be sharper than
-    # its 3 km source — it will always read softer than the live NEXRAD
-    # radar layer, which is sub-km observations, not model output.
-    image_size: [4096, 4096]
+    # Balance between sharpness and animation smoothness over this CONUS
+    # bbox. History: 1024^2 ≈ 13 km/px (washed out); 2048^2 ≈ 6 km/px (a
+    # little blurry); 4096^2 ≈ 3 km/px (native, sharpest) — but a 4096 PNG
+    # decodes to a ~64 MB RGBA texture, and swapping those per-frame while
+    # scrubbing the animation stutters on phones. 3072^2 ≈ 4 km/px keeps
+    # most of the sharpness gain over 2048 while cutting the per-frame
+    # texture to ~36 MB (vs 64 MB) so scrubbing stays smooth. PNG ~450 KB.
+    # HRRR cannot be sharper than its ~3 km source regardless — it always
+    # reads softer than the live NEXRAD radar layer (sub-km observations).
+    image_size: [3072, 3072]
     # f00..f18 always; f00..f48 on synoptic runs.
     forecast_hours_default: { start: 0, end: 18, step: 1 }
     forecast_hours_synoptic: { start: 0, end: 48, step: 1, runs: [0, 6, 12, 18] }
