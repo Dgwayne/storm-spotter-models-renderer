@@ -1,0 +1,20 @@
+# Cloudflare Worker that fires the renderer's GitHub Actions on a RELIABLE
+# schedule. GitHub's own scheduled-cron is best-effort and was dropping ~5 of
+# every 6 sub-hourly ticks (observed effective cadence ~90 min vs the 15 min
+# configured), which left the HRRR model layer 2-3 runs behind. Cloudflare
+# Worker Cron Triggers fire on time, so this Worker calls the GitHub
+# workflow_dispatch API instead of trusting `on: schedule:`.
+#
+# Cost: Workers free plan includes cron triggers; ~96 invocations/day is a
+# rounding error against the 100k req/day free allowance. No R2 cost.
+#
+# Deploy: see cron-trigger/README.md (needs `wrangler login` + one secret).
+
+name = "stp-models-cron"
+main = "src/worker.js"
+compatibility_date = "2025-01-01"
+
+# Each cron expression maps to a workflow in src/worker.js (CRON_TO_WORKFLOW).
+# HRRR: every 15 min, offset to land just after NOAA's typical publish window.
+[triggers]
+crons = ["5,20,35,50 * * * *"]

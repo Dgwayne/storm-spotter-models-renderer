@@ -30,12 +30,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG="${REPO_ROOT}/config/products.yml"
 
-# Number of recent run-hours to sweep on every tick. 6 comfortably
-# covers the retain_runs=5 retention window plus the freshly-available
-# run that might still be mid-publish. Bumping higher just adds skip-
-# checks (cheap with the pre-listed cache) so the cost is modest, but
-# 6 is a clean steady-state size.
-HOURS_BACK=6
+# Number of recent run-hours to sweep on every tick. retain_runs=5, so
+# offsets 0..4 cover exactly the runs that survive the prune — anything
+# older just gets deleted at the end, so rendering it is wasted work.
+HOURS_BACK=4
 
 PRODUCTS=$(yq -r ".models.${MODEL}.products[]" "$CONFIG")
 RETAIN=$(yq -r ".models.${MODEL}.retain_runs" "$CONFIG")
@@ -77,6 +75,22 @@ for offset in $(seq 0 "${HOURS_BACK}"); do
 
   for product in $PRODUCTS; do
     for fh in $(seq 0 "${FH_END}"); do
+      # ── Parent-level idempotent skip ──────────────────────────────
+      # Previously decode_pipeline.sh was invoked for EVERY (run × product
+      # × fh) tuple — ~1,300 per tick — and each invocation paid ~1 s of
+      # overhead (≈10 yq spawns + a python spawn + a curl HEAD to AWS S3)
+      # *before* reaching its own R2-existence check. On a steady-state
+      # bucket where almost every frame already exists, that overhead was
+      # the entire tick. Grep the pre-listed bucket cache here so an
+      # already-rendered frame costs one in-memory lookup and never spawns
+      # a subprocess at all. FORCE_RERENDER bypasses the skip (same as the
+      # decode script) so the recovery path still re-renders everything.
+      if [ -z "${FORCE_RERENDER:-}" ]; then
+        rel_key="${product}/${RUN_DATE}${RUN_HOUR}/F$(printf '%03d' "$fh").png"
+        if grep -qxF "${rel_key}" "${EXISTING_KEYS_FILE}"; then
+          continue
+        fi
+      fi
       bash "${SCRIPT_DIR}/decode_pipeline.sh" "${MODEL}" "${product}" \
         "${RUN_DATE}" "${RUN_HOUR}" "${fh}" || {
           echo "  fh=${fh} ${product} FAILED (continuing)"
@@ -85,6 +99,18 @@ for offset in $(seq 0 "${HOURS_BACK}"); do
   done
 
   ATTEMPTED_RUNS+=("${RUN_DATE}${RUN_HOUR}")
+
+  # ── Publish the manifest as soon as the newest run is rendered ────
+  # build_manifest.py lists R2 directly, so once offset 0's frames are
+  # uploaded the freshest run is already visible to it. Publishing here —
+  # rather than only after the whole 4-run sweep + prune finishes — moves
+  # what the app sees forward by the remainder of the tick (often 10-20
+  # min). Older offsets keep back-filling trailing forecast hours after.
+  if [ "${offset}" -eq 0 ]; then
+    echo "==> Publishing manifest early (newest run rendered)"
+    python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}" \
+      || echo "  (early manifest build failed; will retry at end of tick)"
+  fi
 done
 
 # ── Prune R2 to the most recent N runs ─────────────────────────────
@@ -92,7 +118,7 @@ echo ""
 echo "==> Pruning HRRR to last ${RETAIN} runs"
 python3 "${SCRIPT_DIR}/prune_old_runs.py" "${MODEL}" "${RETAIN}"
 
-# ── Rebuild manifest ──────────────────────────────────────────────
+# ── Rebuild manifest (final, post-backfill + post-prune) ──────────
 echo "==> Rebuilding HRRR manifest"
 python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}"
 
