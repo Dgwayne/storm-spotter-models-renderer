@@ -152,37 +152,63 @@ def _vals_to_dict(band_keys, vals):
 
 
 def extract_all(grib: Path, band_keys, sites):
-    """One gdallocationinfo call for every site (coords on stdin) -> list of
-    {key: value} per site. Falls back to per-site calls on any mismatch."""
-    coords = "".join(f"{lon} {lat}\n" for (_, lat, lon) in sites)
-    try:
-        out = subprocess.run(
-            ["gdallocationinfo", "-valonly", "-wgs84", str(grib)],
-            input=coords, capture_output=True, text=True, check=True,
-        ).stdout
-    except subprocess.CalledProcessError:
-        out = None
-    b = len(band_keys)
-    if out is not None:
-        vals = out.split()
-        if len(vals) == b * len(sites):
-            return [
-                _vals_to_dict(band_keys, vals[i * b:(i + 1) * b])
-                for i in range(len(sites))
-            ]
-    # Fallback: per-site (slower but robust).
-    print("  [warn] batch extract misaligned; falling back to per-site")
-    res = []
-    for (_, lat, lon) in sites:
+    """Open the GRIB once and read each band a single time (one decode per
+    message, not per-site), then sample every site from the in-memory array.
+    ~100x cheaper than per-site gdallocationinfo. Returns {key: value} per
+    site."""
+    from osgeo import gdal, osr  # provided by the conda-forge gdal package
+
+    ds = gdal.Open(str(grib))
+    if ds is None:
+        return [dict() for _ in sites]
+    gt = ds.GetGeoTransform()
+    inv = gdal.InvGeoTransform(gt)
+    src = osr.SpatialReference()
+    src.ImportFromEPSG(4326)
+    dst = osr.SpatialReference()
+    dst.ImportFromWkt(ds.GetProjection())
+    for s in (src, dst):
         try:
-            o = subprocess.check_output(
-                ["gdallocationinfo", "-valonly", "-wgs84", str(grib), str(lon), str(lat)],
-                text=True, stderr=subprocess.STDOUT,
-            )
-            res.append(_vals_to_dict(band_keys, o.split()))
-        except subprocess.CalledProcessError:
-            res.append({})
+            s.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        except Exception:
+            pass
+    ct = osr.CoordinateTransformation(src, dst)
+    w, hgt = ds.RasterXSize, ds.RasterYSize
+
+    pix = []
+    for (_, lat, lon) in sites:
+        x, y, *_ = ct.TransformPoint(lon, lat)
+        px, py = gdal.ApplyGeoTransform(inv, x, y)
+        px, py = int(px), int(py)
+        pix.append((px, py) if (0 <= px < w and 0 <= py < hgt) else None)
+
+    res = [dict() for _ in sites]
+    nb = min(ds.RasterCount, len(band_keys))
+    for i in range(nb):
+        arr = ds.GetRasterBand(i + 1).ReadAsArray()  # decode this message once
+        key = band_keys[i]
+        for j, p in enumerate(pix):
+            if p is None:
+                continue
+            v = float(arr[p[1], p[0]])
+            if abs(v) > 9.9e19:  # GRIB missing/fill
+                continue
+            res[j][key] = v
+    ds = None
     return res
+
+
+def _gdalloc_one(grib: Path, band_keys, lon: float, lat: float):
+    """Single-site gdallocationinfo — used only to cross-check the GDAL-Python
+    coordinate transform on the runner (gdal is unavailable locally)."""
+    try:
+        o = subprocess.check_output(
+            ["gdallocationinfo", "-valonly", "-wgs84", str(grib), str(lon), str(lat)],
+            text=True, stderr=subprocess.STDOUT,
+        )
+        return _vals_to_dict(band_keys, o.split())
+    except subprocess.CalledProcessError:
+        return {}
 
 
 def build_profile(d):
@@ -245,6 +271,11 @@ def main() -> int:
             continue
         grib, band_keys = sub
         dicts = extract_all(grib, band_keys, sites)
+        if fh == 0 and dicts:
+            r = _gdalloc_one(grib, band_keys, sites[0][2], sites[0][1])
+            print(f"  [check] {sites[0][0]}: osgeo TMP2m={dicts[0].get('TMP:2m')} "
+                  f"PRESsfc={dicts[0].get('PRES:sfc')} | gdalloc TMP2m={r.get('TMP:2m')} "
+                  f"PRESsfc={r.get('PRES:sfc')}")
         n = 0
         for (sid, _, _), dd in zip(sites, dicts):
             prof = build_profile(dd)
