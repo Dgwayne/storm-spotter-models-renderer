@@ -19,8 +19,13 @@ extraction batches every site into ONE gdallocationinfo call per forecast
 hour (the GRIB is decoded once, not per-site), so adding forecast hours
 stays cheap. $0/month on the existing Actions cron + R2 setup.
 
+Each file also carries utc_offset_seconds: the site's DST-correct offset from
+UTC (so the app shows true local launch time, getting Arizona/Indiana right
+rather than a longitude guess). Computed via timezonefinder -> IANA zone ->
+stdlib zoneinfo; falls back to a longitude estimate if the lookup is missing.
+
 Env: R2_BUCKET, R2_ENDPOINT, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
-Tools: gdal (gdallocationinfo), rclone, python3 (stdlib only)
+Tools: gdal (gdallocationinfo), rclone, python3 (+ timezonefinder)
 """
 
 from __future__ import annotations
@@ -34,6 +39,7 @@ import sys
 import tempfile
 import urllib.request
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SITES_CSV = REPO_ROOT / "config" / "nexrad_sites.csv"
@@ -247,6 +253,43 @@ def build_profile(d):
     }
 
 
+def utc_offsets(sites, run_dt) -> dict[str, int]:
+    """Per-site UTC offset (seconds) at run_dt, DST-correct.
+
+    timezonefinder maps the radar lat/lon to its IANA zone; stdlib zoneinfo
+    then gives the actual offset for run_dt (handling DST, and zones that
+    don't observe it like Arizona). Falls back to a whole-hour longitude
+    estimate if timezonefinder is unavailable or returns no zone — the app
+    applies the same longitude fallback, so this just makes it server-side.
+    """
+    try:
+        from timezonefinder import TimezoneFinder
+        tf = TimezoneFinder()
+    except Exception as e:  # pragma: no cover - dependency/install guard
+        print(f"  [tz] timezonefinder unavailable ({e}); longitude fallback")
+        tf = None
+
+    out: dict[str, int] = {}
+    misses = 0
+    for (sid, lat, lon) in sites:
+        off = None
+        if tf is not None:
+            try:
+                zone = tf.timezone_at(lat=lat, lng=lon)
+                if zone:
+                    off = int(run_dt.astimezone(ZoneInfo(zone))
+                              .utcoffset().total_seconds())
+            except Exception:
+                off = None
+        if off is None:
+            off = int(round(lon / 15.0)) * 3600  # crude whole-hour fallback
+            misses += 1
+        out[sid] = off
+    print(f"  [tz] resolved {len(sites) - misses}/{len(sites)} site offsets "
+          f"({misses} longitude fallback)")
+    return out
+
+
 def main() -> int:
     run_dt = find_latest_run()
     if run_dt is None:
@@ -260,6 +303,8 @@ def main() -> int:
     with open(SITES_CSV) as f:
         for row in csv.DictReader(f):
             sites.append((row["id"], float(row["lat"]), float(row["lon"])))
+
+    offs = utc_offsets(sites, run_dt)
 
     # site -> {fhour: profile}
     by_site: dict[str, dict[int, dict]] = {sid: {} for (sid, _, _) in sites}
@@ -296,7 +341,8 @@ def main() -> int:
         f0 = hours[0]
         # Back-compat single-profile file (dealiaser + app default).
         (out_dir / f"{sid}.json").write_text(json.dumps(
-            {"site": sid, "model": "HRRR", "run": run_iso, "lat": lat, "lon": lon, **f0},
+            {"site": sid, "model": "HRRR", "run": run_iso, "lat": lat, "lon": lon,
+             "utc_offset_seconds": offs[sid], **f0},
             separators=(",", ":")))
         n_now += 1
         # Forecast file with every hour.
@@ -312,7 +358,7 @@ def main() -> int:
             })
         (out_dir / f"{sid}.fc.json").write_text(json.dumps(
             {"site": sid, "model": "HRRR", "run": run_iso, "lat": lat, "lon": lon,
-             "elev_m": f0["elev_m"], "hours": hrs},
+             "utc_offset_seconds": offs[sid], "elev_m": f0["elev_m"], "hours": hrs},
             separators=(",", ":")))
         n_fc += 1
 

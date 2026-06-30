@@ -45,6 +45,7 @@ jobs:
             gdal
             libgdal-grib
             rclone
+            timezonefinder
           cache-environment: true
           init-shell: bash
 
