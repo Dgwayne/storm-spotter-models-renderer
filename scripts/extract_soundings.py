@@ -130,6 +130,7 @@ def fetch_subset(url: str, work: Path):
         band_keys.append(key)
     if not ranges:
         return None
+    work.mkdir(parents=True, exist_ok=True)
     grib = work / "in.grib2"
     with open(grib, "wb") as f:
         for r in ranges:
