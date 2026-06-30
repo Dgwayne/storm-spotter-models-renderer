@@ -37,6 +37,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -86,12 +88,31 @@ def _head_ok(url: str) -> bool:
         return False
 
 
-def _get(url: str, byte_range=None) -> bytes:
+def _get(url: str, byte_range=None, attempts=4) -> bytes:
+    """GET (optionally a byte range) with retry/backoff.
+
+    The NOAA HRRR S3 bucket occasionally drops a response mid-stream
+    (http.client.IncompleteRead) or times out. A single hiccup on any one of
+    the ~7 forecast-hour fetches used to abort the whole hourly run; retry a
+    few times before giving up. Genuine 404s are not retried.
+    """
     req = urllib.request.Request(url)
     if byte_range:
         req.add_header("Range", f"bytes={byte_range}")
-    with urllib.request.urlopen(req, timeout=180) as r:
-        return r.read()
+    last = None
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(req, timeout=180) as r:
+                return r.read()
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                raise
+            last = e
+        except Exception as e:  # IncompleteRead, socket timeout, reset, 5xx
+            last = e
+        if attempt < attempts - 1:
+            time.sleep(2 * (attempt + 1))
+    raise last
 
 
 def grib_url(d: str, h: str, fh: int) -> str:
