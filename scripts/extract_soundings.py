@@ -12,6 +12,11 @@ Outputs (per site SID):
     single-profile fetch.
   * v1/soundings/<SID>.fc.json  - all forecast hours, for the app's forecast
     scrubber: {run, elev_m, hours:[{fhour, valid, pres_hpa, temp_c, ...}, ...]}.
+  * v1/soundings/tiles/<X>_<Y>.json + tiles.json - tap-anywhere point
+    soundings: the grid subsampled every TILE_STRIDE px (~24 km), chopped
+    into TILE_COLS^2-column tiles, all forecast hours per tile. The app
+    picks the tile from tiles.json bboxes and inverse-distance-interpolates
+    the nearest columns to the tap point.
 
 Reads the HRRR wrfprs 3D pressure file via the .idx byte-range trick (only
 the ~100 matching messages per forecast hour, not the whole GRIB). Point
@@ -53,6 +58,15 @@ ISOBARIC_VARS = ("UGRD", "VGRD", "HGT", "TMP", "DPT")
 FHOURS = [0, 3, 6, 9, 12, 15, 18]
 LOOKBACK_HOURS = 8
 BUCKET = os.environ["R2_BUCKET"]
+
+# Point-sounding tiles: subsample the 3 km HRRR grid every TILE_STRIDE pixels
+# (~24 km column spacing) and chop the subsampled grid into TILE_COLS^2-column
+# tiles (~230 across CONUS). Each tile file carries the full vertical columns
+# for every forecast hour, so one ~100 KB (gzipped) fetch powers a tap-anywhere
+# sounding *and* its whole scrubber. The app inverse-distance-interpolates the
+# nearest columns to the exact tap point.
+TILE_STRIDE = 8
+TILE_COLS = 12
 
 
 def classify(var: str, lvl: str):
@@ -178,16 +192,20 @@ def _vals_to_dict(band_keys, vals):
     return d
 
 
-def extract_all(grib: Path, band_keys, sites):
+def extract_all(grib: Path, band_keys, sites, want_grid=False):
     """Open the GRIB once and read each band a single time (one decode per
     message, not per-site), then sample every site from the in-memory array.
     ~100x cheaper than per-site gdallocationinfo. Returns {key: value} per
-    site."""
+    site; with want_grid=True returns (per_site, grids) where grids is
+    {key: float32 array} subsampled every TILE_STRIDE pixels (for the
+    point-sounding tiles — same decode pass, no extra I/O)."""
     from osgeo import gdal, osr  # provided by the conda-forge gdal package
+    import numpy as np
 
     ds = gdal.Open(str(grib))
     if ds is None:
-        return [dict() for _ in sites]
+        empty = [dict() for _ in sites]
+        return (empty, {}) if want_grid else empty
     gt = ds.GetGeoTransform()
     inv = gdal.InvGeoTransform(gt)
     src = osr.SpatialReference()
@@ -210,6 +228,7 @@ def extract_all(grib: Path, band_keys, sites):
         pix.append((px, py) if (0 <= px < w and 0 <= py < hgt) else None)
 
     res = [dict() for _ in sites]
+    grids = {}
     nb = min(ds.RasterCount, len(band_keys))
     for i in range(nb):
         arr = ds.GetRasterBand(i + 1).ReadAsArray()  # decode this message once
@@ -221,8 +240,51 @@ def extract_all(grib: Path, band_keys, sites):
             if abs(v) > 9.9e19:  # GRIB missing/fill
                 continue
             res[j][key] = v
+        if want_grid:
+            g = arr[::TILE_STRIDE, ::TILE_STRIDE].astype(np.float32)
+            # HRRR prs fields are fully populated over CONUS; sanitize any
+            # stray fill so json.dumps never sees NaN/inf.
+            bad = np.abs(g) > 9.9e19
+            if bad.any():
+                g = np.where(bad, np.float32(np.nanmean(np.where(bad, np.nan, g))), g)
+            grids[key] = g
     ds = None
-    return res
+    return (res, grids) if want_grid else res
+
+
+def grid_latlon(grib: Path):
+    """(lats, lons) 2D arrays (WGS84 degrees) of the subsampled pixel centers —
+    the point-sounding tile column locations. Grid geometry is identical for
+    every forecast hour, so this runs once per run."""
+    from osgeo import gdal, osr
+    import numpy as np
+
+    ds = gdal.Open(str(grib))
+    gt = ds.GetGeoTransform()
+    w, hgt = ds.RasterXSize, ds.RasterYSize
+    src = osr.SpatialReference()
+    src.ImportFromWkt(ds.GetProjection())
+    dst = osr.SpatialReference()
+    dst.ImportFromEPSG(4326)
+    for s in (src, dst):
+        try:
+            s.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        except Exception:
+            pass
+    ct = osr.CoordinateTransformation(src, dst)
+    xs = np.arange(0, w, TILE_STRIDE) + 0.5
+    ys = np.arange(0, hgt, TILE_STRIDE) + 0.5
+    lats = np.empty((len(ys), len(xs)), dtype=np.float64)
+    lons = np.empty_like(lats)
+    for iy, py in enumerate(ys):
+        pts = [(gt[0] + px * gt[1] + py * gt[2],
+                gt[3] + px * gt[4] + py * gt[5]) for px in xs]
+        out = ct.TransformPoints(pts)
+        for ix, (lon, lat, *_) in enumerate(out):
+            lats[iy, ix] = lat
+            lons[iy, ix] = lon
+    ds = None
+    return lats, lons
 
 
 def _gdalloc_one(grib: Path, band_keys, lon: float, lat: float):
@@ -311,6 +373,160 @@ def utc_offsets(sites, run_dt) -> dict[str, int]:
     return out
 
 
+def grid_utc_offsets(lats, lons, run_dt):
+    """Per-column DST-correct UTC offsets (seconds) as an int 2D list; falls
+    back to a whole-hour longitude estimate per column on any lookup miss."""
+    import numpy as np
+    t0 = time.monotonic()
+    try:
+        from timezonefinder import TimezoneFinder
+        tf = TimezoneFinder(in_memory=True)
+    except Exception:
+        tf = None
+    ny, nx = lats.shape
+    out = np.empty((ny, nx), dtype=np.int64)
+    zone_off: dict[str, int] = {}  # IANA zone -> offset (memoized)
+    misses = 0
+    for iy in range(ny):
+        for ix in range(nx):
+            off = None
+            if tf is not None:
+                try:
+                    zone = tf.timezone_at(lat=float(lats[iy, ix]),
+                                          lng=float(lons[iy, ix]))
+                    if zone:
+                        if zone not in zone_off:
+                            zone_off[zone] = int(
+                                run_dt.astimezone(ZoneInfo(zone))
+                                .utcoffset().total_seconds())
+                        off = zone_off[zone]
+                except Exception:
+                    off = None
+            if off is None:
+                off = int(round(float(lons[iy, ix]) / 15.0)) * 3600
+                misses += 1
+            out[iy, ix] = off
+    print(f"  [tiles] tz offsets for {ny * nx} columns in "
+          f"{time.monotonic() - t0:.1f}s ({misses} longitude fallback)")
+    return out
+
+
+def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir):
+    """Write point-sounding tile JSONs + tiles.json manifest.
+
+    Tile file shape (all numbers; flat arrays are column-major-by-column,
+    i.e. flat[c * nLevels + k] = column c, level k, levels in LEVELS order):
+      { model, run, pres_hpa[19], lat[], lon[], elev_m[], utc_offset_seconds[],
+        hours: [ { fhour, valid,
+                   sfc_pres_hpa[], sfc_temp_c[], sfc_dewpoint_c[],
+                   sfc_u_ms[], sfc_v_ms[],
+                   temp_c[], dewpoint_c[], hgt_msl_m[], u_ms[], v_ms[] } ] }
+    Below-ground isobaric values are NOT filtered here — each column keeps all
+    19 levels and the app drops levels with p > that column's sfc pressure
+    after interpolating, mirroring build_profile's semantics.
+    """
+    import numpy as np
+
+    def to_c(a):  # vectorized _to_c (Kelvin-vs-Celsius guard)
+        return np.where(a > 100.0, a - 273.15, a)
+
+    def rnd(a, nd):
+        # Round in float64: rounding float32 then .tolist() yields doubles
+        # like 24.100000381469727, and json.dumps writes every digit (~2.4x
+        # file size). float64 round -> exact short repr ("24.1").
+        return np.asarray(a, dtype=np.float64).round(nd).ravel().tolist()
+
+    ny, nx = lats.shape
+    var_map = {"temp_c": "TMP", "dewpoint_c": "DPT", "hgt_msl_m": "HGT",
+               "u_ms": "UGRD", "v_ms": "VGRD"}
+    hour_stacks = {}   # fh -> {json_key: array (ny, nx, 19) or None}
+    for fh, grids in grids_by_hour.items():
+        stacks = {}
+        for jk, var in var_map.items():
+            bands = []
+            for mb in LEVELS:
+                g = grids.get(f"{var}:{mb}")
+                if g is None:
+                    bands = None
+                    break
+                bands.append(g)
+            stacks[jk] = None if bands is None else np.stack(bands, axis=-1)
+        hour_stacks[fh] = stacks
+
+    # Any hour missing a full stack is dropped from the tiles entirely (the
+    # scrubber hour list is per-file, so partial hours would desync tiles).
+    sfc_keys = ("PRES:sfc", "HGT:sfc", "TMP:2m", "DPT:2m",
+                "UGRD:10m", "VGRD:10m")
+    good_hours = [fh for fh in sorted(grids_by_hour)
+                  if all(s is not None for s in hour_stacks[fh].values())
+                  and all(k in grids_by_hour[fh] for k in sfc_keys)]
+    if not good_hours:
+        print("  [tiles] no complete hours; skipping tile output")
+        return 0
+    f0g = grids_by_hour[good_hours[0]]
+
+    tiles_dir = out_dir / "tiles"
+    tiles_dir.mkdir()
+    index = []
+    n = 0
+    for ty0 in range(0, ny, TILE_COLS):
+        for tx0 in range(0, nx, TILE_COLS):
+            ty1, tx1 = min(ty0 + TILE_COLS, ny), min(tx0 + TILE_COLS, nx)
+            sl = (slice(ty0, ty1), slice(tx0, tx1))
+            tid = f"{tx0 // TILE_COLS}_{ty0 // TILE_COLS}"
+            tlat, tlon = lats[sl], lons[sl]
+            hours = []
+            for fh in good_hours:
+                g = grids_by_hour[fh]
+                st = hour_stacks[fh]
+                t2 = to_c(g["TMP:2m"][sl])
+                td2 = np.minimum(to_c(g["DPT:2m"][sl]), t2)
+                hours.append({
+                    "fhour": fh,
+                    "valid": (run_dt + dt.timedelta(hours=fh)).isoformat(),
+                    "sfc_pres_hpa": rnd(g["PRES:sfc"][sl] / 100.0, 1),
+                    "sfc_temp_c": rnd(t2, 1),
+                    "sfc_dewpoint_c": rnd(td2, 1),
+                    "sfc_u_ms": rnd(g["UGRD:10m"][sl], 1),
+                    "sfc_v_ms": rnd(g["VGRD:10m"][sl], 1),
+                    "temp_c": rnd(to_c(st["temp_c"][sl]), 1),
+                    # Td clamped to T like build_profile.
+                    "dewpoint_c": rnd(np.minimum(to_c(st["dewpoint_c"][sl]),
+                                                 to_c(st["temp_c"][sl])), 1),
+                    "hgt_msl_m": [int(v) for v in
+                                  rnd(st["hgt_msl_m"][sl], 0)],
+                    "u_ms": rnd(st["u_ms"][sl], 1),
+                    "v_ms": rnd(st["v_ms"][sl], 1),
+                })
+            (tiles_dir / f"{tid}.json").write_text(json.dumps({
+                "model": "HRRR", "run": run_iso,
+                "pres_hpa": [float(mb) for mb in LEVELS],
+                "lat": rnd(tlat, 4),
+                "lon": rnd(tlon, 4),
+                "elev_m": rnd(f0g["HGT:sfc"][sl], 1),
+                "utc_offset_seconds": offs[sl].ravel().tolist(),
+                "hours": hours,
+            }, separators=(",", ":")))
+            index.append({
+                "id": tid,
+                "minLat": round(float(tlat.min()), 3),
+                "maxLat": round(float(tlat.max()), 3),
+                "minLon": round(float(tlon.min()), 3),
+                "maxLon": round(float(tlon.max()), 3),
+            })
+            n += 1
+    (out_dir / "tiles.json").write_text(json.dumps({
+        "schemaVersion": 1, "model": "HRRR", "run": run_iso,
+        "strideKm": TILE_STRIDE * 3, "hours": good_hours,
+        "tiles": index,
+    }, separators=(",", ":")))
+    sizes = sorted(p.stat().st_size for p in tiles_dir.glob("*.json"))
+    print(f"  [tiles] wrote {n} tiles ({len(good_hours)} hours), raw size "
+          f"min/med/max = {sizes[0] // 1024}/{sizes[len(sizes) // 2] // 1024}/"
+          f"{sizes[-1] // 1024} KB")
+    return n
+
+
 def main() -> int:
     run_dt = find_latest_run()
     if run_dt is None:
@@ -329,6 +545,8 @@ def main() -> int:
 
     # site -> {fhour: profile}
     by_site: dict[str, dict[int, dict]] = {sid: {} for (sid, _, _) in sites}
+    grids_by_hour: dict[int, dict] = {}   # point-sounding tile inputs
+    lats = lons = None
     work = Path(tempfile.mkdtemp())
     for fh in FHOURS:
         sub = fetch_subset(grib_url(d, h, fh), work / f"f{fh:02d}")
@@ -336,7 +554,11 @@ def main() -> int:
             print(f"  F{fh:02d}: no matching messages; skip")
             continue
         grib, band_keys = sub
-        dicts = extract_all(grib, band_keys, sites)
+        dicts, grids = extract_all(grib, band_keys, sites, want_grid=True)
+        if grids:
+            grids_by_hour[fh] = grids
+        if lats is None:
+            lats, lons = grid_latlon(grib)
         if fh == 0 and dicts:
             r = _gdalloc_one(grib, band_keys, sites[0][2], sites[0][1])
             print(f"  [check] {sites[0][0]}: osgeo TMP2m={dicts[0].get('TMP:2m')} "
@@ -388,6 +610,13 @@ def main() -> int:
         return 1
     print(f"  wrote {n_now} <SID>.json + {n_fc} <SID>.fc.json")
 
+    # Point-sounding tiles (tap-anywhere soundings).
+    n_tiles = 0
+    if grids_by_hour and lats is not None:
+        tile_offs = grid_utc_offsets(lats, lons, run_dt)
+        n_tiles = build_tiles(
+            grids_by_hour, lats, lons, tile_offs, run_dt, run_iso, out_dir)
+
     manifest = {
         "schemaVersion": 3,
         "model": "HRRR",
@@ -396,6 +625,7 @@ def main() -> int:
         "levelsMb": LEVELS,
         "forecastHours": FHOURS,
         "sites": n_now,
+        "pointTiles": n_tiles,
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest))
 
@@ -404,7 +634,8 @@ def main() -> int:
         "--s3-no-check-bucket", "--no-traverse",
         "--header-upload", "Cache-Control: public, max-age=600",
     ])
-    print(f"==> uploaded {n_now} soundings (+forecast) + manifest to v1/soundings/")
+    print(f"==> uploaded {n_now} soundings (+forecast) + {n_tiles} point tiles "
+          f"+ manifest to v1/soundings/")
     return 0
 
 
