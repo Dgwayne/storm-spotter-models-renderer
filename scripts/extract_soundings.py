@@ -467,6 +467,14 @@ def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir):
 
     tiles_dir = out_dir / "tiles"
     tiles_dir.mkdir()
+    # Bbox padding: bboxes come from column CENTERS, so unpadded neighbors
+    # leave a seam between the last column of one tile and the first of the
+    # next that neither bbox contains. Pad by 0.75x the measured column
+    # spacing (data-driven — covers the half-spacing seam with margin at any
+    # stride/projection); the app picks the nearest-center tile among the
+    # overlapping candidates.
+    pad_lat = 0.75 * float(np.abs(np.diff(lats, axis=0)).max())
+    pad_lon = 0.75 * float(np.abs(np.diff(lons, axis=1)).max())
     index = []
     n = 0
     for ty0 in range(0, ny, TILE_COLS):
@@ -509,10 +517,10 @@ def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir):
             }, separators=(",", ":")))
             index.append({
                 "id": tid,
-                "minLat": round(float(tlat.min()), 3),
-                "maxLat": round(float(tlat.max()), 3),
-                "minLon": round(float(tlon.min()), 3),
-                "maxLon": round(float(tlon.max()), 3),
+                "minLat": round(float(tlat.min()) - pad_lat, 3),
+                "maxLat": round(float(tlat.max()) + pad_lat, 3),
+                "minLon": round(float(tlon.min()) - pad_lon, 3),
+                "maxLon": round(float(tlon.max()) + pad_lon, 3),
             })
             n += 1
     (out_dir / "tiles.json").write_text(json.dumps({
