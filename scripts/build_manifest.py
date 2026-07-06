@@ -100,6 +100,9 @@ for code in products:
             "display": pc["display"],
             "units": pc.get("units_out", ""),
             "pal": pc.get("pal", ""),
+            # App draws on-map numbers only for products whose frames ship a
+            # F###.json value grid alongside the PNG (see decode_pipeline.sh).
+            "pointValues": bool(pc.get("point_values", False)),
         }
     )
 

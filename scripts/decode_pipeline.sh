@@ -219,6 +219,33 @@ gdalwarp -q -overwrite \
   -dstnodata -9999 \
   "${RAW_TIF}" "${MERC_TIF}"
 
+# --- 6b. Point-value grid JSON (Pivotal-style on-map numbers) ------------------
+# Sampled from the same Float32 mercator raster the PNG is color-mapped from,
+# so the numbers always agree with the fill. Uploaded BEFORE the PNG: the app
+# treats PNG availability (via the manifest) as implying the JSON exists, so
+# the JSON must never lag the frame it describes. Failure here is non-fatal —
+# a frame without numbers beats no frame.
+POINT_VALUES=$(yq -r ".products.${PRODUCT}.point_values // false" "$CONFIG")
+if [ "${POINT_VALUES}" = "true" ]; then
+  POINT_DECIMALS=$(yq -r ".products.${PRODUCT}.point_decimals // 0" "$CONFIG")
+  UNITS_OUT=$(yq -r ".products.${PRODUCT}.units_out // \"\"" "$CONFIG")
+  GRID_W=$(yq -r ".models.${MODEL}.point_grid[0] // 128" "$CONFIG")
+  GRID_H=$(yq -r ".models.${MODEL}.point_grid[1] // 128" "$CONFIG")
+  JSON_LOCAL="${WORK}/F$(printf '%03d' "$FH").json"
+  JSON_REL="${OUT_REL%.png}.json"
+  if python3 "${REPO_ROOT}/scripts/sample_point_values.py" \
+       "${MERC_TIF}" "${JSON_LOCAL}" "${MODEL}" "${PRODUCT}" \
+       "${RUN_DATE}${RUN_HOUR}" "${FH}" "${UNITS_OUT}" "${POINT_DECIMALS}" \
+       "${BBOX}" "${GRID_W}" "${GRID_H}"; then
+    rclone copyto "${JSON_LOCAL}" "r2:${R2_BUCKET}/${JSON_REL}" \
+      --s3-no-check-bucket --no-traverse \
+      --header-upload "Cache-Control: public, max-age=300"
+    echo "  uploaded ${JSON_REL}"
+  else
+    echo "  point-value sampling FAILED (non-fatal, PNG continues)"
+  fi
+fi
+
 # --- 7. Color-relief to RGBA + PNG translate ----------------------------------
 # Products with interpolate_color: true (e.g. refc) get smooth gradients;
 # all others snap to the nearest color stop for crisp binned output.

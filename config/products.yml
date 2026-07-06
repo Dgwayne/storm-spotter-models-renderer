@@ -10,6 +10,9 @@
 #   clr:            color table file under config/color_tables/
 #   pal:            matching .pal asset name (for the Flutter app)
 #   display:        human-readable name shown in the model picker
+#   point_values:   when true, publish a per-frame F###.json value grid next to
+#                   the PNG (sample_point_values.py) for on-map numbers
+#   point_decimals: decimals to keep in the published values (default 0)
 #
 # Models declare which products they publish in the `models:` map at the bottom.
 
@@ -39,6 +42,7 @@ products:
     convert: "A * 1.8 + 32"
     clr: "t2m.clr"
     pal: "hrrr_t2m.pal"
+    point_values: true
 
   td2m:
     display: "2m Dewpoint"
@@ -49,6 +53,7 @@ products:
     convert: "A * 1.8 + 32"
     clr: "td2m.clr"
     pal: "hrrr_td2m.pal"
+    point_values: true
 
   wind10m:
     display: "10m Wind Speed"
@@ -61,6 +66,7 @@ products:
     convert: "A * 1.94384"
     clr: "wind.clr"
     pal: "hrrr_wind10m.pal"
+    point_values: true
 
   gust10m:
     display: "10m Wind Gust"
@@ -70,6 +76,7 @@ products:
     convert: "A * 1.94384"
     clr: "wind.clr"
     pal: "hrrr_gust10m.pal"
+    point_values: true
 
   mslp:
     display: "Mean Sea-Level Pressure"
@@ -80,6 +87,7 @@ products:
     convert: "A / 100.0"
     clr: "mslp.clr"
     pal: "hrrr_mslp.pal"
+    point_values: true
 
   sfccape:
     display: "Surface CAPE"
@@ -89,6 +97,7 @@ products:
     convert: ""
     clr: "cape.clr"
     pal: "hrrr_sfccape.pal"
+    point_values: true
 
   precip1h:
     display: "1-hour Precipitation"
@@ -100,6 +109,8 @@ products:
     convert: "A / 25.4"
     clr: "precip.clr"
     pal: "hrrr_precip1h.pal"
+    point_values: true
+    point_decimals: 2
 
   wind500:
     display: "500mb Wind Speed"
@@ -110,6 +121,7 @@ products:
     convert: "A * 1.94384"
     clr: "wind.clr"
     pal: "gfs_wind500.pal"
+    point_values: true
 
   precipTotal:
     display: "Total Precipitation"
@@ -119,6 +131,8 @@ products:
     convert: "A / 25.4"
     clr: "precip.clr"
     pal: "gfs_precipTotal.pal"
+    point_values: true
+    point_decimals: 2
 
 models:
   HRRR:
@@ -143,6 +157,11 @@ models:
     # kernel). If sharpness ever matters more than smooth animation, bump
     # this back up (4096 = native ceiling; mobile-GPU texture cap ~4096).
     image_size: [2048, 2048]
+    # Point-value sample grid (sample_point_values.py). 128x128 over the
+    # CONUS bbox ≈ one number every ~0.6° lon; evenly spaced on-screen in
+    # mercator. The app decimates by zoom with power-of-2 strides, so keep
+    # this a power of two.
+    point_grid: [128, 128]
     # f00..f18 always; f00..f48 on synoptic runs.
     forecast_hours_default: { start: 0, end: 18, step: 1 }
     forecast_hours_synoptic: { start: 0, end: 48, step: 1, runs: [0, 6, 12, 18] }
@@ -163,6 +182,10 @@ models:
     # a global bbox later by adding a "GFS_GLOBAL" model entry.
     bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
     image_size: [1024, 1024]
+    # Same grid as HRRR so the app-side decimation logic is model-agnostic.
+    # GFS is 0.25° native, so 128 samples across 74° stays honest (no
+    # sub-native oversampling worth worrying about).
+    point_grid: [128, 128]
     forecast_hours_default: { start: 0, end: 120, step: 3 }
     s3_bucket: "noaa-gfs-bdp-pds"
     s3_key_template: "gfs.{date}/{run:02d}/atmos/gfs.t{run:02d}z.pgrb2.0p25.f{fh:03d}"
