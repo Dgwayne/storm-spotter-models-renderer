@@ -138,10 +138,15 @@ def grib_url(d: str, h: str, fh: int) -> str:
 
 def find_latest_run():
     """Latest run whose furthest forecast hour (max FHOURS) is published, so
-    every forecast hour we need exists for a single consistent run."""
+    every forecast hour we need exists for a single consistent run.
+
+    Lookback starts at 1 h: HRRR wrfprs F18 publishes ~75-90 min after the
+    run hour, so by our :50 cron the PREVIOUS hour's run is normally complete
+    — starting at 2 h was wasting an hour of freshness on the profile users
+    see as "now". Older offsets remain the fallback for late NOAA runs."""
     now = dt.datetime.now(dt.timezone.utc)
     maxfh = max(FHOURS)
-    for off in range(2, LOOKBACK_HOURS + 1):
+    for off in range(1, LOOKBACK_HOURS + 1):
         t = (now - dt.timedelta(hours=off)).replace(minute=0, second=0, microsecond=0)
         d, h = t.strftime("%Y%m%d"), t.strftime("%H")
         if _head_ok(grib_url(d, h, maxfh) + ".idx"):
