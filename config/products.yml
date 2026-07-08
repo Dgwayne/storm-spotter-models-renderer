@@ -265,6 +265,7 @@ products:
 
   scp:
     display: "Supercell Comp. (SCP)"
+    derived: true
     # Mirrors sounding_analysis.dart _scp with the SRH3/BWD6 fallback:
     #   (MUCAPE/1000) * (SRH3/50) * shearTerm
     #   shearTerm = 0 below 10 m/s, else min(shr6,20)/20  (cap 1.0)
