@@ -1,0 +1,83 @@
+name: Wind Field (RTMA)
+
+# Near-real-time surface wind U/V field for the app's animated
+# wind-particle layer. RTMA Rapid-Update publishes a new analysis every
+# 15 minutes (~20-30 min behind real time), so the feed only needs to
+# notice a new analysis within a few minutes of it appearing.
+#
+# Same reliability pattern as lightning.yml: GitHub's short crons are
+# unreliable, so instead of frequent ticks each run LOOPS for ~55 min
+# checking every 3 min (an idle pass is one HEAD + one rclone cat, ~2 s)
+# and an hourly cron restarts it via cancel-in-progress. A delayed or
+# skipped tick just means the current loop keeps covering.
+
+on:
+  schedule:
+    - cron: '3 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: wind-field
+  cancel-in-progress: true
+
+jobs:
+  wind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+    defaults:
+      run:
+        shell: bash -el {0}    # ensures the micromamba env is active per step
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up micromamba (wgrib2 + gdal + numpy + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: wind
+          create-args: >-
+            python=3.11
+            wgrib2
+            gdal
+            libgdal-grib
+            numpy
+            rclone
+          cache-environment: true
+          init-shell: bash
+
+      - name: Configure rclone for Cloudflare R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = ${{ secrets.R2_ENDPOINT }}
+          acl = private
+          EOF
+
+      - name: Build wind field (long loop)
+        run: |
+          set -uo pipefail
+          # ~55 min of passes; the hourly cron restarts the loop before
+          # the cap in the normal case (cancel-in-progress).
+          END=$(( $(date -u +%s) + 3300 ))
+          PASS=0
+          FAILS=0
+          while [ "$(date -u +%s)" -lt "$END" ]; do
+            PASS=$((PASS + 1))
+            if ! python scripts/wind_field.py; then
+              FAILS=$((FAILS + 1))
+              echo "  pass ${PASS} failed (${FAILS} total)"
+            fi
+            [ "$(date -u +%s)" -lt "$END" ] && sleep 180 || true
+          done
+          echo "==> loop done after ${PASS} passes (${FAILS} failures)"
