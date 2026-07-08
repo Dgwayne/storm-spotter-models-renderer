@@ -1,0 +1,15 @@
+# Storm-relative helicity (m²/s²) — teal → purple, SPC-ish escalation.
+# Shared by srh1 and srh3; transparent below 25 (noise floor). Negative
+# SRH (left-moving supports) intentionally not shaded in v1.
+nv    0   0   0   0
+0     0   0   0   0
+25    170 230 220 110
+50    120 215 200 160
+100   80  195 190 200
+150   60  175 200 230
+200   60  145 215 255
+300   80  110 225 255
+400   120 80  225 255
+500   160 60  210 255
+600   190 40  180 255
+800   210 20  140 255

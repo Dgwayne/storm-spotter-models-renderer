@@ -94,20 +94,35 @@ def list_r2_frames(model: str, product: str, run: str) -> set[int]:
 all_runs = list_r2_runs(MODEL)
 recent_runs = all_runs[-retain:] if all_runs else []
 
+# Mesoanalysis products (category: meso) publish in a SEPARATE mesoCatalog
+# list: app versions that predate the Mesoanalysis layer only read
+# productCatalog, so they never surface a product that renders just f00-f01
+# (which would look broken in the forecast-scrub models tab).
 product_catalog = []
+meso_catalog = []
 for code in products:
     pc = products_cfg[code]
-    product_catalog.append(
-        {
-            "code": code,
-            "display": pc["display"],
-            "units": pc.get("units_out", ""),
-            "pal": pc.get("pal", ""),
-            # App draws on-map numbers only for products whose frames ship a
-            # F###.json value grid alongside the PNG (see decode_pipeline.sh).
-            "pointValues": bool(pc.get("point_values", False)),
-        }
-    )
+    entry = {
+        "code": code,
+        "display": pc["display"],
+        "units": pc.get("units_out", ""),
+        "pal": pc.get("pal", ""),
+        # App draws on-map numbers only for products whose frames ship a
+        # F###.json value grid alongside the PNG (see decode_pipeline.sh).
+        "pointValues": bool(pc.get("point_values", False)),
+    }
+    if pc.get("category") == "meso":
+        meso_catalog.append(entry)
+    else:
+        product_catalog.append(entry)
+
+
+def expected_for(code: str, run_expected: list[int]) -> list[int]:
+    """Clamp a run's expected hours to the product's fh_cap (if any)."""
+    cap = products_cfg[code].get("fh_cap")
+    if cap is None:
+        return run_expected
+    return [h for h in run_expected if h <= cap]
 
 runs_payload = []
 for run in recent_runs:
@@ -124,7 +139,7 @@ for run in recent_runs:
             .isoformat(),
             "runStamp": run,
             "available": available,
-            "expected": {code: expected for code in products},
+            "expected": {code: expected_for(code, expected) for code in products},
         }
     )
 
@@ -135,6 +150,7 @@ manifest = {
     "bbox": bbox,
     "imageSize": img_size,
     "productCatalog": product_catalog,
+    "mesoCatalog": meso_catalog,
     "runs": runs_payload,
 }
 

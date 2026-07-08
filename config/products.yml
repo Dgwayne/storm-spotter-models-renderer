@@ -137,6 +137,153 @@ products:
     point_values: true
     point_decimals: 2
 
+  # ── Mesoanalysis products ────────────────────────────────────────────────
+  # Analysis-hour severe-weather parameters for the app's Mesoanalysis map
+  # layer (SPC-mesoanalysis-style shaded fields under radar).
+  #
+  #   fh_cap: 1     render only f00 (the analysis) + f01 (bridge frame while
+  #                 the next run's f00 is still publishing). Keeps the added
+  #                 render cost to ~18 frames/hour instead of doubling ticks.
+  #   category: meso  build_manifest.py publishes these in a separate
+  #                 `mesoCatalog` so app versions that predate the meso layer
+  #                 never see them in the Weather Models picker.
+  #
+  # Derived products (stp, scp) set `derived: true` with named `inputs`
+  # (letter -> idx match regex, one message each) and a gdal_calc `calc`
+  # expression over those letters. Formulas are kept EXACTLY in sync with
+  # the app's sounding_analysis.dart (_stpFixed / _scp) so a tapped map
+  # value never disagrees with the sounding sheet at the same point:
+  #   * STP includes Thompson's CIN term (the app's deliberate choice) —
+  #     values run lower than SPC's fixed-layer STP wherever SBCIN < -50.
+  #   * SCP uses SRH3/BWD6 (the app's fallback when effective-layer values
+  #     are unavailable).
+
+  mlcape:
+    display: "MLCAPE"
+    wgrib2_match: ":CAPE:90-0 mb above ground:"
+    units_in: "J/kg"
+    units_out: "J/kg"
+    convert: ""
+    clr: "cape.clr"
+    pal: ""
+    point_values: true
+    fh_cap: 1
+    category: meso
+
+  mucape:
+    display: "MUCAPE"
+    wgrib2_match: ":CAPE:255-0 mb above ground:"
+    units_in: "J/kg"
+    units_out: "J/kg"
+    convert: ""
+    clr: "cape.clr"
+    pal: ""
+    point_values: true
+    fh_cap: 1
+    category: meso
+
+  mlcin:
+    display: "MLCIN"
+    wgrib2_match: ":CIN:90-0 mb above ground:"
+    units_in: "J/kg"
+    units_out: "J/kg"
+    convert: ""
+    clr: "cin.clr"
+    pal: ""
+    point_values: true
+    fh_cap: 1
+    category: meso
+
+  srh1:
+    display: "0-1km SRH"
+    wgrib2_match: ":HLCY:1000-0 m above ground:"
+    units_in: "m^2/s^2"
+    units_out: "m²/s²"
+    convert: ""
+    clr: "srh.clr"
+    pal: ""
+    point_values: true
+    fh_cap: 1
+    category: meso
+
+  srh3:
+    display: "0-3km SRH"
+    wgrib2_match: ":HLCY:3000-0 m above ground:"
+    units_in: "m^2/s^2"
+    units_out: "m²/s²"
+    convert: ""
+    clr: "srh.clr"
+    pal: ""
+    point_values: true
+    fh_cap: 1
+    category: meso
+
+  shear6:
+    display: "0-6km Shear"
+    # ⚠ HRRR labels VUCSH/VVCSH as [1/s] but the encoded values are the
+    # bulk wind-difference vector components in m/s (verified empirically
+    # 2026-07-08: magnitudes 0-35 with p99 ≈ 23 — true shear-per-second
+    # would be ~0.005). Treat exactly like a U/V wind pair.
+    wgrib2_match: ":(VUCSH|VVCSH):0-6000 m above ground:"
+    composite_uv: true
+    units_in: "m/s"
+    units_out: "kt"
+    convert: "A * 1.94384"
+    clr: "shear.clr"
+    pal: ""
+    point_values: true
+    fh_cap: 1
+    category: meso
+
+  stp:
+    display: "Sig. Tornado (STP)"
+    derived: true
+    # Mirrors sounding_analysis.dart _stpFixed (STP-cin variant):
+    #   capeTerm  = SBCAPE/1500
+    #   lclTerm   = clip((2000 - LCL_agl)/1000, 0, 1)   LCL_agl = LCL_msl - terrain
+    #   srhTerm   = SRH1/150
+    #   shearTerm = 0 below 12.5 m/s, else min(shr6,30)/20  (cap 1.5)
+    #   cinTerm   = clip((200 + SBCIN)/150, 0, 1)        (SBCIN is negative)
+    inputs:
+      A: ":CAPE:surface:"
+      B: ":CIN:surface:"
+      C: ":HGT:level of adiabatic condensation from sfc:"
+      D: ":HGT:surface:"
+      E: ":HLCY:1000-0 m above ground:"
+      F: ":VUCSH:0-6000 m above ground:"
+      G: ":VVCSH:0-6000 m above ground:"
+    calc: "maximum((A/1500.0)*clip((2000.0-(C-D))/1000.0,0,1)*(E/150.0)*where(sqrt(F*F+G*G)<12.5,0,minimum(sqrt(F*F+G*G),30.0)/20.0)*clip((200.0+B)/150.0,0,1),0)"
+    units_in: ""
+    units_out: ""
+    convert: ""
+    clr: "stp.clr"
+    pal: ""
+    point_values: true
+    point_decimals: 1
+    fh_cap: 1
+    category: meso
+
+  scp:
+    display: "Supercell Comp. (SCP)"
+    # Mirrors sounding_analysis.dart _scp with the SRH3/BWD6 fallback:
+    #   (MUCAPE/1000) * (SRH3/50) * shearTerm
+    #   shearTerm = 0 below 10 m/s, else min(shr6,20)/20  (cap 1.0)
+    inputs:
+      A: ":CAPE:255-0 mb above ground:"
+      B: ":HLCY:3000-0 m above ground:"
+      C: ":VUCSH:0-6000 m above ground:"
+      D: ":VVCSH:0-6000 m above ground:"
+    calc: "maximum((A/1000.0)*(B/50.0)*where(sqrt(C*C+D*D)<10.0,0,minimum(sqrt(C*C+D*D),20.0)/20.0),0)"
+    units_in: ""
+    units_out: ""
+    convert: ""
+    clr: "scp.clr"
+    pal: ""
+    point_values: true
+    point_decimals: 1
+    fh_cap: 1
+    category: meso
+
 models:
   HRRR:
     products:
@@ -148,6 +295,15 @@ models:
       - mslp
       - sfccape
       - precip1h
+      # Mesoanalysis set (fh_cap: 1 — analysis frames only; see product notes)
+      - mlcape
+      - mucape
+      - mlcin
+      - srh1
+      - srh3
+      - shear6
+      - stp
+      - scp
     # CONUS bbox (Lambert -> reprojected to EPSG:3857 by gdalwarp at render time)
     bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
     # Smoothness over sharpness (decided after testing). Animation scrub

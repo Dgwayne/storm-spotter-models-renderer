@@ -1,0 +1,12 @@
+# Supercell Composite Parameter (dimensionless) — values >= 1 support
+# supercells. Transparent below 0.5.
+nv    0   0   0   0
+0     0   0   0   0
+0.5   235 235 170 130
+1     235 215 120 180
+2     240 180 80  220
+4     240 140 60  255
+8     230 90  45  255
+12    210 50  40  255
+16    180 25  60  255
+20    150 10  100 255

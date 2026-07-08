@@ -1,0 +1,15 @@
+# 0-6km bulk shear (kt) — transparent below the ~20 kt marginal floor,
+# green (marginal) → orange/red (strongly sheared). Supercell threshold
+# is conventionally ~35-40 kt.
+nv    0   0   0   0
+0     0   0   0   0
+20    170 225 170 110
+25    130 210 130 160
+30    100 200 100 200
+35    170 210 80  230
+40    230 200 60  255
+45    240 170 50  255
+50    240 130 45  255
+60    230 80  40  255
+70    200 40  40  255
+85    160 20  60  255

@@ -38,6 +38,16 @@ HOURS_BACK=4
 PRODUCTS=$(yq -r ".models.${MODEL}.products[]" "$CONFIG")
 RETAIN=$(yq -r ".models.${MODEL}.retain_runs" "$CONFIG")
 
+# Per-product forecast-hour caps (mesoanalysis products render f00-f01
+# only). Skipping capped hours HERE — not just inside decode_pipeline.sh —
+# matters: even an exit-0 decode spawn costs ~1 s of yq/python overhead,
+# and the capped (product × fh × run) tuples would add ~1,900 of them
+# per tick.
+declare -A FH_CAPS
+for product in $PRODUCTS; do
+  FH_CAPS[$product]=$(yq -r ".products.${product}.fh_cap // \"\"" "$CONFIG")
+done
+
 # ── Pre-fetch R2 listing for fast idempotent skips ────────────────
 # Without this, every (run × product × fh) tuple would `rclone lsf`
 # a single key — ~150 ms each, ~150 KB worth of Class B ops per
@@ -75,6 +85,10 @@ for offset in $(seq 0 "${HOURS_BACK}"); do
 
   for product in $PRODUCTS; do
     for fh in $(seq 0 "${FH_END}"); do
+      # ── Per-product fh cap (meso products: analysis frames only) ─
+      if [ -n "${FH_CAPS[$product]}" ] && [ "${fh}" -gt "${FH_CAPS[$product]}" ]; then
+        continue
+      fi
       # ── Parent-level idempotent skip ──────────────────────────────
       # Previously decode_pipeline.sh was invoked for EVERY (run × product
       # × fh) tuple — ~1,300 per tick — and each invocation paid ~1 s of

@@ -1,0 +1,12 @@
+# Significant Tornado Parameter (dimensionless) — SPC-style: values >= 1
+# discriminate significant-tornado environments. Transparent below 0.25.
+nv    0   0   0   0
+0     0   0   0   0
+0.25  250 220 160 130
+0.5   250 190 110 180
+1     245 140 70  230
+2     235 90  50  255
+3     220 50  40  255
+5     200 20  50  255
+7     170 10  90  255
+10    140 0   140 255

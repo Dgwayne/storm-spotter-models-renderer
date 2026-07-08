@@ -5,7 +5,8 @@
 #   decode_pipeline.sh <model> <product> <run_date> <run_hour> <fh>
 #     model:      HRRR | GFS
 #     product:    code from config/products.yml (refc, t2m, td2m, wind10m, gust10m,
-#                 mslp, sfccape, precip1h, wind500, precipTotal)
+#                 mslp, sfccape, precip1h, wind500, precipTotal, + the meso set:
+#                 mlcape, mucape, mlcin, srh1, srh3, shear6, stp, scp)
 #     run_date:   YYYYMMDD
 #     run_hour:   00..23
 #     fh:         forecast hour, integer
@@ -38,6 +39,16 @@ CONVERT_EXPR=$(yq -r ".products.${PRODUCT}.convert // \"\"" "$CONFIG")
 INTERPOLATE=$(yq -r ".products.${PRODUCT}.interpolate_color // false" "$CONFIG")
 CLR_FILE=$(yq -r ".products.${PRODUCT}.clr" "$CONFIG")
 CLR_PATH="${COLOR_TABLES}/${CLR_FILE}"
+# Derived products combine several GRIB fields via a gdal_calc formula
+# (products.yml `inputs:` letter->match map + `calc:`). See step 4b.
+DERIVED=$(yq -r ".products.${PRODUCT}.derived // false" "$CONFIG")
+
+# Mesoanalysis products cap their forecast hours (fh_cap: the app's meso
+# layer only consumes analysis frames). Skip anything beyond the cap.
+FH_CAP=$(yq -r ".products.${PRODUCT}.fh_cap // \"\"" "$CONFIG")
+if [ -n "${FH_CAP}" ] && [ "${FH}" -gt "${FH_CAP}" ]; then
+  exit 0
+fi
 
 S3_BUCKET=$(yq -r ".models.${MODEL}.s3_bucket" "$CONFIG")
 S3_KEY_TEMPLATE=$(yq -r ".models.${MODEL}.s3_key_template" "$CONFIG")
@@ -98,15 +109,18 @@ if [ -z "${FORCE_RERENDER:-}" ]; then
   fi
 fi
 
-# --- 2. Fetch idx and compute byte range for matching message(s) ---------------
+# --- 2. Fetch idx once; helper computes byte ranges for any match regex --------
 curl -sf "${IDX_URL}" -o "${WORK}/file.idx"
 
-# Build a list of (start, end) byte ranges that match the regex.
+# Echo "start-end" byte ranges (one per line) for idx lines matching $1.
 # .idx lines: msgnum:offset:d=yyyymmddhh:VAR:level:fcsthour:
-mapfile -t MATCH_RANGES < <(python3 - <<PY
-import re, sys
-match_re = re.compile(r"""${WGRIB2_MATCH}""")
-lines = open("${WORK}/file.idx").read().splitlines()
+# The regex travels via the environment (not string interpolation) so
+# characters like ( | ) in product matches never hit the Python parser.
+compute_ranges() {
+  MATCH_RE="$1" IDX_FILE="${WORK}/file.idx" python3 - <<'PY'
+import os, re
+match_re = re.compile(os.environ["MATCH_RE"])
+lines = open(os.environ["IDX_FILE"]).read().splitlines()
 parsed = []
 for ln in lines:
     parts = ln.split(":")
@@ -116,33 +130,31 @@ for ln in lines:
         except ValueError:
             pass
 parsed.sort()
-ranges = []
 for i, (msgnum, offset, ln) in enumerate(parsed):
     if match_re.search(ln):
-        if i + 1 < len(parsed):
-            end = parsed[i + 1][1] - 1
-        else:
-            end = ""  # to EOF
-        ranges.append(f"{offset}-{end}")
-for r in ranges:
-    print(r)
+        end = parsed[i + 1][1] - 1 if i + 1 < len(parsed) else ""
+        print(f"{offset}-{end}")
 PY
-)
+}
 
-if [ "${#MATCH_RANGES[@]}" -eq 0 ]; then
-  echo "  no matching messages in idx; skip"
-  exit 0
+if [ "${DERIVED}" != "true" ]; then
+  mapfile -t MATCH_RANGES < <(compute_ranges "${WGRIB2_MATCH}")
+
+  if [ "${#MATCH_RANGES[@]}" -eq 0 ]; then
+    echo "  no matching messages in idx; skip"
+    exit 0
+  fi
+
+  # --- 3. Range-GET each matching message --------------------------------------
+  GRIB_LOCAL="${WORK}/in.grib2"
+  : > "${GRIB_LOCAL}"
+  for r in "${MATCH_RANGES[@]}"; do
+    curl -sf -r "${r}" "${GRIB_URL}" >> "${GRIB_LOCAL}"
+  done
+
+  GRIB_SIZE=$(stat -c%s "${GRIB_LOCAL}" 2>/dev/null || stat -f%z "${GRIB_LOCAL}")
+  echo "  fetched ${GRIB_SIZE} bytes"
 fi
-
-# --- 3. Range-GET each matching message ----------------------------------------
-GRIB_LOCAL="${WORK}/in.grib2"
-: > "${GRIB_LOCAL}"
-for r in "${MATCH_RANGES[@]}"; do
-  curl -sf -r "${r}" "${GRIB_URL}" >> "${GRIB_LOCAL}"
-done
-
-GRIB_SIZE=$(stat -c%s "${GRIB_LOCAL}" 2>/dev/null || stat -f%z "${GRIB_LOCAL}")
-echo "  fetched ${GRIB_SIZE} bytes"
 
 # --- 4. Read GRIB directly with gdal (preserves Lambert Conformal SRS) -------
 # Skipping wgrib2 -netcdf because that pipeline silently strips the LCC
@@ -165,7 +177,33 @@ echo "  fetched ${GRIB_SIZE} bytes"
 # and dewpoint products.
 
 RAW_TIF="${WORK}/raw.tif"
-if [ "${COMPOSITE_UV}" = "true" ]; then
+if [ "${DERIVED}" = "true" ]; then
+  # --- 4b. Derived product: fetch each named input, evaluate calc formula ------
+  # Each input letter maps to one GRIB message (products.yml `inputs:`).
+  # Every field lives on the same native LCC grid, so after gdal_translate
+  # the rasters are pixel-aligned and one gdal_calc evaluates the formula.
+  CALC_EXPR=$(yq -r ".products.${PRODUCT}.calc" "$CONFIG")
+  GDAL_INPUT_ARGS=()
+  while IFS=$'\t' read -r letter match; do
+    mapfile -t IN_RANGES < <(compute_ranges "${match}")
+    if [ "${#IN_RANGES[@]}" -eq 0 ]; then
+      echo "  derived input ${letter} (${match}) missing from idx; skip"
+      exit 0
+    fi
+    IN_GRIB="${WORK}/in_${letter}.grib2"
+    : > "${IN_GRIB}"
+    for r in "${IN_RANGES[@]}"; do
+      curl -sf -r "${r}" "${GRIB_URL}" >> "${IN_GRIB}"
+    done
+    gdal_translate -q -of GTiff -ot Float32 -b 1 "${IN_GRIB}" "${WORK}/in_${letter}.tif"
+    GDAL_INPUT_ARGS+=("-${letter}" "${WORK}/in_${letter}.tif")
+  done < <(yq -r ".products.${PRODUCT}.inputs | to_entries[] | [.key, .value] | @tsv" "$CONFIG")
+
+  gdal_calc.py --quiet "${GDAL_INPUT_ARGS[@]}" --outfile="${RAW_TIF}" \
+    --calc="${CALC_EXPR}" --NoDataValue=-9999 --type=Float32 --overwrite
+  echo "  raw.tif stats:"
+  gdalinfo -stats "${RAW_TIF}" 2>/dev/null | grep -E "Min|Max|Mean|StdDev" | head -4 | sed 's/^/    /'
+elif [ "${COMPOSITE_UV}" = "true" ]; then
   # Composite UV: two GRIB messages (UGRD + VGRD), each as a band.
   # The byte-range GET preserves idx ordering (UGRD first, then VGRD)
   # so band 1 = UGRD, band 2 = VGRD.

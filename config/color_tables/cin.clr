@@ -1,0 +1,14 @@
+# MLCIN (J/kg, negative) — deeper blue/purple = stronger cap.
+# Transparent where the cap is negligible (> -25). Values ascend per
+# gdaldem color-relief convention, so the strongest cap comes first.
+nv    0   0   0   0
+-600  60  0   90  255
+-400  90  20  140 255
+-300  110 40  180 255
+-200  90  80  220 255
+-150  70  120 235 240
+-100  80  160 245 220
+-50   130 195 250 170
+-25   180 220 255 110
+-10   0   0   0   0
+0     0   0   0   0
