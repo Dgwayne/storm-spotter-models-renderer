@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""extract_soundings.py - HRRR vertical profiles per NEXRAD site -> R2.
+"""extract_soundings.py - model vertical profiles per NEXRAD site -> R2.
 
-For every CONUS NEXRAD radar in config/nexrad_sites.csv, pull the HRRR
-temperature, dewpoint, geopotential height and wind at isobaric levels
-(plus a 2 m / 10 m surface level) for a set of forecast hours, interpolate
-to the radar point, and upload per-site JSON to R2.
+For every CONUS NEXRAD radar in config/nexrad_sites.csv, pull each MODELS
+entry's temperature, dewpoint, geopotential height and wind at isobaric
+levels (plus a 2 m / 10 m surface level) for a set of forecast hours,
+interpolate to the radar point, and upload per-site JSON to R2. HRRR is
+the default/back-compat model at v1/soundings/; RRFS mirrors the same
+layout under v1/soundings/rrfs/ for the app's model picker.
 
 Outputs (per site SID):
   * v1/soundings/<SID>.json     - the F00 analysis profile only. Back-compat
@@ -51,13 +53,43 @@ from zoneinfo import ZoneInfo
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SITES_CSV = REPO_ROOT / "config" / "nexrad_sites.csv"
 
-S3_BUCKET = "noaa-hrrr-bdp-pds"
 LEVELS = list(range(1000, 99, -50))  # 1000,950,...,150,100  (19 levels)
 ISOBARIC_VARS = ("UGRD", "VGRD", "HGT", "TMP", "DPT")
 # Forecast hours to emit (3-hourly out to +18 h).
 FHOURS = [0, 3, 6, 9, 12, 15, 18]
 LOOKBACK_HOURS = 8
 BUCKET = os.environ["R2_BUCKET"]
+
+# Models to extract. Each source file is fetched with the same .idx
+# byte-range trick and its classify()-matched messages merged into one
+# band dict per hour — HRRR carries everything in wrfprs, while RRFS splits
+# the isobaric levels (prslev.3km) from the surface fields (2dfld.3km).
+# `prefix` is the output subdirectory under v1/soundings/ ("" keeps HRRR at
+# the root for back-compat with the dealiaser and released apps).
+# ⚠ RRFS: the rrfs_a/ path is the pre-operational feed — needs a bump when
+# RRFS goes operational 2026-08-31 (same caveat as config/products.yml).
+MODELS = [
+    {
+        "key": "hrrr",
+        "name": "HRRR",
+        "prefix": "",
+        "files": [
+            "https://noaa-hrrr-bdp-pds.s3.amazonaws.com/"
+            "hrrr.{d}/conus/hrrr.t{h}z.wrfprsf{fh:02d}.grib2",
+        ],
+    },
+    {
+        "key": "rrfs",
+        "name": "RRFS",
+        "prefix": "rrfs/",
+        "files": [
+            "https://noaa-rrfs-pds.s3.amazonaws.com/"
+            "rrfs_a/rrfs.{d}/{h}/rrfs.t{h}z.prslev.3km.f{fh:03d}.conus.grib2",
+            "https://noaa-rrfs-pds.s3.amazonaws.com/"
+            "rrfs_a/rrfs.{d}/{h}/rrfs.t{h}z.2dfld.3km.f{fh:03d}.conus.grib2",
+        ],
+    },
+]
 
 # Point-sounding tiles: subsample the 3 km HRRR grid every TILE_STRIDE pixels
 # (~24 km column spacing) and chop the subsampled grid into TILE_COLS^2-column
@@ -129,16 +161,14 @@ def _get(url: str, byte_range=None, attempts=4) -> bytes:
     raise last
 
 
-def grib_url(d: str, h: str, fh: int) -> str:
-    return (
-        f"https://{S3_BUCKET}.s3.amazonaws.com/"
-        f"hrrr.{d}/conus/hrrr.t{h}z.wrfprsf{fh:02d}.grib2"
-    )
+def grib_urls(model: dict, d: str, h: str, fh: int) -> list[str]:
+    return [t.format(d=d, h=h, fh=fh) for t in model["files"]]
 
 
-def find_latest_run():
-    """Latest run whose furthest forecast hour (max FHOURS) is published, so
-    every forecast hour we need exists for a single consistent run.
+def find_latest_run(model: dict):
+    """Latest run whose furthest forecast hour (max FHOURS) is published for
+    EVERY source file, so all the forecast hours we need exist for a single
+    consistent run.
 
     Lookback starts at 1 h: HRRR wrfprs F18 publishes ~75-90 min after the
     run hour, so by our :50 cron the PREVIOUS hour's run is normally complete
@@ -149,7 +179,7 @@ def find_latest_run():
     for off in range(1, LOOKBACK_HOURS + 1):
         t = (now - dt.timedelta(hours=off)).replace(minute=0, second=0, microsecond=0)
         d, h = t.strftime("%Y%m%d"), t.strftime("%H")
-        if _head_ok(grib_url(d, h, maxfh) + ".idx"):
+        if all(_head_ok(u + ".idx") for u in grib_urls(model, d, h, maxfh)):
             return t
     return None
 
@@ -416,7 +446,8 @@ def grid_utc_offsets(lats, lons, run_dt):
     return out
 
 
-def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir):
+def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir,
+                model="HRRR"):
     """Write point-sounding tile JSONs + tiles.json manifest.
 
     Tile file shape (all numbers; flat arrays are column-major-by-column,
@@ -512,7 +543,7 @@ def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir):
                     "v_ms": rnd(st["v_ms"][sl], 1),
                 })
             (tiles_dir / f"{tid}.json").write_text(json.dumps({
-                "model": "HRRR", "run": run_iso,
+                "model": model, "run": run_iso,
                 "pres_hpa": [float(mb) for mb in LEVELS],
                 "lat": rnd(tlat, 4),
                 "lon": rnd(tlon, 4),
@@ -529,7 +560,7 @@ def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir):
             })
             n += 1
     (out_dir / "tiles.json").write_text(json.dumps({
-        "schemaVersion": 1, "model": "HRRR", "run": run_iso,
+        "schemaVersion": 1, "model": model, "run": run_iso,
         "strideKm": TILE_STRIDE * 3, "hours": good_hours,
         "tiles": index,
     }, separators=(",", ":")))
@@ -540,19 +571,17 @@ def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir):
     return n
 
 
-def main() -> int:
-    run_dt = find_latest_run()
+def process_model(model: dict, sites, out_root: Path, work_root: Path) -> int:
+    """Extract one model end-to-end into out_root/<prefix>. Returns the number
+    of site profiles written (0 = model skipped/failed)."""
+    name = model["name"]
+    run_dt = find_latest_run(model)
     if run_dt is None:
-        print("no HRRR run with all forecast hours published; exit 0")
+        print(f"==> {name}: no run with all forecast hours published; skip")
         return 0
     d, h = run_dt.strftime("%Y%m%d"), run_dt.strftime("%H")
     run_iso = run_dt.isoformat()
-    print(f"==> HRRR run {run_dt:%Y%m%d%H}Z, forecast hours {FHOURS}")
-
-    sites = []
-    with open(SITES_CSV) as f:
-        for row in csv.DictReader(f):
-            sites.append((row["id"], float(row["lat"]), float(row["lon"])))
+    print(f"==> {name} run {run_dt:%Y%m%d%H}Z, forecast hours {FHOURS}")
 
     offs = utc_offsets(sites, run_dt)
 
@@ -560,34 +589,52 @@ def main() -> int:
     by_site: dict[str, dict[int, dict]] = {sid: {} for (sid, _, _) in sites}
     grids_by_hour: dict[int, dict] = {}   # point-sounding tile inputs
     lats = lons = None
-    work = Path(tempfile.mkdtemp())
     for fh in FHOURS:
-        sub = fetch_subset(grib_url(d, h, fh), work / f"f{fh:02d}")
-        if sub is None:
-            print(f"  F{fh:02d}: no matching messages; skip")
-            continue
-        grib, band_keys = sub
-        dicts, grids = extract_all(grib, band_keys, sites, want_grid=True)
+        # A model's fields may span several files (RRFS: prslev isobaric +
+        # 2dfld surface); classify() only matches each file's relevant
+        # messages, so fetch each and merge the band dicts.
+        merged: list[dict] = [dict() for _ in sites]
+        grids: dict = {}
+        for i, url in enumerate(grib_urls(model, d, h, fh)):
+            sub = fetch_subset(url, work_root / model["key"] / f"f{fh:02d}_{i}")
+            if sub is None:
+                continue
+            grib, band_keys = sub
+            dicts, g = extract_all(grib, band_keys, sites, want_grid=True)
+            for md, dd in zip(merged, dicts):
+                md.update(dd)
+            if g:
+                shapes = {a.shape for a in g.values()}
+                have = {a.shape for a in grids.values()}
+                if grids and shapes != have:
+                    # Source files on different grids can't share one tile
+                    # array — drop this file's grid (site extraction above is
+                    # per-file pixel-indexed and unaffected).
+                    print(f"  [tiles] {name} F{fh:02d}: grid shape mismatch "
+                          f"{shapes} vs {have}; skipping grid merge")
+                else:
+                    grids.update(g)
+            if lats is None:
+                lats, lons = grid_latlon(grib)
+            grib.unlink(missing_ok=True)
         if grids:
             grids_by_hour[fh] = grids
-        if lats is None:
-            lats, lons = grid_latlon(grib)
-        if fh == 0 and dicts:
-            r = _gdalloc_one(grib, band_keys, sites[0][2], sites[0][1])
-            print(f"  [check] {sites[0][0]}: osgeo TMP2m={dicts[0].get('TMP:2m')} "
-                  f"PRESsfc={dicts[0].get('PRES:sfc')} | gdalloc TMP2m={r.get('TMP:2m')} "
-                  f"PRESsfc={r.get('PRES:sfc')}")
+        if fh == 0 and merged:
+            # Spot-check line (the WGS84→grid transform itself was validated
+            # against gdallocationinfo when the osgeo path landed).
+            print(f"  [check] {sites[0][0]}: TMP2m={merged[0].get('TMP:2m')} "
+                  f"PRESsfc={merged[0].get('PRES:sfc')} "
+                  f"TMP500={merged[0].get('TMP:500')}")
         n = 0
-        for (sid, _, _), dd in zip(sites, dicts):
+        for (sid, _, _), dd in zip(sites, merged):
             prof = build_profile(dd)
             if prof is not None:
                 by_site[sid][fh] = prof
                 n += 1
         print(f"  F{fh:02d}: {n}/{len(sites)} site profiles")
-        grib.unlink(missing_ok=True)
 
-    out_dir = work / "out"
-    out_dir.mkdir()
+    out_dir = out_root / model["prefix"] if model["prefix"] else out_root
+    out_dir.mkdir(parents=True, exist_ok=True)
     n_now = n_fc = 0
     coord = {sid: (lat, lon) for (sid, lat, lon) in sites}
     for sid, hours in by_site.items():
@@ -597,7 +644,7 @@ def main() -> int:
         f0 = hours[0]
         # Back-compat single-profile file (dealiaser + app default).
         (out_dir / f"{sid}.json").write_text(json.dumps(
-            {"site": sid, "model": "HRRR", "run": run_iso, "lat": lat, "lon": lon,
+            {"site": sid, "model": name, "run": run_iso, "lat": lat, "lon": lon,
              "utc_offset_seconds": offs[sid], **f0},
             separators=(",", ":")))
         n_now += 1
@@ -613,14 +660,14 @@ def main() -> int:
                 "u_ms": p["u_ms"], "v_ms": p["v_ms"],
             })
         (out_dir / f"{sid}.fc.json").write_text(json.dumps(
-            {"site": sid, "model": "HRRR", "run": run_iso, "lat": lat, "lon": lon,
+            {"site": sid, "model": name, "run": run_iso, "lat": lat, "lon": lon,
              "utc_offset_seconds": offs[sid], "elev_m": f0["elev_m"], "hours": hrs},
             separators=(",", ":")))
         n_fc += 1
 
     if n_now == 0:
-        print("extracted 0 site profiles; exit 1")
-        return 1
+        print(f"  {name}: extracted 0 site profiles")
+        return 0
     print(f"  wrote {n_now} <SID>.json + {n_fc} <SID>.fc.json")
 
     # Point-sounding tiles (tap-anywhere soundings).
@@ -628,11 +675,12 @@ def main() -> int:
     if grids_by_hour and lats is not None:
         tile_offs = grid_utc_offsets(lats, lons, run_dt)
         n_tiles = build_tiles(
-            grids_by_hour, lats, lons, tile_offs, run_dt, run_iso, out_dir)
+            grids_by_hour, lats, lons, tile_offs, run_dt, run_iso, out_dir,
+            model=name)
 
     manifest = {
         "schemaVersion": 3,
-        "model": "HRRR",
+        "model": name,
         "run": run_iso,
         "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
         "levelsMb": LEVELS,
@@ -641,15 +689,44 @@ def main() -> int:
         "pointTiles": n_tiles,
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest))
+    print(f"  {name}: {n_now} sites + {n_tiles} tiles staged")
+    return n_now
+
+
+def main() -> int:
+    sites = []
+    with open(SITES_CSV) as f:
+        for row in csv.DictReader(f):
+            sites.append((row["id"], float(row["lat"]), float(row["lon"])))
+
+    work = Path(tempfile.mkdtemp())
+    out_root = work / "out"
+    out_root.mkdir()
+
+    # A failure in one model (e.g. an rrfs_a path change at the operational
+    # cutover) must not take down the other's hourly refresh.
+    results: dict[str, int] = {}
+    for model in MODELS:
+        try:
+            results[model["key"]] = process_model(model, sites, out_root, work)
+        except Exception as e:
+            print(f"==> {model['name']} FAILED: {e!r}; continuing")
+            results[model["key"]] = 0
+
+    if all(v == 0 for v in results.values()):
+        print("no model produced any profiles; exit 1")
+        return 1
 
     subprocess.check_call([
-        "rclone", "copy", str(out_dir), f"r2:{BUCKET}/v1/soundings/",
+        "rclone", "copy", str(out_root), f"r2:{BUCKET}/v1/soundings/",
         "--s3-no-check-bucket", "--no-traverse",
         "--header-upload", "Cache-Control: public, max-age=600",
     ])
-    print(f"==> uploaded {n_now} soundings (+forecast) + {n_tiles} point tiles "
-          f"+ manifest to v1/soundings/")
-    return 0
+    print("==> uploaded soundings to v1/soundings/ — " +
+          ", ".join(f"{k}: {v} sites" for k, v in results.items()))
+    # HRRR is the load-bearing output (dealiaser + app default): flag its
+    # absence as a failure even when RRFS succeeded.
+    return 0 if results.get("hrrr", 0) > 0 else 1
 
 
 if __name__ == "__main__":
