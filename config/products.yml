@@ -171,6 +171,42 @@ models:
     runs_per_day: 24
     retain_runs: 5
 
+  RRFS:
+    # NOAA's next-gen 3 km rapid-refresh model (operational Aug 31 2026;
+    # pre-operational rrfs_a feed until then). The 2dfld CONUS file carries
+    # every HRRR surface product PLUS a running-total APCP accumulation, so
+    # RRFS publishes precipTotal too. wind500 lives in the separate
+    # prslev.3km.na file (different key template) — not rendered in v1.
+    products:
+      - refc
+      - t2m
+      - td2m
+      - wind10m
+      - gust10m
+      - mslp
+      - sfccape
+      - precip1h
+      - precipTotal
+    # Same CONUS render box + raster size as HRRR (both 3 km native; see the
+    # HRRR image_size note for the 2048-vs-4096 scrub-smoothness tradeoff).
+    # RRFS's CONUS subset grid doesn't cover this box edge-to-edge — the warp
+    # leaves out-of-grid pixels transparent, which is fine.
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [2048, 2048]
+    point_grid: [128, 128]
+    # Hourly runs to f18; 00/06/12/18z extend to f84 (verified against the
+    # rrfs_a bucket, July 2026).
+    forecast_hours_default: { start: 0, end: 18, step: 1 }
+    forecast_hours_synoptic: { start: 0, end: 84, step: 1, runs: [0, 6, 12, 18] }
+    # AWS public bucket (no auth needed). ⚠ The rrfs_a/ prefix is the
+    # pre-operational feed — expect this template to need a path bump when
+    # RRFS goes operational (2026-08-31); the idx-HEAD-404 guard just makes
+    # frames go stale rather than erroring if NOAA moves it.
+    s3_bucket: "noaa-rrfs-pds"
+    s3_key_template: "rrfs_a/rrfs.{date}/{run:02d}/rrfs.t{run:02d}z.2dfld.3km.f{fh:03d}.conus.grib2"
+    runs_per_day: 24
+    retain_runs: 5
+
   GFS:
     products:
       - refc

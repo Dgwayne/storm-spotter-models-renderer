@@ -1,6 +1,6 @@
 # storm-spotter-models-renderer
 
-Public GitHub Actions pipeline that decodes NOAA HRRR and GFS GRIB2 forecast
+Public GitHub Actions pipeline that decodes NOAA HRRR, RRFS and GFS GRIB2 forecast
 data, color-relieves it to PNG tiles, and uploads them to Cloudflare R2 for
 the **Storm Spotter Tools Pro** Flutter app to consume.
 
@@ -13,6 +13,7 @@ zero egress fees.
 | Model | Products | Forecast range | Frame count |
 |-------|----------|----------------|-------------|
 | **HRRR** (3 km, hourly) | refc, t2m, td2m, wind10m, gust10m, mslp, sfccape, precip1h | f00–f18 (f00–f48 on 00/06/12/18Z) | 19 / 49 |
+| **RRFS** (3 km, hourly) | refc, t2m, td2m, wind10m, gust10m, mslp, sfccape, precip1h, precipTotal | f00–f18 (f00–f84 on 00/06/12/18Z) | 19 / 85 |
 | **GFS** (0.25°, 4×/day) | refc, t2m, wind500, mslp, precipTotal | f00–f120 at 3h step | 41 |
 
 Last 5 runs per model are retained on R2. Storage envelope ≈ 360 MB.
@@ -49,10 +50,12 @@ Once the secrets are set, the workflows fire on cron automatically. To verify:
 ```
 .github/workflows/
   render_hrrr.yml          # cron: every 15 min
+  render_rrfs.yml          # cron: every 15 min (staggered +5 from HRRR)
   render_gfs.yml           # cron: every hour
 scripts/
   decode_pipeline.sh       # core: HEAD .idx → byte-range GET → wgrib2 → gdal → PNG → R2
   render_hrrr.sh           # iterates HRRR forecast hours × products
+  render_rrfs.sh           # same sweep for RRFS (pre-operational rrfs_a feed)
   render_gfs.sh            # iterates GFS forecast hours × products
   build_manifest.py        # rebuilds v1/<model>/manifest.json
   prune_old_runs.py        # trims R2 to last N runs per product

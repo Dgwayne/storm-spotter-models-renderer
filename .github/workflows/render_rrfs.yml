@@ -1,0 +1,80 @@
+name: Render RRFS
+
+on:
+  schedule:
+    # Every 15 minutes, offset +5 from the HRRR ticks so the two sweeps don't
+    # hammer R2 listings at the same instant. GitHub's scheduler is
+    # best-effort — the Cloudflare cron-trigger Worker is the reliable
+    # dispatcher (see cron-trigger/); this schedule is just a backstop.
+    - cron: '10,25,40,55 * * * *'
+  workflow_dispatch:
+    inputs:
+      force_rerender:
+        description: 'Re-render frames even when already on R2 (bypass idempotency check). Used to recover from a pipeline-bug-produced corrupt batch.'
+        type: boolean
+        default: false
+
+concurrency:
+  group: render-rrfs
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      FORCE_RERENDER: ${{ inputs.force_rerender && '1' || '' }}
+
+    defaults:
+      run:
+        shell: bash -el {0}    # ensures conda env is activated for every step
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up micromamba (wgrib2 + gdal + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: renderer
+          create-args: >-
+            python=3.11
+            wgrib2
+            gdal
+            libgdal-netcdf
+            libgdal-grib
+            rclone
+            pyyaml
+            curl
+          cache-environment: true
+          init-shell: bash
+
+      - name: Install yq (Go binary)
+        run: |
+          set -e
+          sudo curl -sSfL -o /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+          wgrib2 --version || true
+          gdalinfo --version
+          rclone --version | head -1
+
+      - name: Configure rclone for Cloudflare R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = ${{ secrets.R2_ENDPOINT }}
+          acl = private
+          EOF
+
+      - name: Render RRFS
+        run: bash scripts/render_rrfs.sh

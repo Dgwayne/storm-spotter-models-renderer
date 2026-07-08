@@ -14,6 +14,7 @@ const REPO = "storm-spotter-models-renderer";
 // wrangler.toml to put GFS/GOES/lightning on reliable schedules too.
 const CRON_TO_WORKFLOW = {
   "5,20,35,50 * * * *": "render_hrrr.yml",
+  "10,25,40,55 * * * *": "render_rrfs.yml",
 };
 
 // Fallback if Cloudflare ever hands us a cron string we didn't map (e.g. after

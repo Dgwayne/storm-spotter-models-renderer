@@ -16,5 +16,6 @@ compatibility_date = "2025-01-01"
 
 # Each cron expression maps to a workflow in src/worker.js (CRON_TO_WORKFLOW).
 # HRRR: every 15 min, offset to land just after NOAA's typical publish window.
+# RRFS: every 15 min, +5 from the HRRR ticks so the sweeps stagger.
 [triggers]
-crons = ["5,20,35,50 * * * *"]
+crons = ["5,20,35,50 * * * *", "10,25,40,55 * * * *"]

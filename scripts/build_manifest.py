@@ -37,15 +37,18 @@ bucket = os.environ["R2_BUCKET"]
 
 
 def expected_fhs(model: str, run_hour: int) -> list[int]:
-    """Return canonical expected forecast-hour list per model + run."""
-    if model == "HRRR":
-        if run_hour in (0, 6, 12, 18):
-            return list(range(0, 49))
-        return list(range(0, 19))
-    if model == "GFS":
-        d = model_cfg["forecast_hours_default"]
-        return list(range(d["start"], d["end"] + 1, d["step"]))
-    raise ValueError(f"Unknown model: {model}")
+    """Return canonical expected forecast-hour list per model + run.
+
+    Driven entirely by config/products.yml: forecast_hours_synoptic (with its
+    `runs` list) wins for synoptic run hours, forecast_hours_default otherwise.
+    Reproduces the old hardcoded HRRR (48h synoptic / 18h) and GFS (default
+    only) behavior, and covers RRFS (84h synoptic / 18h) with no new branch.
+    """
+    syn = model_cfg.get("forecast_hours_synoptic")
+    if syn and run_hour in syn.get("runs", []):
+        return list(range(syn["start"], syn["end"] + 1, syn.get("step", 1)))
+    d = model_cfg["forecast_hours_default"]
+    return list(range(d["start"], d["end"] + 1, d.get("step", 1)))
 
 
 def list_r2_runs(model: str) -> list[str]:
