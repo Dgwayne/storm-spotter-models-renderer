@@ -19,7 +19,10 @@
 products:
   refc:
     display: "Composite Reflectivity"
-    wgrib2_match: ":REFC:entire atmosphere:"
+    # No trailing colon: HRRR/GFS idx lines say ":REFC:entire atmosphere:"
+    # but RRFS writes ":REFC:entire atmosphere (considered as a single
+    # layer):" — the prefix matches all three, still a single message each.
+    wgrib2_match: ":REFC:entire atmosphere"
     units_in: "dBZ"
     units_out: "dBZ"
     convert: ""
