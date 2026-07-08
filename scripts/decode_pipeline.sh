@@ -45,8 +45,14 @@ DERIVED=$(yq -r ".products.${PRODUCT}.derived // false" "$CONFIG")
 
 # Mesoanalysis products cap their forecast hours (fh_cap: the app's meso
 # layer only consumes analysis frames). Skip anything beyond the cap.
+# fh_min skips hours BELOW a floor — for fields HRRR leaves empty at f00
+# (e.g. the ptype categorical flags).
 FH_CAP=$(yq -r ".products.${PRODUCT}.fh_cap // \"\"" "$CONFIG")
 if [ -n "${FH_CAP}" ] && [ "${FH}" -gt "${FH_CAP}" ]; then
+  exit 0
+fi
+FH_MIN=$(yq -r ".products.${PRODUCT}.fh_min // \"\"" "$CONFIG")
+if [ -n "${FH_MIN}" ] && [ "${FH}" -lt "${FH_MIN}" ]; then
   exit 0
 fi
 

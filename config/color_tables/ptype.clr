@@ -1,0 +1,8 @@
+# Categorical precip type: 1 rain, 2 snow, 3 sleet, 4 freezing rain.
+# Rendered nearest-color so each category is a flat bin. 0 = none.
+nv    0   0   0   0
+0     0   0   0   0
+1     60  180 75  210
+2     70  130 245 210
+3     170 90  220 230
+4     235 60  120 240

@@ -1,0 +1,14 @@
+# LCL height (m AGL) — LOW LCL favors tornadoes, so green = low/moist,
+# fading through yellow to faint tan as bases rise. Faint above 3000.
+nv    0   0   0   0
+0     0   140 60  230
+250   20  170 80  230
+500   60  190 90  220
+750   110 205 100 210
+1000  170 215 110 200
+1250  215 220 120 180
+1500  235 210 110 160
+2000  240 190 100 130
+2500  235 175 110 100
+3000  225 165 120 70
+4000  210 160 130 40

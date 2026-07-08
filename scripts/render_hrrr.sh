@@ -44,8 +44,10 @@ RETAIN=$(yq -r ".models.${MODEL}.retain_runs" "$CONFIG")
 # and the capped (product × fh × run) tuples would add ~1,900 of them
 # per tick.
 declare -A FH_CAPS
+declare -A FH_MINS
 for product in $PRODUCTS; do
   FH_CAPS[$product]=$(yq -r ".products.${product}.fh_cap // \"\"" "$CONFIG")
+  FH_MINS[$product]=$(yq -r ".products.${product}.fh_min // \"\"" "$CONFIG")
 done
 
 # ── Pre-fetch R2 listing for fast idempotent skips ────────────────
@@ -85,8 +87,11 @@ for offset in $(seq 0 "${HOURS_BACK}"); do
 
   for product in $PRODUCTS; do
     for fh in $(seq 0 "${FH_END}"); do
-      # ── Per-product fh cap (meso products: analysis frames only) ─
+      # ── Per-product fh cap/floor (meso products: analysis frames) ─
       if [ -n "${FH_CAPS[$product]}" ] && [ "${fh}" -gt "${FH_CAPS[$product]}" ]; then
+        continue
+      fi
+      if [ -n "${FH_MINS[$product]}" ] && [ "${fh}" -lt "${FH_MINS[$product]}" ]; then
         continue
       fi
       # ── Parent-level idempotent skip ──────────────────────────────

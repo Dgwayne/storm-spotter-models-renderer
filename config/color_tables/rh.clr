@@ -1,0 +1,12 @@
+# 2m relative humidity (%) for fire weather — DRY is the signal, so red
+# at single digits fading out by ~45%. Transparent when moist.
+nv    0   0   0   0
+2     170 10  40  255
+5     210 30  35  255
+10    235 70  40  255
+15    240 110 45  240
+20    240 150 60  220
+25    240 180 90  190
+30    235 205 130 150
+40    230 220 170 100
+45    0   0   0   0

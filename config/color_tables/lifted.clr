@@ -1,0 +1,11 @@
+# Lifted Index (°C) — negative = unstable. Transparent for stable air
+# (>= +2); nearest-color clamps anything above the last stop to it.
+nv    0   0   0   0
+-14   130 0   150 255
+-10   180 20  90  255
+-8    220 40  40  255
+-6    240 100 40  255
+-4    240 160 50  230
+-2    240 210 100 190
+0     230 230 160 130
+2     0   0   0   0

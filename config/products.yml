@@ -46,6 +46,10 @@ products:
     clr: "t2m.clr"
     pal: "hrrr_t2m.pal"
     point_values: true
+    # also_meso: publish in the manifest's mesoCatalog too — the app's
+    # Mesoanalysis layer lists this product (its f00 frame already
+    # renders for the models tab, so reuse costs nothing).
+    also_meso: true
 
   td2m:
     display: "2m Dewpoint"
@@ -57,6 +61,7 @@ products:
     clr: "td2m.clr"
     pal: "hrrr_td2m.pal"
     point_values: true
+    also_meso: true
 
   wind10m:
     display: "10m Wind Speed"
@@ -70,6 +75,7 @@ products:
     clr: "wind.clr"
     pal: "hrrr_wind10m.pal"
     point_values: true
+    also_meso: true
 
   gust10m:
     display: "10m Wind Gust"
@@ -80,6 +86,7 @@ products:
     clr: "wind.clr"
     pal: "hrrr_gust10m.pal"
     point_values: true
+    also_meso: true
 
   mslp:
     display: "Mean Sea-Level Pressure"
@@ -101,6 +108,7 @@ products:
     clr: "cape.clr"
     pal: "hrrr_sfccape.pal"
     point_values: true
+    also_meso: true
 
   precip1h:
     display: "1-hour Precipitation"
@@ -285,6 +293,216 @@ products:
     fh_cap: 1
     category: meso
 
+  # ── Mesoanalysis catalog v2 (SPC-style groups) ──────────────────────────
+  # Same rules as the first meso set: fh_cap 1, category meso, formulas
+  # kept dumb enough to audit against the SPC page. Grouping lives in the
+  # app's kMesoParameters (Thermodynamics / Wind Shear / Composite Indices /
+  # Surface / Heavy Rain / Winter Weather / Fire Weather).
+
+  cape3km:
+    display: "0-3km CAPE"
+    wgrib2_match: ":CAPE:0-3000 m above ground:"
+    units_in: "J/kg"
+    units_out: "J/kg"
+    convert: ""
+    clr: "cape3km.clr"
+    pal: ""
+    point_values: true
+    fh_cap: 1
+    category: meso
+
+  liftedIdx:
+    display: "Lifted Index"
+    # ⚠ LFTX is a temperature-typed field (K): if GDAL's CF normalization
+    # subtracts 273.15 the raw stats will sit near -280 — check the logged
+    # raw.tif stats on first render and add `convert: "A + 273.15"` if so.
+    wgrib2_match: ":LFTX:500-1000 mb:"
+    units_in: "K"
+    units_out: "°C"
+    convert: ""
+    clr: "lifted.clr"
+    pal: ""
+    point_values: true
+    fh_cap: 1
+    category: meso
+
+  lapse75:
+    display: "700-500mb Lapse Rate"
+    derived: true
+    # (T700 - T500) / (z500 - z700) in °C/km. Temperature DIFFERENCE, so
+    # any K→C normalization by the GRIB driver cancels out. max() guards
+    # a degenerate thickness (never happens on real data).
+    inputs:
+      A: ":TMP:700 mb:"
+      B: ":TMP:500 mb:"
+      C: ":HGT:500 mb:"
+      D: ":HGT:700 mb:"
+    calc: "(A-B)/maximum((C-D)/1000.0,0.1)"
+    units_in: ""
+    units_out: "°C/km"
+    convert: ""
+    clr: "lapse.clr"
+    pal: ""
+    point_values: true
+    point_decimals: 1
+    fh_cap: 1
+    category: meso
+
+  lclHgt:
+    display: "LCL Height"
+    derived: true
+    # LCL above ground = LCL MSL height minus terrain height.
+    inputs:
+      A: ":HGT:level of adiabatic condensation from sfc:"
+      B: ":HGT:surface:"
+    calc: "maximum(A-B,0)"
+    units_in: "m"
+    units_out: "m"
+    convert: ""
+    clr: "lcl.clr"
+    pal: ""
+    point_values: true
+    fh_cap: 1
+    category: meso
+
+  shear1:
+    display: "0-1km Shear"
+    # Same [1/s]-labeled-but-actually-m/s gotcha as shear6.
+    wgrib2_match: ":(VUCSH|VVCSH):0-1000 m above ground:"
+    composite_uv: true
+    units_in: "m/s"
+    units_out: "kt"
+    convert: "A * 1.94384"
+    clr: "shear1.clr"
+    pal: ""
+    point_values: true
+    fh_cap: 1
+    category: meso
+
+  stormMotion:
+    display: "Storm Motion"
+    # Bunkers right-mover storm motion vector -> speed. (Direction can't
+    # render as a raster; the sounding hodograph covers it.)
+    wgrib2_match: ":(USTM|VSTM):0-6000 m above ground:"
+    composite_uv: true
+    units_in: "m/s"
+    units_out: "kt"
+    convert: "A * 1.94384"
+    clr: "wind.clr"
+    pal: ""
+    point_values: true
+    fh_cap: 1
+    category: meso
+
+  ehi1:
+    display: "EHI (0-1km)"
+    derived: true
+    # Energy-Helicity Index, mirrors sounding_analysis.dart _ehi:
+    # (CAPE * SRH) / 160000, floored at 0.
+    inputs:
+      A: ":CAPE:surface:"
+      B: ":HLCY:1000-0 m above ground:"
+    calc: "maximum((A*B)/160000.0,0)"
+    units_in: ""
+    units_out: ""
+    convert: ""
+    clr: "ehi.clr"
+    pal: ""
+    point_values: true
+    point_decimals: 1
+    fh_cap: 1
+    category: meso
+
+  pwat:
+    display: "Precipitable Water"
+    wgrib2_match: ":PWAT:entire atmosphere"
+    units_in: "kg/m^2"
+    units_out: "in"
+    convert: "A / 25.4"
+    clr: "pwat.clr"
+    pal: ""
+    point_values: true
+    point_decimals: 2
+    fh_cap: 1
+    category: meso
+
+  echoTops:
+    display: "Echo Tops"
+    wgrib2_match: ":RETOP:cloud top:"
+    units_in: "m"
+    units_out: "kft"
+    convert: "A * 0.00328084"
+    clr: "etops.clr"
+    pal: ""
+    point_values: true
+    fh_cap: 1
+    category: meso
+
+  ptype:
+    display: "Precip Type"
+    derived: true
+    # Categorical composite of HRRR's dominant-type 0/1 flags:
+    # 1 rain, 2 snow, 3 sleet, 4 freezing rain. Rendered with the
+    # default nearest-color mapping (discrete bins); no point values —
+    # the numbers would be category codes, not measurements.
+    #
+    # fh_min: the categorical flags are ALL-ZERO at f00 (verified
+    # 2026-07-08: f00 CRAIN nonzero=0, f01 nonzero=109k) — HRRR only
+    # populates them on forecast hours. Render f01 only; the app's
+    # meso layer follows each product's first expected hour.
+    fh_min: 1
+    inputs:
+      A: ":CRAIN:surface:"
+      B: ":CSNOW:surface:"
+      C: ":CICEP:surface:"
+      D: ":CFRZR:surface:"
+    calc: "A*1+B*2+C*3+D*4"
+    units_in: ""
+    units_out: ""
+    convert: ""
+    clr: "ptype.clr"
+    pal: ""
+    point_values: false
+    fh_cap: 1
+    category: meso
+
+  frzLvl:
+    display: "Freezing Level"
+    wgrib2_match: ":HGT:0C isotherm:"
+    units_in: "m"
+    units_out: "m"
+    convert: ""
+    clr: "frzlvl.clr"
+    pal: ""
+    point_values: true
+    fh_cap: 1
+    category: meso
+
+  rh2m:
+    display: "2m Relative Humidity"
+    wgrib2_match: ":RH:2 m above ground:"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "rh.clr"
+    pal: ""
+    point_values: true
+    fh_cap: 1
+    category: meso
+
+  vis:
+    display: "Surface Visibility"
+    wgrib2_match: ":VIS:surface:"
+    units_in: "m"
+    units_out: "mi"
+    convert: "A / 1609.34"
+    clr: "vis.clr"
+    pal: ""
+    point_values: true
+    point_decimals: 1
+    fh_cap: 1
+    category: meso
+
 models:
   HRRR:
     products:
@@ -305,6 +523,20 @@ models:
       - shear6
       - stp
       - scp
+      # Meso catalog v2 (SPC-style groups)
+      - cape3km
+      - liftedIdx
+      - lapse75
+      - lclHgt
+      - shear1
+      - stormMotion
+      - ehi1
+      - pwat
+      - echoTops
+      - ptype
+      - frzLvl
+      - rh2m
+      - vis
     # CONUS bbox (Lambert -> reprojected to EPSG:3857 by gdalwarp at render time)
     bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
     # Smoothness over sharpness (decided after testing). Animation scrub

@@ -1,0 +1,13 @@
+# Freezing level / 0°C isotherm height (m MSL). Cold blues near the
+# surface (winter mixed-precip concern) to warm oranges when high.
+nv    0   0   0   0
+0     150 190 255 220
+500   110 160 250 220
+1000  80  130 240 210
+1500  80  180 220 190
+2000  110 210 170 170
+2500  180 220 130 160
+3000  230 210 110 160
+3500  240 180 90  170
+4200  235 140 70  180
+5000  225 100 60  190

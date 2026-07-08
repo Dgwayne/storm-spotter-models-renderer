@@ -1,0 +1,12 @@
+# 0-3km CAPE (J/kg) — low-level instability; meaningful values are much
+# smaller than total CAPE (50-500), so a dedicated scale.
+nv    0   0   0   0
+0     0   0   0   0
+25    240 240 160 100
+50    240 220 120 160
+100   240 190 80  200
+150   240 150 50  230
+200   240 110 40  255
+300   230 60  40  255
+400   200 20  60  255
+500   170 0   110 255

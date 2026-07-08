@@ -115,14 +115,24 @@ for code in products:
         meso_catalog.append(entry)
     else:
         product_catalog.append(entry)
+        # also_meso products render for the full forecast range (models
+        # tab) AND appear in the meso catalog — the app's Mesoanalysis
+        # layer just consumes their existing f00 frames.
+        if pc.get("also_meso"):
+            meso_catalog.append(entry)
 
 
 def expected_for(code: str, run_expected: list[int]) -> list[int]:
-    """Clamp a run's expected hours to the product's fh_cap (if any)."""
+    """Clamp a run's expected hours to the product's fh_cap/fh_min."""
     cap = products_cfg[code].get("fh_cap")
-    if cap is None:
+    floor = products_cfg[code].get("fh_min")
+    if cap is None and floor is None:
         return run_expected
-    return [h for h in run_expected if h <= cap]
+    return [
+        h
+        for h in run_expected
+        if (cap is None or h <= cap) and (floor is None or h >= floor)
+    ]
 
 runs_payload = []
 for run in recent_runs:

@@ -1,0 +1,13 @@
+# 0-1km bulk shear (kt). Low-level shear matters at smaller magnitudes
+# than deep shear: 15-20 kt already supports tornadoes. Transparent <10.
+nv    0   0   0   0
+0     0   0   0   0
+10    170 225 170 110
+15    120 210 120 170
+20    140 215 80  220
+25    225 205 60  255
+30    240 160 50  255
+35    240 120 45  255
+40    225 70  40  255
+50    190 30  50  255
+60    150 10  90  255

@@ -1,0 +1,11 @@
+# Surface visibility (miles) — dust/fog/heavy precip. Red under 1/4 mi,
+# fading out above ~6 mi (unrestricted).
+nv    0   0   0   0
+0     150 10  40  255
+0.25  210 40  40  255
+0.5   240 90  45  240
+1     240 140 60  220
+2     240 180 90  190
+3     235 205 130 150
+5     230 220 170 100
+6.5   0   0   0   0
