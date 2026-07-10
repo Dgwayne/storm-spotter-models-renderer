@@ -87,11 +87,16 @@ TIME_BUCKET_SEC = 30
 
 # Flashes older than this only ever feed the app's radar-loop slicing
 # (the live layer shows at most the newest 30 min), and that slicing bins
-# by radar frame, so the older half of the window is thinned with a
-# coarser grid + time bucket. Keeps the doubled window from doubling the
-# payload.
+# by radar frame, so the older half of the window is thinned with a much
+# coarser grid. The time bucket stays modest — coarsening TIME instead
+# would clump each cell's survivors near bucket ends and make short
+# per-frame windows strobe during playback. 0.05° (~5.5 km) matches the
+# "where was the lightning at this frame" use, and on an active night it
+# keeps the old half to a few thousand flashes so the MAX_FLASHES cap
+# never eats the oldest frames' data (observed: 0.02° hit the cap and
+# truncated the window to ~47 min).
 RECENT_MIN = 30
-GRID_DEG_OLD = 0.02
+GRID_DEG_OLD = 0.05
 TIME_BUCKET_OLD_SEC = 120
 
 # Hard safety cap on emitted points (keep newest). Grid-dedup normally
