@@ -90,13 +90,13 @@ TIME_BUCKET_SEC = 30
 # by radar frame, so the older half of the window is thinned with a much
 # coarser grid. The time bucket stays modest — coarsening TIME instead
 # would clump each cell's survivors near bucket ends and make short
-# per-frame windows strobe during playback. 0.05° (~5.5 km) matches the
-# "where was the lightning at this frame" use, and on an active night it
-# keeps the old half to a few thousand flashes so the MAX_FLASHES cap
-# never eats the oldest frames' data (observed: 0.02° hit the cap and
-# truncated the window to ~47 min).
+# per-frame windows strobe during playback. 0.08° (~9 km) is inside
+# GLM's own ~8-14 km footprint, so nothing real is lost, and on an
+# active night it keeps the old half small enough that the MAX_FLASHES
+# cap never eats the oldest frames' data (observed: 0.02° truncated the
+# window to ~47 min; 0.05° still sat exactly at the cap).
 RECENT_MIN = 30
-GRID_DEG_OLD = 0.05
+GRID_DEG_OLD = 0.08
 TIME_BUCKET_OLD_SEC = 120
 
 # Hard safety cap on emitted points (keep newest). Grid-dedup normally
