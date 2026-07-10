@@ -71,8 +71,9 @@ CUTOFF_LON = -106.0
 # (5/10/20/30 min) client-side and, when the single-site radar animation
 # plays, slices this by each frame's scan time to sync lightning with the
 # storm — so the feed must carry enough history to cover the largest app
-# window + recent radar frames. 30 min does both.
-WINDOW_MIN = 30
+# window + the oldest radar frame in a loop. A 10-frame volume-scan loop
+# reaches ~45-60 min back, so the feed carries a full hour.
+WINDOW_MIN = 60
 
 # Dedup grid: collapse flashes sharing a ~1.1 km cell within the same
 # 1-minute bucket to a single representative point. Bounds payload size
@@ -83,6 +84,15 @@ GRID_DEG = 0.01
 # flash/min (which made the app's continuous reveal blink), while still
 # bounding count.
 TIME_BUCKET_SEC = 30
+
+# Flashes older than this only ever feed the app's radar-loop slicing
+# (the live layer shows at most the newest 30 min), and that slicing bins
+# by radar frame, so the older half of the window is thinned with a
+# coarser grid + time bucket. Keeps the doubled window from doubling the
+# payload.
+RECENT_MIN = 30
+GRID_DEG_OLD = 0.02
+TIME_BUCKET_OLD_SEC = 120
 
 # Hard safety cap on emitted points (keep newest). Grid-dedup normally
 # keeps us well under this; the cap just guarantees a bounded file.
@@ -123,10 +133,12 @@ def _start_epoch_from_key(key: str) -> int | None:
 
 
 def _hour_prefixes(now: dt.datetime) -> list[str]:
-    """GLM-L2-LCFA prefixes for the current + previous UTC hour, enough to
-    cover the rolling window even across an hour boundary."""
+    """GLM-L2-LCFA hour prefixes covering the rolling window, oldest first.
+    Derived from WINDOW_MIN (plus one spare hour) so bumping the window
+    can't silently under-list granules across hour boundaries."""
+    hours_back = WINDOW_MIN // 60 + 1
     prefixes = []
-    for back in (1, 0):  # previous hour first, then current
+    for back in range(hours_back, -1, -1):  # oldest hour first, then newer
         t = now - dt.timedelta(hours=back)
         doy = t.timetuple().tm_yday
         prefixes.append(f"GLM-L2-LCFA/{t.year}/{doy:03d}/{t.hour:02d}/")
@@ -244,6 +256,7 @@ def main() -> int:
     bucket_r2 = os.environ["R2_BUCKET"]
     now = dt.datetime.now(dt.timezone.utc)
     cutoff_epoch = int(now.timestamp()) - WINDOW_MIN * 60
+    recent_cutoff = int(now.timestamp()) - RECENT_MIN * 60
     prefixes = _hour_prefixes(now)
 
     east = _pick_bucket(EAST_BUCKETS, prefixes, cutoff_epoch)
@@ -261,8 +274,9 @@ def main() -> int:
         print("  no GLM data available right now (satellite swap or outage?)", file=sys.stderr)
         return 0  # don't fail the loop; next pass may recover
 
-    # grid-key -> (lat, lon, epoch); newer epoch wins for the same cell.
-    dedup: dict[tuple[int, int, int], tuple[float, float, int]] = {}
+    # (recent-tier, grid-lat, grid-lon, time-bucket) -> (lat, lon, epoch);
+    # newer epoch wins for the same cell.
+    dedup: dict[tuple[bool, int, int, int], tuple[float, float, int]] = {}
 
     for bucket, keep in plan:
         keys = _list_window_keys(bucket, prefixes, cutoff_epoch)
@@ -277,8 +291,14 @@ def main() -> int:
             lat, lon, fep = lat[sel], lon[sel], fep[sel]
             for la, lo, e in zip(lat, lon, fep):
                 ei = int(e)
-                tbucket = ei // TIME_BUCKET_SEC
-                gk = (int(round(la / GRID_DEG)), int(round(lo / GRID_DEG)), tbucket)
+                # Two-tier dedup: fine for the recent half (live layer's
+                # continuous reveal needs the density), coarse for the
+                # older half (only sliced per radar frame). The tier flag
+                # in the key keeps the tiers from colliding.
+                recent = ei >= recent_cutoff
+                grid = GRID_DEG if recent else GRID_DEG_OLD
+                tb = TIME_BUCKET_SEC if recent else TIME_BUCKET_OLD_SEC
+                gk = (recent, int(round(la / grid)), int(round(lo / grid)), ei // tb)
                 prev = dedup.get(gk)
                 if prev is None or ei > prev[2]:
                     dedup[gk] = (la, lo, ei)

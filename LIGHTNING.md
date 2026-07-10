@@ -11,10 +11,12 @@ setup.**
   `noaa-goes18` West). Public domain, commercial use OK, no key.
   *(Blitzortung/LightningMaps are NOT usable — they forbid commercial and
   storm-warning use, even via a proxy.)*
-- **Output:** one tiny file, rebuilt every ~25 s:
+- **Output:** one small file, rebuilt every ~15 s:
   `https://models.dgwaynes.com/lightning/v1/flashes.json`
-- **Cadence:** the workflow runs every 5 min and loops internally for
-  ~4.5 min, so the feed updates ~every 25 s with a brief handoff gap.
+- **Cadence:** a 2-hourly cron restarts a long-running (~5h50m) loop that
+  rebuilds the feed every ~15 s (`cancel-in-progress` handles the
+  handoff). Short crons are unreliable on GitHub; the long loop keeps the
+  feed fresh even if a scheduled tick is skipped.
 - **Cost:** $0. Public repo = unlimited Actions minutes; the JSON is a
   few hundred KB at most and R2 egress is free.
 
@@ -24,7 +26,7 @@ setup.**
 {
   "schemaVersion": 1,
   "generatedAt": "2026-06-18T20:31:05Z",
-  "windowMinutes": 15,
+  "windowMinutes": 60,
   "count": 1234,
   "flashes": [ [39.123, -104.567, 1718742660] ]   // [lat, lon, epochSec]
 }
@@ -39,7 +41,7 @@ shipping an app update.
 | File | Role |
 |------|------|
 | `scripts/lightning_glm.py` | Fetch GLM granules, parse flashes, dedup, push to R2 |
-| `.github/workflows/lightning.yml` | 5-min cron; ~4.5-min internal loop; `cancel-in-progress` |
+| `.github/workflows/lightning.yml` | 2-h cron; ~5h50m internal loop; `cancel-in-progress` |
 
 ## Deploy
 
@@ -49,7 +51,8 @@ shipping an app update.
    `R2_BUCKET`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
    Nothing to add.
 3. GitHub → Actions → **Lightning (GLM)** → **Run workflow** to kick the
-   first run (or wait for the next 5-min tick).
+   first run (or wait for the next 2-h tick; `cancel-in-progress`
+   supersedes the running loop either way).
 4. After ~1 min, verify:
    ```bash
    curl https://models.dgwaynes.com/lightning/v1/flashes.json | head -c 400
@@ -60,8 +63,14 @@ shipping an app update.
 
 ## Tuning knobs (top of `lightning_glm.py`)
 
-- `WINDOW_MIN` — rolling window / max flash age shown (default 15).
-- `GRID_DEG`, `TIME_BUCKET_SEC` — dedup density (default ~1.1 km / 60 s).
+- `WINDOW_MIN` — rolling window / max flash age shown (default 60, so
+  radar-loop sync in the app has lightning for the oldest frames of a
+  ~10-frame volume-scan loop).
+- `GRID_DEG`, `TIME_BUCKET_SEC` — dedup density for the recent
+  (`RECENT_MIN`) half of the window (default ~1.1 km / 30 s).
+- `GRID_DEG_OLD`, `TIME_BUCKET_OLD_SEC` — coarser dedup for flashes older
+  than `RECENT_MIN`; they only feed the app's per-radar-frame slicing, so
+  thinning them bounds payload growth.
 - `CUTOFF_LON` — East/West satellite split meridian (default -106).
 - `MAX_FLASHES` — hard safety cap on payload size.
 - `EAST_BUCKETS`, `WEST_BUCKETS` — candidate buckets, newest sat first;
