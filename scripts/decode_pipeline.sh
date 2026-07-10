@@ -273,8 +273,10 @@ POINT_VALUES=$(yq -r ".products.${PRODUCT}.point_values // false" "$CONFIG")
 if [ "${POINT_VALUES}" = "true" ]; then
   POINT_DECIMALS=$(yq -r ".products.${PRODUCT}.point_decimals // 0" "$CONFIG")
   UNITS_OUT=$(yq -r ".products.${PRODUCT}.units_out // \"\"" "$CONFIG")
-  GRID_W=$(yq -r ".models.${MODEL}.point_grid[0] // 128" "$CONFIG")
-  GRID_H=$(yq -r ".models.${MODEL}.point_grid[1] // 128" "$CONFIG")
+  # Per-product point_grid override (meso products publish a denser
+  # grid for the cell-picker readout), falling back to the model's.
+  GRID_W=$(yq -r ".products.${PRODUCT}.point_grid[0] // .models.${MODEL}.point_grid[0] // 128" "$CONFIG")
+  GRID_H=$(yq -r ".products.${PRODUCT}.point_grid[1] // .models.${MODEL}.point_grid[1] // 128" "$CONFIG")
   JSON_LOCAL="${WORK}/F$(printf '%03d' "$FH").json"
   JSON_REL="${OUT_REL%.png}.json"
   if python3 "${REPO_ROOT}/scripts/sample_point_values.py" \

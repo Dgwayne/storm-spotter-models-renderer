@@ -176,6 +176,9 @@ products:
     pal: ""
     point_values: true
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   mucape:
@@ -188,6 +191,9 @@ products:
     pal: ""
     point_values: true
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   mlcin:
@@ -200,6 +206,9 @@ products:
     pal: ""
     point_values: true
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   srh1:
@@ -212,6 +221,9 @@ products:
     pal: ""
     point_values: true
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   srh3:
@@ -224,6 +236,9 @@ products:
     pal: ""
     point_values: true
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   shear6:
@@ -241,6 +256,9 @@ products:
     pal: ""
     point_values: true
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   stp:
@@ -269,6 +287,9 @@ products:
     point_values: true
     point_decimals: 1
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   scp:
@@ -291,6 +312,9 @@ products:
     point_values: true
     point_decimals: 1
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   # ── Mesoanalysis catalog v2 (SPC-style groups) ──────────────────────────
@@ -309,6 +333,9 @@ products:
     pal: ""
     point_values: true
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   liftedIdx:
@@ -324,6 +351,9 @@ products:
     pal: ""
     point_values: true
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   lapse75:
@@ -346,6 +376,9 @@ products:
     point_values: true
     point_decimals: 1
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   lclHgt:
@@ -363,6 +396,9 @@ products:
     pal: ""
     point_values: true
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   shear1:
@@ -377,6 +413,9 @@ products:
     pal: ""
     point_values: true
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   stormMotion:
@@ -392,6 +431,9 @@ products:
     pal: ""
     point_values: true
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   ehi1:
@@ -411,6 +453,9 @@ products:
     point_values: true
     point_decimals: 1
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   pwat:
@@ -424,6 +469,9 @@ products:
     point_values: true
     point_decimals: 2
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   echoTops:
@@ -436,6 +484,9 @@ products:
     pal: ""
     point_values: true
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   ptype:
@@ -464,6 +515,9 @@ products:
     pal: ""
     point_values: false
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   frzLvl:
@@ -476,6 +530,9 @@ products:
     pal: ""
     point_values: true
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   rh2m:
@@ -488,6 +545,9 @@ products:
     pal: ""
     point_values: true
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
   vis:
@@ -501,6 +561,9 @@ products:
     point_values: true
     point_decimals: 1
     fh_cap: 1
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
     category: meso
 
 models:
