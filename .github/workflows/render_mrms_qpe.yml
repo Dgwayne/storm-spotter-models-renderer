@@ -1,0 +1,80 @@
+name: Render MRMS QPE (OBS)
+
+on:
+  schedule:
+    # Every 15 minutes, staggered off the HRRR (:05) and RRFS (:10) ticks.
+    # MRMS Pass1 publishes ~:16 after each valid hour and Pass2 ~:58, so the
+    # :17 tick catches the Pass1 bridge within a minute and the :02 tick
+    # settles the hour with Pass2. GitHub cron is best-effort; the
+    # cron-trigger Worker dispatches this workflow on the reliable schedule.
+    - cron: '2,17,32,47 * * * *'
+  workflow_dispatch:
+    inputs:
+      force_rerender:
+        description: 'Re-render frames even when already on R2 (bypass idempotency check).'
+        type: boolean
+        default: false
+
+concurrency:
+  group: render-mrms-qpe
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      FORCE_RERENDER: ${{ inputs.force_rerender && '1' || '' }}
+
+    defaults:
+      run:
+        shell: bash -el {0}    # ensures conda env is activated for every step
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # No wgrib2 needed — MRMS QPE files are single-message gribs that
+      # GDAL's GRIB driver reads directly.
+      - name: Set up micromamba (gdal + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: renderer
+          create-args: >-
+            python=3.11
+            gdal
+            libgdal-grib
+            rclone
+            pyyaml
+            curl
+          cache-environment: true
+          init-shell: bash
+
+      - name: Install yq (Go binary)
+        run: |
+          set -e
+          sudo curl -sSfL -o /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+          gdalinfo --version
+          rclone --version | head -1
+
+      - name: Configure rclone for Cloudflare R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = ${{ secrets.R2_ENDPOINT }}
+          acl = private
+          EOF
+
+      - name: Render MRMS QPE
+        run: bash scripts/render_mrms_qpe.sh

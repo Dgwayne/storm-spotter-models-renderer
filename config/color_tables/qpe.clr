@@ -1,0 +1,26 @@
+# Observed precipitation accumulation (inches) — MRMS QPE ramp.
+# Same family as precip.clr (the models-tab QPF ramp) so forecast and
+# observed precip read as one visual language in the app, extended past
+# 5" because 12/24-hour observed totals in flood events routinely exceed
+# the QPF ramp's ceiling (10-20" in Gulf/flash-flood setups).
+# Binned (no interpolate_color): decode renders with -nearest_color_entry.
+nv     0   0   0   0
+0.00   0   0   0   0
+0.01   180 220 200 80
+0.05   140 200 180 140
+0.10   100 180 160 200
+0.25   80  160 220 240
+0.50   60  120 230 255
+0.75   80  100 200 255
+1.00   120 80  180 255
+1.50   160 60  160 255
+2.00   200 60  140 255
+2.50   220 80  100 255
+3.00   220 100 60  255
+4.00   220 140 60  255
+5.00   220 180 80  255
+6.00   230 210 110 255
+8.00   245 235 170 255
+10.00  255 255 255 255
+15.00  255 170 220 255
+20.00  255 90  200 255

@@ -566,6 +566,75 @@ products:
     point_grid: [512, 512]
     category: meso
 
+  # ── Observed precipitation (MRMS QPE) ───────────────────────────────────
+  # Radar+gauge observed accumulation for the app's "Observations (Precip)"
+  # map layer. NOT rendered by decode_pipeline.sh — these have no runs or
+  # forecast hours; scripts/render_mrms_qpe.sh fetches the MRMS grib2
+  # directly from the noaa-mrms-pds AWS bucket and publishes each valid
+  # hour as a single-frame pseudo-run (RunStamp = accumulation END hour,
+  # frame F000) so build_manifest.py / prune_old_runs.py / the app's
+  # frame-fetch plumbing all work unchanged.
+  #
+  #   mrms_product: source directory prefix on noaa-mrms-pds (the script
+  #                 appends _Pass2_00.00 / _Pass1_00.00).
+  # MRMS QPE encodes mm with sentinel negatives (-1 missing, -3 outside
+  # radar coverage) — the render script maps A<0 → NoData before mm→in.
+
+  qpe01h:
+    display: "1-hour Precip"
+    mrms_product: "MultiSensor_QPE_01H"
+    units_in: "mm"
+    units_out: "in"
+    clr: "qpe.clr"
+    pal: ""
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  qpe03h:
+    display: "3-hour Precip"
+    mrms_product: "MultiSensor_QPE_03H"
+    units_in: "mm"
+    units_out: "in"
+    clr: "qpe.clr"
+    pal: ""
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  qpe06h:
+    display: "6-hour Precip"
+    mrms_product: "MultiSensor_QPE_06H"
+    units_in: "mm"
+    units_out: "in"
+    clr: "qpe.clr"
+    pal: ""
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  qpe12h:
+    display: "12-hour Precip"
+    mrms_product: "MultiSensor_QPE_12H"
+    units_in: "mm"
+    units_out: "in"
+    clr: "qpe.clr"
+    pal: ""
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  qpe24h:
+    display: "24-hour Precip"
+    mrms_product: "MultiSensor_QPE_24H"
+    units_in: "mm"
+    units_out: "in"
+    clr: "qpe.clr"
+    pal: ""
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
 models:
   HRRR:
     products:
@@ -661,6 +730,36 @@ models:
     s3_key_template: "rrfs_a/rrfs.{date}/{run:02d}/rrfs.t{run:02d}z.2dfld.3km.f{fh:03d}.conus.grib2"
     runs_per_day: 24
     retain_runs: 5
+
+  OBS:
+    # Observed MRMS QPE pseudo-model (see the qpe* product notes above).
+    # "Runs" are hourly valid stamps (accumulation end hour), each with a
+    # single F000 frame — forecast_hours 0-0 makes build_manifest.py's
+    # expected set exactly [0].
+    products:
+      - qpe01h
+      - qpe03h
+      - qpe06h
+      - qpe12h
+      - qpe24h
+    # MRMS CONUS grid coverage (lon 230.005-299.995E, lat 20.005-54.995N) —
+    # narrower than the model CONUS box on the west edge; the app reads the
+    # bbox from the manifest so overlay placement stays correct.
+    bbox_lonlat: [-130.0, 20.0, -60.0, 55.0]
+    # 4096 wide ≈ 1.9 km/px vs MRMS 1 km native — the crispness ceiling for
+    # mobile GPU textures (max texture size ~4096). Unlike the models tab
+    # there is NO animation scrubbing here (one static frame per range), so
+    # the 2048 scrub-smoothness tradeoff doesn't apply. Height matches the
+    # bbox's Web-Mercator aspect (70° lon / lat 20-55 → 0.6531).
+    image_size: [4096, 2676]
+    point_grid: [512, 512]
+    forecast_hours_default: { start: 0, end: 0, step: 1 }
+    s3_bucket: "noaa-mrms-pds"
+    # Key template is informational — render_mrms_qpe.sh builds keys itself
+    # (per-product prefix + Pass2/Pass1 fallback), it doesn't use decode_pipeline.sh.
+    s3_key_template: "CONUS/{product}_Pass2_00.00/{date}/MRMS_{product}_Pass2_00.00_{date}-{run:02d}0000.grib2.gz"
+    runs_per_day: 24
+    retain_runs: 4
 
   GFS:
     products:
