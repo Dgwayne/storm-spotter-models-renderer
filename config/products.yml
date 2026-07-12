@@ -587,6 +587,7 @@ products:
     units_out: "in"
     clr: "qpe.clr"
     pal: ""
+    group: "Precipitation"
     point_values: true
     point_decimals: 2
     point_grid: [512, 512]
@@ -598,6 +599,7 @@ products:
     units_out: "in"
     clr: "qpe.clr"
     pal: ""
+    group: "Precipitation"
     point_values: true
     point_decimals: 2
     point_grid: [512, 512]
@@ -609,6 +611,7 @@ products:
     units_out: "in"
     clr: "qpe.clr"
     pal: ""
+    group: "Precipitation"
     point_values: true
     point_decimals: 2
     point_grid: [512, 512]
@@ -620,6 +623,7 @@ products:
     units_out: "in"
     clr: "qpe.clr"
     pal: ""
+    group: "Precipitation"
     point_values: true
     point_decimals: 2
     point_grid: [512, 512]
@@ -631,6 +635,290 @@ products:
     units_out: "in"
     clr: "qpe.clr"
     pal: ""
+    group: "Precipitation"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  # ── MRMS observation catalog (render_mrms_obs.sh) ──────────────────
+  # Latest-frame products: sub-hourly publishes (2-min radar mosaics,
+  # 10-min FLASH) with arbitrary -HHMMSS stamps and NO Pass1/Pass2 cycle,
+  # so these use `mrms_dir` (the full CONUS/ prefix) instead of
+  # `mrms_product`, and render_mrms_obs.sh lists the S3 day dir and takes
+  # the newest object. `scale` multiplies values AFTER the A<0 sentinel
+  # mask (-1 missing / -3 no-coverage → NoData); products left at 1 pass
+  # native units through. `group` reaches the app via the manifest
+  # catalog to build the categorized picker.
+
+  # Hail
+  mesh:
+    display: "Hail Size (MESH)"
+    mrms_dir: "MESH_00.50"
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "mesh.clr"
+    pal: ""
+    group: "Hail"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  mesh60:
+    display: "Hail Swath 1-hr"
+    mrms_dir: "MESH_Max_60min_00.50"
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "mesh.clr"
+    pal: ""
+    group: "Hail"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  mesh240:
+    display: "Hail Swath 4-hr"
+    mrms_dir: "MESH_Max_240min_00.50"
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "mesh.clr"
+    pal: ""
+    group: "Hail"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  mesh1440:
+    display: "Hail Swath 24-hr"
+    mrms_dir: "MESH_Max_1440min_00.50"
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "mesh.clr"
+    pal: ""
+    group: "Hail"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  posh:
+    display: "Prob. of Severe Hail"
+    mrms_dir: "POSH_00.50"
+    units_in: "%"
+    units_out: "%"
+    clr: "posh.clr"
+    pal: ""
+    group: "Hail"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  # Echo Tops (MRMS stores km — scale to kft)
+  et18:
+    display: "Echo Top - 18 dBZ"
+    mrms_dir: "EchoTop_18_00.50"
+    units_in: "km"
+    units_out: "kft"
+    scale: 3.28084
+    clr: "etops.clr"
+    pal: ""
+    group: "Echo Tops"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  et30:
+    display: "Echo Top - 30 dBZ"
+    mrms_dir: "EchoTop_30_00.50"
+    units_in: "km"
+    units_out: "kft"
+    scale: 3.28084
+    clr: "etops.clr"
+    pal: ""
+    group: "Echo Tops"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  et50:
+    display: "Echo Top - 50 dBZ"
+    mrms_dir: "EchoTop_50_00.50"
+    units_in: "km"
+    units_out: "kft"
+    scale: 3.28084
+    clr: "etops.clr"
+    pal: ""
+    group: "Echo Tops"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  et60:
+    display: "Echo Top - 60 dBZ"
+    mrms_dir: "EchoTop_60_00.50"
+    units_in: "km"
+    units_out: "kft"
+    scale: 3.28084
+    clr: "etops.clr"
+    pal: ""
+    group: "Echo Tops"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  # VIL family
+  vil:
+    display: "Vertically Integrated Liquid"
+    mrms_dir: "VIL_00.50"
+    units_in: "kg/m^2"
+    units_out: "kg/m²"
+    clr: "vil.clr"
+    pal: ""
+    group: "VIL"
+    point_values: true
+    point_decimals: 1
+    point_grid: [512, 512]
+
+  vild:
+    display: "VIL Density"
+    mrms_dir: "VIL_Density_00.50"
+    units_in: "g/m^3"
+    units_out: "g/m³"
+    clr: "vild.clr"
+    pal: ""
+    group: "VIL"
+    point_values: true
+    point_decimals: 1
+    point_grid: [512, 512]
+
+  vii:
+    display: "Vertically Integrated Ice"
+    mrms_dir: "VII_00.50"
+    units_in: "kg/m^2"
+    units_out: "kg/m²"
+    clr: "vii.clr"
+    pal: ""
+    group: "VIL"
+    point_values: true
+    point_decimals: 1
+    point_grid: [512, 512]
+
+  # Rotation tracks (low-level 0-2 km AGL azimuthal shear max)
+  rot30:
+    display: "Rotation Track 30-min"
+    mrms_dir: "RotationTrack30min_00.50"
+    units_in: "s^-1"
+    units_out: "s⁻¹"
+    clr: "rot.clr"
+    pal: ""
+    group: "Rotation"
+    point_values: false
+    point_grid: [512, 512]
+
+  rot60:
+    display: "Rotation Track 1-hr"
+    mrms_dir: "RotationTrack60min_00.50"
+    units_in: "s^-1"
+    units_out: "s⁻¹"
+    clr: "rot.clr"
+    pal: ""
+    group: "Rotation"
+    point_values: false
+    point_grid: [512, 512]
+
+  rot240:
+    display: "Rotation Track 4-hr"
+    mrms_dir: "RotationTrack240min_00.50"
+    units_in: "s^-1"
+    units_out: "s⁻¹"
+    clr: "rot.clr"
+    pal: ""
+    group: "Rotation"
+    point_values: false
+    point_grid: [512, 512]
+
+  rot1440:
+    display: "Rotation Track 24-hr"
+    mrms_dir: "RotationTrack1440min_00.50"
+    units_in: "s^-1"
+    units_out: "s⁻¹"
+    clr: "rot.clr"
+    pal: ""
+    group: "Rotation"
+    point_values: false
+    point_grid: [512, 512]
+
+  # FLASH flood suite (10-min cadence, hydrologic model output)
+  soilsat:
+    display: "Soil Saturation (CREST)"
+    mrms_dir: "FLASH_CREST_MAXSOILSAT_00.00"
+    units_in: "%"
+    units_out: "%"
+    clr: "soilsat.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  unitq:
+    display: "Unit Streamflow (CREST)"
+    mrms_dir: "FLASH_CREST_MAXUNITSTREAMFLOW_00.00"
+    units_in: "m^3/s/km^2"
+    units_out: "m³/s/km²"
+    clr: "unitq.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ari01h:
+    display: "Rainfall Recurrence 1-hr"
+    mrms_dir: "FLASH_QPE_ARI01H_00.00"
+    units_in: "years"
+    units_out: "yr"
+    clr: "ari.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  arimax:
+    display: "Rainfall Recurrence Max"
+    mrms_dir: "FLASH_QPE_ARIMAX_00.00"
+    units_in: "years"
+    units_out: "yr"
+    clr: "ari.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  ffg01h:
+    display: "QPE-to-FFG Ratio 1-hr"
+    mrms_dir: "FLASH_QPE_FFG01H_00.00"
+    units_in: "ratio"
+    units_out: "x FFG"
+    clr: "ffg.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ffgmax:
+    display: "QPE-to-FFG Ratio Max"
+    mrms_dir: "FLASH_QPE_FFGMAX_00.00"
+    units_in: "ratio"
+    units_out: "x FFG"
+    clr: "ffg.clr"
+    pal: ""
+    group: "Flooding"
     point_values: true
     point_decimals: 2
     point_grid: [512, 512]
@@ -742,6 +1030,29 @@ models:
       - qpe06h
       - qpe12h
       - qpe24h
+      # MRMS observation catalog (render_mrms_obs.sh — mrms_dir products)
+      - mesh
+      - mesh60
+      - mesh240
+      - mesh1440
+      - posh
+      - et18
+      - et30
+      - et50
+      - et60
+      - vil
+      - vild
+      - vii
+      - rot30
+      - rot60
+      - rot240
+      - rot1440
+      - soilsat
+      - unitq
+      - ari01h
+      - arimax
+      - ffg01h
+      - ffgmax
     # MRMS CONUS grid coverage (lon 230.005-299.995E, lat 20.005-54.995N) —
     # narrower than the model CONUS box on the west edge; the app reads the
     # bbox from the manifest so overlay placement stays correct.

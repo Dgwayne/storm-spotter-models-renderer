@@ -1,0 +1,11 @@
+# QPE-to-flash-flood-guidance ratio. 1.0 = FFG exceeded (flash flooding
+# likely); transparent below 0.4.
+nv    0   0   0   0
+0     0   0   0   0
+0.3   0   0   0   0
+0.5   170 215 120 180
+0.75  250 220 60  240
+1.0   255 150 40  255
+1.5   240 60  40  255
+2.0   220 20  90  255
+3.0   200 40  220 255

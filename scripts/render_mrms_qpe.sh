@@ -186,6 +186,8 @@ for offset in $(seq 0 "${HOURS_BACK}"); do
     png_key="${product}/${STAMP}/F000.png"
     sentinel_key="${product}/${STAMP}/F000.pass1"
     mrms_prefix=$(yq -r ".products.${product}.mrms_product" "$CONFIG")
+    # Catalog products (mrms_dir, no Pass cycle) belong to render_mrms_obs.sh.
+    [ "${mrms_prefix}" = "null" ] && continue
 
     have_png=false;  has_key "${png_key}" && have_png=true
     is_pass1=false;  has_key "${sentinel_key}" && is_pass1=true

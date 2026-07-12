@@ -110,6 +110,10 @@ for code in products:
         # App draws on-map numbers only for products whose frames ship a
         # F###.json value grid alongside the PNG (see decode_pipeline.sh).
         "pointValues": bool(pc.get("point_values", False)),
+        # Picker section for catalogs the app groups (OBS observation
+        # products). Empty for everything else; old app versions ignore
+        # unknown JSON keys.
+        "group": pc.get("group", ""),
     }
     if pc.get("category") == "meso":
         meso_catalog.append(entry)

@@ -78,3 +78,11 @@ jobs:
 
       - name: Render MRMS QPE
         run: bash scripts/render_mrms_qpe.sh
+
+      # The observation catalog (hail / echo tops / VIL / rotation /
+      # FLASH) rides the same 15-min tick — latest-frame products, no
+      # Pass cycle, own script. Runs even if a transient QPE failure
+      # killed the step above.
+      - name: Render MRMS observation catalog
+        if: ${{ success() || failure() }}
+        run: bash scripts/render_mrms_obs.sh
