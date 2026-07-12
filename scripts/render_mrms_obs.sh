@@ -173,13 +173,14 @@ PY
     # 255 = valid. The app decodes values back and runs the same
     # crisp data-space renderer the live reflectivity uses —
     # colorized client-side with the product's legend bins.
-    gdal_calc.py --quiet -A "${work}/merc.tif" --outfile="${work}/v.tif" \
+    # ONE multi-band gdal_calc with --hideNoData: masked-array
+    # handling silently zeroed a separate constant-valued alpha calc
+    # (verified live 2026-07-12) — hideNoData feeds the raw -9999s to
+    # the expressions so the where() guards do exactly what they say.
+    gdal_calc.py --quiet -A "${work}/merc.tif" --outfile="${work}/ga.tif" \
       --calc="where(A==-9999,0,minimum(255,maximum(1,1+round((A-(${dmin}))*254.0/((${dmax})-(${dmin}))))))" \
-      --type=Byte --overwrite
-    gdal_calc.py --quiet -A "${work}/merc.tif" --outfile="${work}/a.tif" \
-      --calc="where(A==-9999,0,255)" --type=Byte --overwrite
-    gdal_merge.py -q -separate -ot Byte -o "${work}/ga.tif" \
-      "${work}/v.tif" "${work}/a.tif"
+      --calc="where(A==-9999,0,255)" \
+      --type=Byte --hideNoData --overwrite
     gdal_translate -q -of PNG -co ZLEVEL=9 "${work}/ga.tif" "${work}/F000.png"
   else
     gdaldem color-relief -q -alpha -nearest_color_entry \
