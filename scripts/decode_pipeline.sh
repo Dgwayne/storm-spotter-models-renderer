@@ -64,11 +64,28 @@ if [ -n "${FH_STEP}" ] && [ $(( FH % FH_STEP )) -ne 0 ]; then
   exit 0
 fi
 
-S3_BUCKET=$(yq -r ".models.${MODEL}.s3_bucket" "$CONFIG")
+S3_BUCKET=$(yq -r ".models.${MODEL}.s3_bucket // \"\"" "$CONFIG")
 S3_KEY_TEMPLATE=$(yq -r ".models.${MODEL}.s3_key_template" "$CONFIG")
 BBOX=$(yq -r ".models.${MODEL}.bbox_lonlat | join(\" \")" "$CONFIG")
 IMG_W=$(yq -r ".models.${MODEL}.image_size[0]" "$CONFIG")
 IMG_H=$(yq -r ".models.${MODEL}.image_size[1]" "$CONFIG")
+# base_url: non-S3 sources (ECMWF open data) serve the same key template
+# from a plain HTTPS root instead of an AWS bucket hostname.
+BASE_URL=$(yq -r ".models.${MODEL}.base_url // \"\"" "$CONFIG")
+# index_format: "wgrib2" (NOAA .idx text lines, default) or "ecmwf"
+# (open-data JSON-lines .index with _offset/_length).
+INDEX_FORMAT=$(yq -r ".models.${MODEL}.index_format // \"wgrib2\"" "$CONFIG")
+
+# The match expression compute_ranges consumes depends on the index format.
+if [ "${INDEX_FORMAT}" = "ecmwf" ]; then
+  MATCH_EXPR=$(yq -r ".products.${PRODUCT}.ecmwf_match // \"\"" "$CONFIG")
+  if [ -z "${MATCH_EXPR}" ]; then
+    echo "[${MODEL}/${PRODUCT}] no ecmwf_match defined; skip"
+    exit 0
+  fi
+else
+  MATCH_EXPR="${WGRIB2_MATCH}"
+fi
 
 # Expand the key template (Python so we get printf-style {fh:02d}/{fh:03d}).
 # Pass run/fh as strings then int() to avoid Python rejecting "02" as a literal.
@@ -80,8 +97,17 @@ tmpl = r"""${S3_KEY_TEMPLATE}"""
 print(tmpl.format(date=date, run=run, fh=fh))
 PY
 )
-GRIB_URL="https://${S3_BUCKET}.s3.amazonaws.com/${S3_KEY}"
-IDX_URL="${GRIB_URL}.idx"
+if [ -n "${BASE_URL}" ]; then
+  GRIB_URL="${BASE_URL}/${S3_KEY}"
+else
+  GRIB_URL="https://${S3_BUCKET}.s3.amazonaws.com/${S3_KEY}"
+fi
+if [ "${INDEX_FORMAT}" = "ecmwf" ]; then
+  # ECMWF: ...-fc.grib2 pairs with ...-fc.index (suffix swap, not append).
+  IDX_URL="${GRIB_URL%.grib2}.index"
+else
+  IDX_URL="${GRIB_URL}.idx"
+fi
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -131,6 +157,32 @@ curl -sf "${IDX_URL}" -o "${WORK}/file.idx"
 # The regex travels via the environment (not string interpolation) so
 # characters like ( | ) in product matches never hit the Python parser.
 compute_ranges() {
+  if [ "${INDEX_FORMAT}" = "ecmwf" ]; then
+    # ECMWF open-data index: one JSON object per line with _offset/_length.
+    # Match against a canonical "param:levtype:levelist" key (levelist
+    # empty for sfc). Sorting by param keeps U before V (10u < 10v,
+    # u < v) so composite_uv band order matches the wgrib2 path.
+    MATCH_RE="$1" IDX_FILE="${WORK}/file.idx" python3 - <<'PY'
+import json, os, re
+match_re = re.compile(os.environ["MATCH_RE"])
+entries = []
+for ln in open(os.environ["IDX_FILE"]):
+    ln = ln.strip()
+    if not ln:
+        continue
+    try:
+        e = json.loads(ln)
+    except ValueError:
+        continue
+    key = f"{e.get('param', '')}:{e.get('levtype', '')}:{e.get('levelist', '')}"
+    if match_re.search(key) and "_offset" in e and "_length" in e:
+        entries.append((str(e.get("param", "")), int(e["_offset"]), int(e["_length"])))
+entries.sort()
+for _, off, length in entries:
+    print(f"{off}-{off + length - 1}")
+PY
+    return
+  fi
   MATCH_RE="$1" IDX_FILE="${WORK}/file.idx" python3 - <<'PY'
 import os, re
 match_re = re.compile(os.environ["MATCH_RE"])
@@ -165,7 +217,7 @@ PY
 }
 
 if [ "${DERIVED}" != "true" ]; then
-  mapfile -t MATCH_RANGES < <(compute_ranges "${WGRIB2_MATCH}")
+  mapfile -t MATCH_RANGES < <(compute_ranges "${MATCH_EXPR}")
 
   if [ "${#MATCH_RANGES[@]}" -eq 0 ]; then
     echo "  no matching messages in idx; skip"

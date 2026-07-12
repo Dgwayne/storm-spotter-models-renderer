@@ -15,6 +15,12 @@
 #   point_decimals: decimals to keep in the published values (default 0)
 #
 # Models declare which products they publish in the `models:` map at the bottom.
+#
+# ECMWF (index_format: ecmwf) matches against the open-data JSON index
+# instead of a wgrib2 idx: `ecmwf_match` is a regex over the canonical
+# "param:levtype:levelist" key built per index line (levelist empty for
+# sfc), e.g. "^2t:sfc:" or "^(u|v):pl:500$". Matched messages are fetched
+# in param-alphabetical order, which keeps U before V for composite_uv.
 
 products:
   refc:
@@ -45,6 +51,7 @@ products:
     convert: "A * 1.8 + 32"
     clr: "t2m.clr"
     pal: "hrrr_t2m.pal"
+    ecmwf_match: "^2t:sfc:"
     point_values: true
     # also_meso: publish in the manifest's mesoCatalog too — the app's
     # Mesoanalysis layer lists this product (its f00 frame already
@@ -60,6 +67,7 @@ products:
     convert: "A * 1.8 + 32"
     clr: "td2m.clr"
     pal: "hrrr_td2m.pal"
+    ecmwf_match: "^2d:sfc:"
     point_values: true
     also_meso: true
 
@@ -74,6 +82,8 @@ products:
     convert: "A * 1.94384"
     clr: "wind.clr"
     pal: "hrrr_wind10m.pal"
+    # Colon anchors the param so "100u:sfc:" can never match.
+    ecmwf_match: "^(10u|10v):sfc:"
     point_values: true
     also_meso: true
 
@@ -85,6 +95,8 @@ products:
     convert: "A * 1.94384"
     clr: "wind.clr"
     pal: "hrrr_gust10m.pal"
+    # ECMWF 10fg = max gust since the previous 3 h step (not instantaneous).
+    ecmwf_match: "^10fg:sfc:"
     point_values: true
     also_meso: true
 
@@ -94,6 +106,7 @@ products:
     # two messages are fetched and gdal_translate -b 1 takes the first in
     # message order, so NAM renders PRMSL (the standard reduction).
     wgrib2_match: ":(MSLMA|MSLET|PRMSL):mean sea level:"
+    ecmwf_match: "^msl:sfc:"
     units_in: "Pa"
     units_out: "hPa"
     convert: "A / 100.0"
@@ -125,6 +138,35 @@ products:
     point_values: true
     point_decimals: 2
 
+  capeMU:
+    display: "CAPE (Most Unstable)"
+    # ECMWF open data publishes MUCAPE (not surface-based) — a separate
+    # product code from sfccape so the display name stays honest, and from
+    # the meso `mucape` (which is HRRR-analysis-only with fh_cap 1).
+    ecmwf_match: "^mucape:sfc:"
+    wgrib2_match: ""
+    units_in: "J/kg"
+    units_out: "J/kg"
+    convert: ""
+    clr: "cape.clr"
+    pal: "hrrr_sfccape.pal"
+    point_values: true
+
+  precipTotalM:
+    display: "Total Precipitation"
+    # ECMWF tp is a running total in METERS (vs kg/m^2 ≈ mm everywhere
+    # else) — own product code so the m → in conversion can't collide
+    # with precipTotal's mm → in.
+    ecmwf_match: "^tp:sfc:"
+    wgrib2_match: ""
+    units_in: "m"
+    units_out: "in"
+    convert: "A * 39.3701"
+    clr: "precip.clr"
+    pal: "gfs_precipTotal.pal"
+    point_values: true
+    point_decimals: 2
+
   precip3h:
     display: "3-hour Precipitation"
     # NAM's APCP buckets reset every 3 hours (f01 "0-1", f02 "0-2",
@@ -146,6 +188,7 @@ products:
   wind500:
     display: "500mb Wind Speed"
     wgrib2_match: ":(UGRD|VGRD):500 mb:"
+    ecmwf_match: "^(u|v):pl:500$"
     composite_uv: true
     units_in: "m/s"
     units_out: "kt"
@@ -2110,6 +2153,42 @@ models:
     runs_per_day: 4
     runs: [0, 6, 12, 18]
     retain_runs: 5
+
+  ECMWF:
+    # ECMWF IFS open data ("the Euro"), 0.25° global — data.ecmwf.int,
+    # free under CC-BY-4.0 (attribution: "Contains modified ECMWF IFS
+    # open data"). Not an AWS bucket: base_url + index_format switch the
+    # fetch path in decode_pipeline.sh to the JSON .index files.
+    # No simulated reflectivity in the open-data set — the catalog leads
+    # with MUCAPE instead.
+    # Publish latency is long (~7-9 h after init; 00z today was still 404
+    # at 07Z) — the newest-cycle sweep just idx-404s until it lands.
+    # Steps continue 6-hourly past f144 (to f240+); the manifest models
+    # expected hours as one uniform range, so we cap at f144 / 3-hourly.
+    products:
+      - capeMU
+      - t2m
+      - td2m
+      - wind10m
+      - gust10m
+      - mslp
+      - precipTotalM
+      - wind500
+    # Global grid; render the same CONUS box as the other models for
+    # app-side overlay parity (a GLOBAL entry can come later).
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    # 0.25° ≈ 22 km native — 1024 px over 74° lon matches GFS.
+    image_size: [1024, 1024]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 144, step: 3 }
+    # oper stream = 00z and 12z only (06/18z live in the separate scda
+    # stream with a 90 h range — not worth a second key template in v1).
+    base_url: "https://data.ecmwf.int/forecasts"
+    index_format: "ecmwf"
+    s3_key_template: "{date}/{run:02d}z/ifs/0p25/oper/{date}{run:02d}0000-{fh}h-oper-fc.grib2"
+    runs_per_day: 2
+    runs: [0, 12]
+    retain_runs: 4
 
   GFS:
     products:

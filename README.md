@@ -1,6 +1,7 @@
 # storm-spotter-models-renderer
 
-Public GitHub Actions pipeline that decodes NOAA HRRR, NAM, RRFS and GFS GRIB2 forecast
+Public GitHub Actions pipeline that decodes NOAA HRRR, NAM, RRFS, GFS and
+ECMWF IFS open-data GRIB2 forecast
 data, color-relieves it to PNG tiles, and uploads them to Cloudflare R2 for
 the **Storm Spotter Tools Pro** Flutter app to consume.
 
@@ -16,6 +17,10 @@ zero egress fees.
 | **RRFS** (3 km, hourly) | refc, t2m, td2m, wind10m, gust10m, mslp, sfccape, precip1h, precipTotal | f00–f18 (f00–f84 on 00/06/12/18Z) | 19 / 85 |
 | **NAM** (3 km nest, 4×/day) | refc, t2m, td2m, wind10m, gust10m, mslp, sfccape, precip3h | f00–f60 hourly (precip3h every 3h) | 61 |
 | **GFS** (0.25°, 4×/day) | refc, t2m, wind500, mslp, precipTotal | f00–f120 at 3h step | 41 |
+| **ECMWF** (0.25°, 2×/day) | capeMU, t2m, td2m, wind10m, gust10m, mslp, precipTotalM, wind500 | f00–f144 at 3h step | 49 |
+
+ECMWF frames come from [ECMWF IFS open data](https://www.ecmwf.int/en/forecasts/datasets/open-data)
+(CC-BY-4.0 — contains modified ECMWF IFS open data).
 
 Last 5 runs per model are retained on R2. Storage envelope ≈ 360 MB.
 
