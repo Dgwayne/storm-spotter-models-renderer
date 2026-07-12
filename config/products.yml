@@ -90,7 +90,9 @@ products:
 
   mslp:
     display: "Mean Sea-Level Pressure"
-    # HRRR uses MSLMA, NAM uses MSLET, GFS uses PRMSL.
+    # HRRR uses MSLMA, GFS uses PRMSL. NAM carries BOTH PRMSL and MSLET —
+    # two messages are fetched and gdal_translate -b 1 takes the first in
+    # message order, so NAM renders PRMSL (the standard reduction).
     wgrib2_match: ":(MSLMA|MSLET|PRMSL):mean sea level:"
     units_in: "Pa"
     units_out: "hPa"
@@ -115,6 +117,24 @@ products:
     # 1-hour bucket ending at the current fh: "(fh-1)-fh hour acc".
     # decode_pipeline.sh substitutes {fh} and {fh_minus_1} before matching.
     wgrib2_match: ":APCP:surface:{fh_minus_1}-{fh} hour acc"
+    units_in: "kg/m^2"
+    units_out: "in"
+    convert: "A / 25.4"
+    clr: "precip.clr"
+    pal: "hrrr_precip1h.pal"
+    point_values: true
+    point_decimals: 2
+
+  precip3h:
+    display: "3-hour Precipitation"
+    # NAM's APCP buckets reset every 3 hours (f01 "0-1", f02 "0-2",
+    # f03 "0-3", f04 "3-4", ...) — a constant-width bucket only completes
+    # at 3-hour multiples, so fh_step renders every 3rd frame and the
+    # manifest's expected list matches (see build_manifest.py). There is
+    # no running-total APCP in the NAM nest files, hence no precipTotal.
+    wgrib2_match: ":APCP:surface:{fh_minus_3}-{fh} hour acc"
+    fh_min: 3
+    fh_step: 3
     units_in: "kg/m^2"
     units_out: "in"
     convert: "A / 25.4"
@@ -2054,6 +2074,42 @@ models:
     # 26 hourly valid slots ≈ 24 h of history + slack — powers the app's
     # catalog playback loop (3/6/12/24-hr windows of hourly frames).
     retain_runs: 26
+
+  NAM:
+    # NAM 3 km CONUS nest ("NAM NEST") — the chaser-standard day-2 CAM:
+    # hourly output to f60 on all four cycles bridges HRRR's 18/48 h limit.
+    # idx gotchas found on integration (2026-07-12):
+    #   * U/V pairs are packed as SUBFIELD idx lines (624.1/624.2, one
+    #     byte offset) — see compute_ranges in decode_pipeline.sh.
+    #   * REFC uses the RRFS-style "(considered as a single layer)" text
+    #     (prefix match already handles it).
+    #   * APCP is 3-hour-reset buckets → precip3h with fh_step, and no
+    #     running total → no precipTotal.
+    # ⚠ NAM is slated for retirement after RRFS's operational cutover
+    # (2026-08-31) — keep until NOAA actually stops publishing; symptom
+    # will be runs silently going stale (idx HEAD 404s by design).
+    products:
+      - refc
+      - t2m
+      - td2m
+      - wind10m
+      - gust10m
+      - mslp
+      - sfccape
+      - precip3h
+    # Same CONUS render box + raster size as HRRR/RRFS (3 km native; see
+    # the HRRR image_size note for the 2048 scrub-smoothness tradeoff).
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [2048, 2048]
+    point_grid: [128, 128]
+    # All four cycles publish the full hourly f00-f60 range (verified
+    # against the bucket 2026-07-12: f60 exists, f61 does not).
+    forecast_hours_default: { start: 0, end: 60, step: 1 }
+    s3_bucket: "noaa-nam-pds"
+    s3_key_template: "nam.{date}/nam.t{run:02d}z.conusnest.hiresf{fh:02d}.tm00.grib2"
+    runs_per_day: 4
+    runs: [0, 6, 12, 18]
+    retain_runs: 5
 
   GFS:
     products:

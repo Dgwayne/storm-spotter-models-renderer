@@ -134,15 +134,21 @@ for code in products:
 
 
 def expected_for(code: str, run_expected: list[int]) -> list[int]:
-    """Clamp a run's expected hours to the product's fh_cap/fh_min."""
+    """Clamp a run's expected hours to the product's fh_cap/fh_min/fh_step."""
     cap = products_cfg[code].get("fh_cap")
     floor = products_cfg[code].get("fh_min")
-    if cap is None and floor is None:
+    # fh_step: product renders only every Nth hour (NAM's 3-hour APCP
+    # buckets on an hourly-output model). Must mirror decode_pipeline.sh's
+    # skip or the scrub bar paints the skipped hours as missing.
+    step = products_cfg[code].get("fh_step")
+    if cap is None and floor is None and step is None:
         return run_expected
     return [
         h
         for h in run_expected
-        if (cap is None or h <= cap) and (floor is None or h >= floor)
+        if (cap is None or h <= cap)
+        and (floor is None or h >= floor)
+        and (step is None or h % step == 0)
     ]
 
 runs_payload = []

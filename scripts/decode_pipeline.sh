@@ -31,6 +31,7 @@ WGRIB2_MATCH=$(yq -r ".products.${PRODUCT}.wgrib2_match" "$CONFIG")
 # Substitute fh placeholders so per-hour accumulation products work.
 WGRIB2_MATCH="${WGRIB2_MATCH//\{fh\}/${FH}}"
 WGRIB2_MATCH="${WGRIB2_MATCH//\{fh_minus_1\}/$((FH - 1))}"
+WGRIB2_MATCH="${WGRIB2_MATCH//\{fh_minus_3\}/$((FH - 3))}"
 COMPOSITE_UV=$(yq -r ".products.${PRODUCT}.composite_uv // false" "$CONFIG")
 CONVERT_EXPR=$(yq -r ".products.${PRODUCT}.convert // \"\"" "$CONFIG")
 # When true, gdaldem interpolates RGBA linearly between color stops
@@ -53,6 +54,13 @@ if [ -n "${FH_CAP}" ] && [ "${FH}" -gt "${FH_CAP}" ]; then
 fi
 FH_MIN=$(yq -r ".products.${PRODUCT}.fh_min // \"\"" "$CONFIG")
 if [ -n "${FH_MIN}" ] && [ "${FH}" -lt "${FH_MIN}" ]; then
+  exit 0
+fi
+# fh_step renders only every Nth forecast hour — for products whose source
+# field only completes on a coarser cadence than the model's output (e.g.
+# NAM's 3-hour APCP buckets on an hourly-output model).
+FH_STEP=$(yq -r ".products.${PRODUCT}.fh_step // \"\"" "$CONFIG")
+if [ -n "${FH_STEP}" ] && [ $(( FH % FH_STEP )) -ne 0 ]; then
   exit 0
 fi
 
@@ -132,14 +140,27 @@ for ln in lines:
     parts = ln.split(":")
     if len(parts) >= 3:
         try:
-            parsed.append((int(parts[0]), int(parts[1]), ln))
+            # float(): NAM packs U/V wind pairs as SUBFIELD idx lines
+            # ("624.1" / "624.2") sharing one byte offset — int() dropped
+            # those lines entirely, so composite_uv products silently
+            # skipped every NAM frame ("no matching messages in idx").
+            parsed.append((float(parts[0]), int(parts[1]), ln))
         except ValueError:
             pass
 parsed.sort()
-for i, (msgnum, offset, ln) in enumerate(parsed):
-    if match_re.search(ln):
-        end = parsed[i + 1][1] - 1 if i + 1 < len(parsed) else ""
-        print(f"{offset}-{end}")
+# A message's byte range ends at the next DISTINCT offset (subfield lines
+# share their message's offset, so "next parsed line" is not enough), and
+# a subfield pair that matches twice must be fetched once.
+offsets = sorted({off for _, off, _ in parsed})
+range_end = {
+    off: (offsets[i + 1] - 1 if i + 1 < len(offsets) else "")
+    for i, off in enumerate(offsets)
+}
+emitted = set()
+for msgnum, offset, ln in parsed:
+    if match_re.search(ln) and offset not in emitted:
+        emitted.add(offset)
+        print(f"{offset}-{range_end[offset]}")
 PY
 }
 

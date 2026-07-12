@@ -16,6 +16,7 @@ const CRON_TO_WORKFLOW = {
   "5,20,35,50 * * * *": "render_hrrr.yml",
   "10,25,40,55 * * * *": "render_rrfs.yml",
   "2,17,32,47 * * * *": "render_mrms_qpe.yml",
+  "0,15,30,45 * * * *": "render_nam.yml",
 };
 
 // Fallback if Cloudflare ever hands us a cron string we didn't map (e.g. after
