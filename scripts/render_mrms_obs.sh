@@ -66,6 +66,7 @@ for product in $ALL_PRODUCTS; do
   [ -z "${mrms_dir}" ] && continue
 
   scale=$(yq -r ".products.${product}.scale // 1" "$CONFIG")
+  sentinel_lt=$(yq -r ".products.${product}.sentinel_lt // 0" "$CONFIG")
   units_out=$(yq -r ".products.${product}.units_out // \"\"" "$CONFIG")
   clr_file=$(yq -r ".products.${product}.clr" "$CONFIG")
   dmin=$(yq -r ".products.${product}.data_png.min // \"\"" "$CONFIG")
@@ -142,8 +143,11 @@ PY
   # MRMS sentinel negatives (-1 missing / -3 no coverage) → NoData, then
   # per-product unit scale. Every catalog product is non-negative in
   # display units, so the A<0 mask is safe across the board.
+  # sentinel_lt: products whose REAL values go negative (dBZ, raw
+  # azimuthal shear) set a floor below their physical range so the
+  # -99/-999 sentinels are still caught without eating valid data.
   gdal_calc.py --quiet -A "${work}/native.tif" --outfile="${work}/raw.tif" \
-    --calc="where(A<0,-9999,A*${scale})" --NoDataValue=-9999 --type=Float32 --overwrite
+    --calc="where(A<(${sentinel_lt}),-9999,A*${scale})" --NoDataValue=-9999 --type=Float32 --overwrite
 
   # DATA products warp with NEAREST — the app's crisp renderer
   # interpolates in data space client-side, and cubic here would

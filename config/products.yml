@@ -1456,6 +1456,389 @@ products:
     point_decimals: 2
     point_grid: [512, 512]
 
+  # ── MRMS catalog round 3: reflectivity layers, hail/VIL swaths, rotation family ──
+
+  rala:
+    display: "Reflectivity At Lowest Altitude"
+    mrms_dir: "MergedReflectivityAtLowestAltitude_00.50"
+    data_png: { min: -30.0, max: 80.0 }
+    units_in: "dBZ"
+    units_out: "dBZ"
+    sentinel_lt: -35.0
+    clr: "qpe.clr"
+    pal: ""
+    group: "Reflectivity Layers"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  lcrlow:
+    display: "Reflectivity Low (0-24 kft)"
+    mrms_dir: "LayerCompositeReflectivity_Low_00.50"
+    data_png: { min: -30.0, max: 80.0 }
+    units_in: "dBZ"
+    units_out: "dBZ"
+    sentinel_lt: -35.0
+    clr: "qpe.clr"
+    pal: ""
+    group: "Reflectivity Layers"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  lcrhigh:
+    display: "Reflectivity High (24-60 kft)"
+    mrms_dir: "LayerCompositeReflectivity_High_00.50"
+    data_png: { min: -30.0, max: 80.0 }
+    units_in: "dBZ"
+    units_out: "dBZ"
+    sentinel_lt: -35.0
+    clr: "qpe.clr"
+    pal: ""
+    group: "Reflectivity Layers"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  lcrsuper:
+    display: "Reflectivity Super (33-60 kft)"
+    mrms_dir: "LayerCompositeReflectivity_Super_00.50"
+    data_png: { min: -30.0, max: 80.0 }
+    units_in: "dBZ"
+    units_out: "dBZ"
+    sentinel_lt: -35.0
+    clr: "qpe.clr"
+    pal: ""
+    group: "Reflectivity Layers"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  refl0c:
+    display: "Reflectivity (0C)"
+    mrms_dir: "Reflectivity_0C_00.50"
+    data_png: { min: -30.0, max: 80.0 }
+    units_in: "dBZ"
+    units_out: "dBZ"
+    sentinel_lt: -35.0
+    clr: "qpe.clr"
+    pal: ""
+    group: "Reflectivity Layers"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  reflm5c:
+    display: "Reflectivity (-5C)"
+    mrms_dir: "Reflectivity_-5C_00.50"
+    data_png: { min: -30.0, max: 80.0 }
+    units_in: "dBZ"
+    units_out: "dBZ"
+    sentinel_lt: -35.0
+    clr: "qpe.clr"
+    pal: ""
+    group: "Reflectivity Layers"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  reflm10c:
+    display: "Reflectivity (-10C)"
+    mrms_dir: "Reflectivity_-10C_00.50"
+    data_png: { min: -30.0, max: 80.0 }
+    units_in: "dBZ"
+    units_out: "dBZ"
+    sentinel_lt: -35.0
+    clr: "qpe.clr"
+    pal: ""
+    group: "Reflectivity Layers"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  reflm15c:
+    display: "Reflectivity (-15C)"
+    mrms_dir: "Reflectivity_-15C_00.50"
+    data_png: { min: -30.0, max: 80.0 }
+    units_in: "dBZ"
+    units_out: "dBZ"
+    sentinel_lt: -35.0
+    clr: "qpe.clr"
+    pal: ""
+    group: "Reflectivity Layers"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  reflm20c:
+    display: "Reflectivity (-20C)"
+    mrms_dir: "Reflectivity_-20C_00.50"
+    data_png: { min: -30.0, max: 80.0 }
+    units_in: "dBZ"
+    units_out: "dBZ"
+    sentinel_lt: -35.0
+    clr: "qpe.clr"
+    pal: ""
+    group: "Reflectivity Layers"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  crefmax1h:
+    display: "Composite Refl Hourly Max"
+    mrms_dir: "CREF_1HR_MAX_00.50"
+    data_png: { min: -30.0, max: 80.0 }
+    units_in: "dBZ"
+    units_out: "dBZ"
+    sentinel_lt: -35.0
+    clr: "qpe.clr"
+    pal: ""
+    group: "Reflectivity Layers"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  brefmax1h:
+    display: "Base Refl Hourly Max"
+    mrms_dir: "BREF_1HR_MAX_00.50"
+    data_png: { min: -30.0, max: 80.0 }
+    units_in: "dBZ"
+    units_out: "dBZ"
+    sentinel_lt: -35.0
+    clr: "qpe.clr"
+    pal: ""
+    group: "Reflectivity Layers"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  reflhgt:
+    display: "Reflectivity Height"
+    mrms_dir: "HeightCompositeReflectivity_00.50"
+    data_png: { min: 0.0, max: 75.0 }
+    units_in: "km"
+    units_out: "kft"
+    scale: 3.28084
+    clr: "qpe.clr"
+    pal: ""
+    group: "Reflectivity Layers"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  shi:
+    display: "Severe Hail Index"
+    mrms_dir: "SHI_00.50"
+    data_png: { min: 0.0, max: 300.0 }
+    units_in: "index"
+    units_out: ""
+    clr: "qpe.clr"
+    pal: ""
+    group: "Hail"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  mesh30:
+    display: "Hail Swath 30-min"
+    mrms_dir: "MESH_Max_30min_00.50"
+    data_png: { min: 0.0, max: 5.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Hail"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  mesh120:
+    display: "Hail Swath 2-hr"
+    mrms_dir: "MESH_Max_120min_00.50"
+    data_png: { min: 0.0, max: 5.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Hail"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  mesh360:
+    display: "Hail Swath 6-hr"
+    mrms_dir: "MESH_Max_360min_00.50"
+    data_png: { min: 0.0, max: 5.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Hail"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  vilsw120:
+    display: "VIL Swath 2-hr"
+    mrms_dir: "VIL_Max_120min_00.50"
+    data_png: { min: 0.0, max: 100.0 }
+    units_in: "kg/m^2"
+    units_out: "kg/m²"
+    clr: "qpe.clr"
+    pal: ""
+    group: "VIL"
+    point_values: true
+    point_decimals: 1
+    point_grid: [512, 512]
+
+  vilsw1440:
+    display: "VIL Swath 24-hr"
+    mrms_dir: "VIL_Max_1440min_00.50"
+    data_png: { min: 0.0, max: 100.0 }
+    units_in: "kg/m^2"
+    units_out: "kg/m²"
+    clr: "qpe.clr"
+    pal: ""
+    group: "VIL"
+    point_values: true
+    point_decimals: 1
+    point_grid: [512, 512]
+
+  rotnow:
+    display: "Rotation (0-2 km) Instant"
+    mrms_dir: "MergedAzShear_0-2kmAGL_00.50"
+    data_png: { min: 0.0, max: 0.03 }
+    units_in: "s^-1"
+    units_out: "s⁻¹"
+    sentinel_lt: -1.0
+    clr: "qpe.clr"
+    pal: ""
+    group: "Rotation"
+    point_values: true
+    point_decimals: 3
+    point_grid: [512, 512]
+
+  rot120:
+    display: "Rotation Track 2-hr"
+    mrms_dir: "RotationTrack120min_00.50"
+    data_png: { min: 0.0, max: 0.03 }
+    units_in: "s^-1"
+    units_out: "s⁻¹"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Rotation"
+    point_values: true
+    point_decimals: 3
+    point_grid: [512, 512]
+
+  rot360:
+    display: "Rotation Track 6-hr"
+    mrms_dir: "RotationTrack360min_00.50"
+    data_png: { min: 0.0, max: 0.03 }
+    units_in: "s^-1"
+    units_out: "s⁻¹"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Rotation"
+    point_values: true
+    point_decimals: 3
+    point_grid: [512, 512]
+
+  rotmlnow:
+    display: "Rotation (3-6 km) Instant"
+    mrms_dir: "MergedAzShear_3-6kmAGL_00.50"
+    data_png: { min: 0.0, max: 0.03 }
+    units_in: "s^-1"
+    units_out: "s⁻¹"
+    sentinel_lt: -1.0
+    clr: "qpe.clr"
+    pal: ""
+    group: "Rotation"
+    point_values: true
+    point_decimals: 3
+    point_grid: [512, 512]
+
+  rotml30:
+    display: "Rotation ML Track 30-min"
+    mrms_dir: "RotationTrackML30min_00.50"
+    data_png: { min: 0.0, max: 0.03 }
+    units_in: "s^-1"
+    units_out: "s⁻¹"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Rotation"
+    point_values: true
+    point_decimals: 3
+    point_grid: [512, 512]
+
+  rotml60:
+    display: "Rotation ML Track 1-hr"
+    mrms_dir: "RotationTrackML60min_00.50"
+    data_png: { min: 0.0, max: 0.03 }
+    units_in: "s^-1"
+    units_out: "s⁻¹"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Rotation"
+    point_values: true
+    point_decimals: 3
+    point_grid: [512, 512]
+
+  rotml120:
+    display: "Rotation ML Track 2-hr"
+    mrms_dir: "RotationTrackML120min_00.50"
+    data_png: { min: 0.0, max: 0.03 }
+    units_in: "s^-1"
+    units_out: "s⁻¹"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Rotation"
+    point_values: true
+    point_decimals: 3
+    point_grid: [512, 512]
+
+  rotml240:
+    display: "Rotation ML Track 4-hr"
+    mrms_dir: "RotationTrackML240min_00.50"
+    data_png: { min: 0.0, max: 0.03 }
+    units_in: "s^-1"
+    units_out: "s⁻¹"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Rotation"
+    point_values: true
+    point_decimals: 3
+    point_grid: [512, 512]
+
+  rotml360:
+    display: "Rotation ML Track 6-hr"
+    mrms_dir: "RotationTrackML360min_00.50"
+    data_png: { min: 0.0, max: 0.03 }
+    units_in: "s^-1"
+    units_out: "s⁻¹"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Rotation"
+    point_values: true
+    point_decimals: 3
+    point_grid: [512, 512]
+
+  rotml1440:
+    display: "Rotation ML Track 24-hr"
+    mrms_dir: "RotationTrackML1440min_00.50"
+    data_png: { min: 0.0, max: 0.03 }
+    units_in: "s^-1"
+    units_out: "s⁻¹"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Rotation"
+    point_values: true
+    point_decimals: 3
+    point_grid: [512, 512]
+
 models:
   HRRR:
     products:
@@ -1623,6 +2006,34 @@ models:
       - ari24h
       - ffg03h
       - ffg06h
+      - rala
+      - lcrlow
+      - lcrhigh
+      - lcrsuper
+      - refl0c
+      - reflm5c
+      - reflm10c
+      - reflm15c
+      - reflm20c
+      - crefmax1h
+      - brefmax1h
+      - reflhgt
+      - shi
+      - mesh30
+      - mesh120
+      - mesh360
+      - vilsw120
+      - vilsw1440
+      - rotnow
+      - rot120
+      - rot360
+      - rotmlnow
+      - rotml30
+      - rotml60
+      - rotml120
+      - rotml240
+      - rotml360
+      - rotml1440
     # MRMS CONUS grid coverage (lon 230.005-299.995E, lat 20.005-54.995N) —
     # narrower than the model CONUS box on the west edge; the app reads the
     # bbox from the manifest so overlay placement stays correct.
