@@ -827,7 +827,8 @@ products:
     clr: "rot.clr"
     pal: ""
     group: "Rotation"
-    point_values: false
+    point_values: true
+    point_decimals: 3
     point_grid: [512, 512]
 
   rot60:
@@ -839,7 +840,8 @@ products:
     clr: "rot.clr"
     pal: ""
     group: "Rotation"
-    point_values: false
+    point_values: true
+    point_decimals: 3
     point_grid: [512, 512]
 
   rot240:
@@ -851,7 +853,8 @@ products:
     clr: "rot.clr"
     pal: ""
     group: "Rotation"
-    point_values: false
+    point_values: true
+    point_decimals: 3
     point_grid: [512, 512]
 
   rot1440:
@@ -863,7 +866,8 @@ products:
     clr: "rot.clr"
     pal: ""
     group: "Rotation"
-    point_values: false
+    point_values: true
+    point_decimals: 3
     point_grid: [512, 512]
 
   # FLASH flood suite (10-min cadence, hydrologic model output)
