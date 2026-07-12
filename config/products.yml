@@ -654,6 +654,7 @@ products:
   mesh:
     display: "Hail Size (MESH)"
     mrms_dir: "MESH_00.50"
+    data_png: { min: 0.0, max: 5.0 }
     units_in: "mm"
     units_out: "in"
     scale: 0.0393701
@@ -667,6 +668,7 @@ products:
   mesh60:
     display: "Hail Swath 1-hr"
     mrms_dir: "MESH_Max_60min_00.50"
+    data_png: { min: 0.0, max: 5.0 }
     units_in: "mm"
     units_out: "in"
     scale: 0.0393701
@@ -680,6 +682,7 @@ products:
   mesh240:
     display: "Hail Swath 4-hr"
     mrms_dir: "MESH_Max_240min_00.50"
+    data_png: { min: 0.0, max: 5.0 }
     units_in: "mm"
     units_out: "in"
     scale: 0.0393701
@@ -693,6 +696,7 @@ products:
   mesh1440:
     display: "Hail Swath 24-hr"
     mrms_dir: "MESH_Max_1440min_00.50"
+    data_png: { min: 0.0, max: 5.0 }
     units_in: "mm"
     units_out: "in"
     scale: 0.0393701
@@ -706,6 +710,7 @@ products:
   posh:
     display: "Prob. of Severe Hail"
     mrms_dir: "POSH_00.50"
+    data_png: { min: 0.0, max: 100.0 }
     units_in: "%"
     units_out: "%"
     clr: "posh.clr"
@@ -719,6 +724,7 @@ products:
   et18:
     display: "Echo Top - 18 dBZ"
     mrms_dir: "EchoTop_18_00.50"
+    data_png: { min: 0.0, max: 75.0 }
     units_in: "km"
     units_out: "kft"
     scale: 3.28084
@@ -732,6 +738,7 @@ products:
   et30:
     display: "Echo Top - 30 dBZ"
     mrms_dir: "EchoTop_30_00.50"
+    data_png: { min: 0.0, max: 75.0 }
     units_in: "km"
     units_out: "kft"
     scale: 3.28084
@@ -745,6 +752,7 @@ products:
   et50:
     display: "Echo Top - 50 dBZ"
     mrms_dir: "EchoTop_50_00.50"
+    data_png: { min: 0.0, max: 75.0 }
     units_in: "km"
     units_out: "kft"
     scale: 3.28084
@@ -758,6 +766,7 @@ products:
   et60:
     display: "Echo Top - 60 dBZ"
     mrms_dir: "EchoTop_60_00.50"
+    data_png: { min: 0.0, max: 75.0 }
     units_in: "km"
     units_out: "kft"
     scale: 3.28084
@@ -772,6 +781,7 @@ products:
   vil:
     display: "Vertically Integrated Liquid"
     mrms_dir: "VIL_00.50"
+    data_png: { min: 0.0, max: 100.0 }
     units_in: "kg/m^2"
     units_out: "kg/m²"
     clr: "vil.clr"
@@ -784,6 +794,7 @@ products:
   vild:
     display: "VIL Density"
     mrms_dir: "VIL_Density_00.50"
+    data_png: { min: 0.0, max: 8.0 }
     units_in: "g/m^3"
     units_out: "g/m³"
     clr: "vild.clr"
@@ -796,6 +807,7 @@ products:
   vii:
     display: "Vertically Integrated Ice"
     mrms_dir: "VII_00.50"
+    data_png: { min: 0.0, max: 60.0 }
     units_in: "kg/m^2"
     units_out: "kg/m²"
     clr: "vii.clr"
@@ -809,6 +821,7 @@ products:
   rot30:
     display: "Rotation Track 30-min"
     mrms_dir: "RotationTrack30min_00.50"
+    data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -820,6 +833,7 @@ products:
   rot60:
     display: "Rotation Track 1-hr"
     mrms_dir: "RotationTrack60min_00.50"
+    data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -831,6 +845,7 @@ products:
   rot240:
     display: "Rotation Track 4-hr"
     mrms_dir: "RotationTrack240min_00.50"
+    data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -842,6 +857,7 @@ products:
   rot1440:
     display: "Rotation Track 24-hr"
     mrms_dir: "RotationTrack1440min_00.50"
+    data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -854,6 +870,7 @@ products:
   soilsat:
     display: "Soil Saturation (CREST)"
     mrms_dir: "FLASH_CREST_MAXSOILSAT_00.00"
+    data_png: { min: 0.0, max: 100.0 }
     units_in: "%"
     units_out: "%"
     clr: "soilsat.clr"
@@ -866,6 +883,7 @@ products:
   unitq:
     display: "Unit Streamflow (CREST)"
     mrms_dir: "FLASH_CREST_MAXUNITSTREAMFLOW_00.00"
+    data_png: { min: 0.0, max: 40.0 }
     units_in: "m^3/s/km^2"
     units_out: "m³/s/km²"
     clr: "unitq.clr"
@@ -878,6 +896,7 @@ products:
   ari01h:
     display: "Rainfall Recurrence 1-hr"
     mrms_dir: "FLASH_QPE_ARI01H_00.00"
+    data_png: { min: 0.0, max: 500.0 }
     units_in: "years"
     units_out: "yr"
     clr: "ari.clr"
@@ -890,6 +909,7 @@ products:
   arimax:
     display: "Rainfall Recurrence Max"
     mrms_dir: "FLASH_QPE_ARIMAX_00.00"
+    data_png: { min: 0.0, max: 500.0 }
     units_in: "years"
     units_out: "yr"
     clr: "ari.clr"
@@ -902,6 +922,7 @@ products:
   ffg01h:
     display: "QPE-to-FFG Ratio 1-hr"
     mrms_dir: "FLASH_QPE_FFG01H_00.00"
+    data_png: { min: 0.0, max: 4.0 }
     units_in: "ratio"
     units_out: "x FFG"
     clr: "ffg.clr"
@@ -914,6 +935,7 @@ products:
   ffgmax:
     display: "QPE-to-FFG Ratio Max"
     mrms_dir: "FLASH_QPE_FFGMAX_00.00"
+    data_png: { min: 0.0, max: 4.0 }
     units_in: "ratio"
     units_out: "x FFG"
     clr: "ffg.clr"
@@ -1070,7 +1092,9 @@ models:
     # (per-product prefix + Pass2/Pass1 fallback), it doesn't use decode_pipeline.sh.
     s3_key_template: "CONUS/{product}_Pass2_00.00/{date}/MRMS_{product}_Pass2_00.00_{date}-{run:02d}0000.grib2.gz"
     runs_per_day: 24
-    retain_runs: 4
+    # 26 hourly valid slots ≈ 24 h of history + slack — powers the app's
+    # catalog playback loop (3/6/12/24-hr windows of hourly frames).
+    retain_runs: 26
 
   GFS:
     products:

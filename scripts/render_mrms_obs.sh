@@ -68,6 +68,8 @@ for product in $ALL_PRODUCTS; do
   scale=$(yq -r ".products.${product}.scale // 1" "$CONFIG")
   units_out=$(yq -r ".products.${product}.units_out // \"\"" "$CONFIG")
   clr_file=$(yq -r ".products.${product}.clr" "$CONFIG")
+  dmin=$(yq -r ".products.${product}.data_png.min // \"\"" "$CONFIG")
+  dmax=$(yq -r ".products.${product}.data_png.max // \"\"" "$CONFIG")
   point_values=$(yq -r ".products.${product}.point_values // false" "$CONFIG")
   decimals=$(yq -r ".products.${product}.point_decimals // 2" "$CONFIG")
   grid_w=$(yq -r ".products.${product}.point_grid[0] // 512" "$CONFIG")
@@ -143,9 +145,14 @@ PY
   gdal_calc.py --quiet -A "${work}/native.tif" --outfile="${work}/raw.tif" \
     --calc="where(A<0,-9999,A*${scale})" --NoDataValue=-9999 --type=Float32 --overwrite
 
+  # DATA products warp with NEAREST — the app's crisp renderer
+  # interpolates in data space client-side, and cubic here would
+  # pre-blur real values (and invent overshoot ones).
+  resample="cubic"
+  [ -n "${dmin}" ] && resample="near"
   # shellcheck disable=SC2086
   gdalwarp -q -overwrite -t_srs EPSG:3857 -te_srs EPSG:4326 -te ${BBOX} \
-    -ts "${IMG_W}" "${IMG_H}" -r cubic -dstnodata -9999 \
+    -ts "${IMG_W}" "${IMG_H}" -r "${resample}" -dstnodata -9999 \
     "${work}/raw.tif" "${work}/merc.tif"
 
   if [ "${point_values}" = "true" ]; then
@@ -160,9 +167,25 @@ PY
     fi
   fi
 
-  gdaldem color-relief -q -alpha -nearest_color_entry \
-    "${work}/merc.tif" "${COLOR_TABLES}/${clr_file}" "${work}/rgba.tif"
-  gdal_translate -q -of PNG -co ZLEVEL=9 "${work}/rgba.tif" "${work}/F000.png"
+  if [ -n "${dmin}" ]; then
+    # ── DATA PNG (gray + alpha) ────────────────────────────────────
+    # gray 1..255 = dmin..dmax linear (0 reserved for nodata), alpha
+    # 255 = valid. The app decodes values back and runs the same
+    # crisp data-space renderer the live reflectivity uses —
+    # colorized client-side with the product's legend bins.
+    gdal_calc.py --quiet -A "${work}/merc.tif" --outfile="${work}/v.tif" \
+      --calc="where(A==-9999,0,minimum(255,maximum(1,1+round((A-(${dmin}))*254.0/((${dmax})-(${dmin}))))))" \
+      --type=Byte --overwrite
+    gdal_calc.py --quiet -A "${work}/merc.tif" --outfile="${work}/a.tif" \
+      --calc="where(A==-9999,0,255)" --type=Byte --overwrite
+    gdal_merge.py -q -separate -ot Byte -o "${work}/ga.tif" \
+      "${work}/v.tif" "${work}/a.tif"
+    gdal_translate -q -of PNG -co ZLEVEL=9 "${work}/ga.tif" "${work}/F000.png"
+  else
+    gdaldem color-relief -q -alpha -nearest_color_entry \
+      "${work}/merc.tif" "${COLOR_TABLES}/${clr_file}" "${work}/rgba.tif"
+    gdal_translate -q -of PNG -co ZLEVEL=9 "${work}/rgba.tif" "${work}/F000.png"
+  fi
 
   rclone copyto "${work}/F000.png" "r2:${R2_BUCKET}/${out_rel}" \
     --s3-no-check-bucket --no-traverse \

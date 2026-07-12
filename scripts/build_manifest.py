@@ -115,6 +115,13 @@ for code in products:
         # unknown JSON keys.
         "group": pc.get("group", ""),
     }
+    # Data-PNG products (gray 1..255 = min..max linear, 0/alpha-0 =
+    # nodata): the app inverts values client-side and runs its crisp
+    # data-space renderer instead of showing the PNG's pixels.
+    dp = pc.get("data_png")
+    if isinstance(dp, dict) and "min" in dp and "max" in dp:
+        entry["dataMin"] = float(dp["min"])
+        entry["dataMax"] = float(dp["max"])
     if pc.get("category") == "meso":
         meso_catalog.append(entry)
     else:
