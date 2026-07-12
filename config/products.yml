@@ -945,6 +945,513 @@ products:
     point_decimals: 2
     point_grid: [512, 512]
 
+  # ── MRMS catalog round 2: full QPE family + extended FLASH ──
+
+  rate:
+    display: "Precip Rate"
+    mrms_dir: "PrecipRate_00.00"
+    data_png: { min: 0.0, max: 6.0 }
+    units_in: "mm/hr"
+    units_out: "in/hr"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precipitation"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  rq15m:
+    display: "QPE Radar-Only 15-min"
+    mrms_dir: "RadarOnly_QPE_15M_00.00"
+    data_png: { min: 0.0, max: 3.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precipitation"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  rq01h:
+    display: "QPE Radar-Only 1-hour"
+    mrms_dir: "RadarOnly_QPE_01H_00.00"
+    data_png: { min: 0.0, max: 6.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precipitation"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  rq03h:
+    display: "QPE Radar-Only 3-hour"
+    mrms_dir: "RadarOnly_QPE_03H_00.00"
+    data_png: { min: 0.0, max: 8.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precipitation"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  rq06h:
+    display: "QPE Radar-Only 6-hour"
+    mrms_dir: "RadarOnly_QPE_06H_00.00"
+    data_png: { min: 0.0, max: 10.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precipitation"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  rq12h:
+    display: "QPE Radar-Only 12-hour"
+    mrms_dir: "RadarOnly_QPE_12H_00.00"
+    data_png: { min: 0.0, max: 15.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precipitation"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  rq24h:
+    display: "QPE Radar-Only 24-hour"
+    mrms_dir: "RadarOnly_QPE_24H_00.00"
+    data_png: { min: 0.0, max: 20.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precipitation"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  rq48h:
+    display: "QPE Radar-Only 48-hour"
+    mrms_dir: "RadarOnly_QPE_48H_00.00"
+    data_png: { min: 0.0, max: 25.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precipitation"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  rq72h:
+    display: "QPE Radar-Only 72-hour"
+    mrms_dir: "RadarOnly_QPE_72H_00.00"
+    data_png: { min: 0.0, max: 30.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precipitation"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  rq12z:
+    display: "QPE Radar-Only Since 12Z"
+    mrms_dir: "RadarOnly_QPE_Since12Z_00.00"
+    data_png: { min: 0.0, max: 20.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precipitation"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ms01h1:
+    display: "QPE Multi-Sensor 1-hour Pass 1"
+    mrms_dir: "MultiSensor_QPE_01H_Pass1_00.00"
+    data_png: { min: 0.0, max: 6.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precip Multi-Sensor"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ms01h2:
+    display: "QPE Multi-Sensor 1-hour Pass 2"
+    mrms_dir: "MultiSensor_QPE_01H_Pass2_00.00"
+    data_png: { min: 0.0, max: 6.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precip Multi-Sensor"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ms03h1:
+    display: "QPE Multi-Sensor 3-hour Pass 1"
+    mrms_dir: "MultiSensor_QPE_03H_Pass1_00.00"
+    data_png: { min: 0.0, max: 8.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precip Multi-Sensor"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ms03h2:
+    display: "QPE Multi-Sensor 3-hour Pass 2"
+    mrms_dir: "MultiSensor_QPE_03H_Pass2_00.00"
+    data_png: { min: 0.0, max: 8.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precip Multi-Sensor"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ms06h1:
+    display: "QPE Multi-Sensor 6-hour Pass 1"
+    mrms_dir: "MultiSensor_QPE_06H_Pass1_00.00"
+    data_png: { min: 0.0, max: 10.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precip Multi-Sensor"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ms06h2:
+    display: "QPE Multi-Sensor 6-hour Pass 2"
+    mrms_dir: "MultiSensor_QPE_06H_Pass2_00.00"
+    data_png: { min: 0.0, max: 10.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precip Multi-Sensor"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ms12h1:
+    display: "QPE Multi-Sensor 12-hour Pass 1"
+    mrms_dir: "MultiSensor_QPE_12H_Pass1_00.00"
+    data_png: { min: 0.0, max: 15.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precip Multi-Sensor"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ms12h2:
+    display: "QPE Multi-Sensor 12-hour Pass 2"
+    mrms_dir: "MultiSensor_QPE_12H_Pass2_00.00"
+    data_png: { min: 0.0, max: 15.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precip Multi-Sensor"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ms24h1:
+    display: "QPE Multi-Sensor 24-hour Pass 1"
+    mrms_dir: "MultiSensor_QPE_24H_Pass1_00.00"
+    data_png: { min: 0.0, max: 20.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precip Multi-Sensor"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ms24h2:
+    display: "QPE Multi-Sensor 24-hour Pass 2"
+    mrms_dir: "MultiSensor_QPE_24H_Pass2_00.00"
+    data_png: { min: 0.0, max: 20.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precip Multi-Sensor"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ms48h1:
+    display: "QPE Multi-Sensor 48-hour Pass 1"
+    mrms_dir: "MultiSensor_QPE_48H_Pass1_00.00"
+    data_png: { min: 0.0, max: 25.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precip Multi-Sensor"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ms48h2:
+    display: "QPE Multi-Sensor 48-hour Pass 2"
+    mrms_dir: "MultiSensor_QPE_48H_Pass2_00.00"
+    data_png: { min: 0.0, max: 25.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precip Multi-Sensor"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ms72h1:
+    display: "QPE Multi-Sensor 72-hour Pass 1"
+    mrms_dir: "MultiSensor_QPE_72H_Pass1_00.00"
+    data_png: { min: 0.0, max: 30.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precip Multi-Sensor"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ms72h2:
+    display: "QPE Multi-Sensor 72-hour Pass 2"
+    mrms_dir: "MultiSensor_QPE_72H_Pass2_00.00"
+    data_png: { min: 0.0, max: 30.0 }
+    units_in: "mm"
+    units_out: "in"
+    scale: 0.0393701
+    clr: "qpe.clr"
+    pal: ""
+    group: "Precip Multi-Sensor"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  streamflow:
+    display: "Streamflow (CREST)"
+    mrms_dir: "FLASH_CREST_MAXSTREAMFLOW_00.00"
+    data_png: { min: 0.0, max: 3000.0 }
+    units_in: "m^3/s"
+    units_out: "m³/s"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  sacsoil:
+    display: "Soil Saturation (SAC)"
+    mrms_dir: "FLASH_SAC_MAXSOILSAT_00.00"
+    data_png: { min: 0.0, max: 100.0 }
+    units_in: "%"
+    units_out: "%"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  sacflow:
+    display: "Streamflow (SAC)"
+    mrms_dir: "FLASH_SAC_MAXSTREAMFLOW_00.00"
+    data_png: { min: 0.0, max: 3000.0 }
+    units_in: "m^3/s"
+    units_out: "m³/s"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  sacunitq:
+    display: "Unit Streamflow (SAC)"
+    mrms_dir: "FLASH_SAC_MAXUNITSTREAMFLOW_00.00"
+    data_png: { min: 0.0, max: 40.0 }
+    units_in: "m^3/s/km^2"
+    units_out: "m³/s/km²"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  hpflow:
+    display: "Streamflow (Hydrophobic)"
+    mrms_dir: "FLASH_HP_MAXSTREAMFLOW_00.00"
+    data_png: { min: 0.0, max: 3000.0 }
+    units_in: "m^3/s"
+    units_out: "m³/s"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  hpunitq:
+    display: "Unit Streamflow (Hydrophobic)"
+    mrms_dir: "FLASH_HP_MAXUNITSTREAMFLOW_00.00"
+    data_png: { min: 0.0, max: 40.0 }
+    units_in: "m^3/s/km^2"
+    units_out: "m³/s/km²"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ari30m:
+    display: "Rainfall Recurrence 30-min"
+    mrms_dir: "FLASH_QPE_ARI30M_00.00"
+    data_png: { min: 0.0, max: 500.0 }
+    units_in: "years"
+    units_out: "yr"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  ari03h:
+    display: "Rainfall Recurrence 3-hr"
+    mrms_dir: "FLASH_QPE_ARI03H_00.00"
+    data_png: { min: 0.0, max: 500.0 }
+    units_in: "years"
+    units_out: "yr"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  ari06h:
+    display: "Rainfall Recurrence 6-hr"
+    mrms_dir: "FLASH_QPE_ARI06H_00.00"
+    data_png: { min: 0.0, max: 500.0 }
+    units_in: "years"
+    units_out: "yr"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  ari12h:
+    display: "Rainfall Recurrence 12-hr"
+    mrms_dir: "FLASH_QPE_ARI12H_00.00"
+    data_png: { min: 0.0, max: 500.0 }
+    units_in: "years"
+    units_out: "yr"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  ari24h:
+    display: "Rainfall Recurrence 24-hr"
+    mrms_dir: "FLASH_QPE_ARI24H_00.00"
+    data_png: { min: 0.0, max: 500.0 }
+    units_in: "years"
+    units_out: "yr"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
+  ffg03h:
+    display: "QPE-to-FFG Ratio 3-hr"
+    mrms_dir: "FLASH_QPE_FFG03H_00.00"
+    data_png: { min: 0.0, max: 4.0 }
+    units_in: "ratio"
+    units_out: "x FFG"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
+  ffg06h:
+    display: "QPE-to-FFG Ratio 6-hr"
+    mrms_dir: "FLASH_QPE_FFG06H_00.00"
+    data_png: { min: 0.0, max: 4.0 }
+    units_in: "ratio"
+    units_out: "x FFG"
+    clr: "qpe.clr"
+    pal: ""
+    group: "Flooding"
+    point_values: true
+    point_decimals: 2
+    point_grid: [512, 512]
+
 models:
   HRRR:
     products:
@@ -1075,6 +1582,43 @@ models:
       - arimax
       - ffg01h
       - ffgmax
+      - rate
+      - rq15m
+      - rq01h
+      - rq03h
+      - rq06h
+      - rq12h
+      - rq24h
+      - rq48h
+      - rq72h
+      - rq12z
+      - ms01h1
+      - ms01h2
+      - ms03h1
+      - ms03h2
+      - ms06h1
+      - ms06h2
+      - ms12h1
+      - ms12h2
+      - ms24h1
+      - ms24h2
+      - ms48h1
+      - ms48h2
+      - ms72h1
+      - ms72h2
+      - streamflow
+      - sacsoil
+      - sacflow
+      - sacunitq
+      - hpflow
+      - hpunitq
+      - ari30m
+      - ari03h
+      - ari06h
+      - ari12h
+      - ari24h
+      - ffg03h
+      - ffg06h
     # MRMS CONUS grid coverage (lon 230.005-299.995E, lat 20.005-54.995N) —
     # narrower than the model CONUS box on the west edge; the app reads the
     # bbox from the manifest so overlay placement stays correct.
