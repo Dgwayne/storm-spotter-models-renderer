@@ -1,0 +1,63 @@
+name: B2 Migration Smoke Test
+
+# Throwaway workflow to prove the Backblaze B2 bucket + scoped key work with
+# the exact rclone S3 flags the renderer uses (upload / recursive-list / read /
+# delete), before we migrate anything real. Manual dispatch only. Safe to
+# delete after the migration.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install rclone
+        run: |
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+          rclone version
+
+      - name: Configure rclone for Backblaze B2 (S3-compatible)
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [b2]
+          type = s3
+          provider = Other
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          region = us-west-004
+          no_check_bucket = true
+          acl = private
+          EOF
+
+      - name: Smoke test - upload, list, read, delete
+        env:
+          B2_BUCKET: ${{ secrets.B2_BUCKET }}
+        run: |
+          set -euo pipefail
+          STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+          echo "b2 smoke test from GitHub Actions at ${STAMP}" > /tmp/hello.txt
+
+          echo "=== 1. UPLOAD (PutObject, same flags as renderer) ==="
+          rclone copyto /tmp/hello.txt "b2:${B2_BUCKET}/_migration_test/hello.txt" \
+            --s3-no-check-bucket --no-traverse \
+            --header-upload "Cache-Control: public, max-age=60"
+          echo "  upload OK"
+
+          echo "=== 2. RECURSIVE LIST (ListObjectsV2, the Lever 1 pattern) ==="
+          rclone lsf --recursive "b2:${B2_BUCKET}/_migration_test/"
+
+          echo "=== 3. READ BACK (GetObject) ==="
+          GOT="$(rclone cat "b2:${B2_BUCKET}/_migration_test/hello.txt")"
+          echo "  content: ${GOT}"
+          [ "${GOT}" = "b2 smoke test from GitHub Actions at ${STAMP}" ] \
+            && echo "  read-back matches" || { echo "  MISMATCH"; exit 1; }
+
+          echo "=== 4. DELETE (cleanup) ==="
+          rclone deletefile "b2:${B2_BUCKET}/_migration_test/hello.txt"
+          echo "  delete OK"
+
+          echo ""
+          echo "=== B2 SMOKE TEST PASSED - scoped key + region + no_check_bucket all work ==="
