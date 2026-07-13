@@ -50,9 +50,13 @@ jobs:
           echo "=== SOURCE (R2) ==="
           rclone size "r2:${R2_BUCKET}/" --fast-list
 
-          echo "=== COPY R2 -> B2 (preserving Cache-Control metadata) ==="
+          # --size-only: compare by size, so re-runs are idempotent and rclone
+          # never touches B2's modtime metadata (B2's S3 API 403s on the
+          # HeadObject modtime op that --metadata triggers). Cache-Control is
+          # re-applied by fresh renders after cutover and by the serving layer.
+          echo "=== COPY R2 -> B2 ==="
           rclone copy "r2:${R2_BUCKET}/" "b2:${B2_BUCKET}/" \
-            --fast-list --transfers 32 --checkers 16 --metadata \
+            --fast-list --transfers 32 --checkers 16 --size-only \
             --s3-no-check-bucket --stats 30s --stats-one-line
 
           echo "=== DEST (B2) after copy ==="
