@@ -122,6 +122,14 @@ for code in products:
     if isinstance(dp, dict) and "min" in dp and "max" in dp:
         entry["dataMin"] = float(dp["min"])
         entry["dataMax"] = float(dp["max"])
+    # gpu_data: model products that ALSO publish a value-encoded F###.data.png
+    # for the GPU model layer (separate from the OBS data_png so old apps keep
+    # rendering the colored frame — see decode_pipeline.sh step 9). The encode
+    # range is in DISPLAY units; the app reads these to decode + colorize.
+    gd = pc.get("gpu_data")
+    if isinstance(gd, dict) and "min" in gd and "max" in gd:
+        entry["gpuDataMin"] = float(gd["min"])
+        entry["gpuDataMax"] = float(gd["max"])
     if pc.get("category") == "meso":
         meso_catalog.append(entry)
     else:

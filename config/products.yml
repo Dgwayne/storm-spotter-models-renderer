@@ -13,6 +13,13 @@
 #   point_values:   when true, publish a per-frame F###.json value grid next to
 #                   the PNG (sample_point_values.py) for on-map numbers
 #   point_decimals: decimals to keep in the published values (default 0)
+#   gpu_data:       {min, max} — when present, ALSO bake a value-encoded data
+#                   PNG next to the colored one (F###.data.png): gray 1..255 =
+#                   min..max linear in DISPLAY units, 0/alpha-0 = nodata. The
+#                   app's GPU model layer samples it and colorizes in a shader
+#                   (crisp at any zoom, like the MRMS data_png path). The
+#                   colored PNG stays the back-compat/fallback frame; released
+#                   apps ignore gpuDataMin/Max and keep rendering it.
 #
 # Models declare which products they publish in the `models:` map at the bottom.
 #
@@ -34,6 +41,7 @@ products:
     convert: ""
     clr: "refc.clr"
     pal: "hrrr_refc.pal"
+    gpu_data: { min: -30.0, max: 80.0 }
     # Smooth, interpolated color gradient (no -nearest_color_entry) so
     # reflectivity renders like RadarOmega instead of hard 5-dBZ bands.
     # All other products omit this flag and keep crisp binned colors.
@@ -51,6 +59,7 @@ products:
     convert: "A * 1.8 + 32"
     clr: "t2m.clr"
     pal: "hrrr_t2m.pal"
+    gpu_data: { min: -60.0, max: 130.0 }
     ecmwf_match: "^2t:sfc:"
     point_values: true
     # also_meso: publish in the manifest's mesoCatalog too — the app's
@@ -67,6 +76,7 @@ products:
     convert: "A * 1.8 + 32"
     clr: "td2m.clr"
     pal: "hrrr_td2m.pal"
+    gpu_data: { min: -60.0, max: 90.0 }
     ecmwf_match: "^2d:sfc:"
     point_values: true
     also_meso: true
@@ -82,6 +92,7 @@ products:
     convert: "A * 1.94384"
     clr: "wind.clr"
     pal: "hrrr_wind10m.pal"
+    gpu_data: { min: 0.0, max: 120.0 }
     # Colon anchors the param so "100u:sfc:" can never match.
     ecmwf_match: "^(10u|10v):sfc:"
     point_values: true
@@ -95,6 +106,7 @@ products:
     convert: "A * 1.94384"
     clr: "wind.clr"
     pal: "hrrr_gust10m.pal"
+    gpu_data: { min: 0.0, max: 140.0 }
     # ECMWF 10fg = max gust since the previous 3 h step (not instantaneous).
     ecmwf_match: "^10fg:sfc:"
     point_values: true
@@ -112,6 +124,7 @@ products:
     convert: "A / 100.0"
     clr: "mslp.clr"
     pal: "hrrr_mslp.pal"
+    gpu_data: { min: 940.0, max: 1050.0 }
     point_values: true
 
   sfccape:
@@ -122,6 +135,7 @@ products:
     convert: ""
     clr: "cape.clr"
     pal: "hrrr_sfccape.pal"
+    gpu_data: { min: 0.0, max: 6000.0 }
     point_values: true
     also_meso: true
 
@@ -135,6 +149,7 @@ products:
     convert: "A / 25.4"
     clr: "precip.clr"
     pal: "hrrr_precip1h.pal"
+    gpu_data: { min: 0.0, max: 6.0 }
     point_values: true
     point_decimals: 2
 
@@ -150,6 +165,7 @@ products:
     convert: ""
     clr: "cape.clr"
     pal: "hrrr_sfccape.pal"
+    gpu_data: { min: 0.0, max: 6000.0 }
     point_values: true
 
   precipTotalM:
@@ -164,6 +180,7 @@ products:
     convert: "A * 39.3701"
     clr: "precip.clr"
     pal: "gfs_precipTotal.pal"
+    gpu_data: { min: 0.0, max: 20.0 }
     point_values: true
     point_decimals: 2
 
@@ -182,6 +199,7 @@ products:
     convert: "A / 25.4"
     clr: "precip.clr"
     pal: "hrrr_precip1h.pal"
+    gpu_data: { min: 0.0, max: 8.0 }
     point_values: true
     point_decimals: 2
 
@@ -195,6 +213,7 @@ products:
     convert: "A * 1.94384"
     clr: "wind.clr"
     pal: "gfs_wind500.pal"
+    gpu_data: { min: 0.0, max: 200.0 }
     point_values: true
 
   precipTotal:
@@ -205,6 +224,7 @@ products:
     convert: "A / 25.4"
     clr: "precip.clr"
     pal: "gfs_precipTotal.pal"
+    gpu_data: { min: 0.0, max: 20.0 }
     point_values: true
     point_decimals: 2
 

@@ -394,3 +394,36 @@ rclone copyto "${PNG_OUT}" "r2:${R2_BUCKET}/${OUT_REL}" \
   --header-upload "Cache-Control: public, max-age=300"
 
 echo "  uploaded ${OUT_REL}"
+
+# --- 9. Optional value-encoded data PNG for the GPU model layer ---------------
+# Products with gpu_data:{min,max} ALSO publish a gray+alpha PNG alongside the
+# colored one: gray 1..255 = min..max linear in DISPLAY units, 0/alpha-0 =
+# nodata. The app's GPU model layer samples this on the GPU and colorizes in a
+# fragment shader (crisp at any zoom). Baked from the SAME merc.tif the colored
+# PNG uses, so map and legend can't disagree. Non-fatal: the colored frame is
+# already uploaded, so a data-PNG failure just means that frame falls back to
+# the raster layer on device.
+#
+# ⚠ Backfill: already-rendered colored frames are skipped wholesale at the top
+# of this script, so they never gain a data PNG — coverage arrives as runs
+# cycle through retain_runs (~hours), or immediately via FORCE_RERENDER.
+GPU_MIN=$(yq -r ".products.${PRODUCT}.gpu_data.min // \"\"" "$CONFIG")
+GPU_MAX=$(yq -r ".products.${PRODUCT}.gpu_data.max // \"\"" "$CONFIG")
+if [ -n "${GPU_MIN}" ] && [ -n "${GPU_MAX}" ]; then
+  DATA_PNG="${WORK}/F$(printf '%03d' "$FH").data.png"
+  DATA_REL="${OUT_REL%.png}.data.png"
+  # ONE multi-band gdal_calc with --hideNoData (the render_mrms_obs.sh lesson:
+  # masked-array handling silently zeroed a separate constant alpha calc).
+  if gdal_calc.py --quiet -A "${MERC_TIF}" --outfile="${WORK}/gpu_ga.tif" \
+       --calc="where(A==-9999,0,minimum(255,maximum(1,1+round((A-(${GPU_MIN}))*254.0/((${GPU_MAX})-(${GPU_MIN}))))))" \
+       --calc="where(A==-9999,0,255)" \
+       --type=Byte --hideNoData --overwrite \
+     && gdal_translate -q -of PNG -co ZLEVEL=9 "${WORK}/gpu_ga.tif" "${DATA_PNG}"; then
+    rclone copyto "${DATA_PNG}" "r2:${R2_BUCKET}/${DATA_REL}" \
+      --s3-no-check-bucket --no-traverse \
+      --header-upload "Cache-Control: public, max-age=300"
+    echo "  uploaded ${DATA_REL}"
+  else
+    echo "  data-PNG bake FAILED (non-fatal, colored PNG already uploaded)"
+  fi
+fi
