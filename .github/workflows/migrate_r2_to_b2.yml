@@ -1,0 +1,60 @@
+name: Migrate R2 to B2 (one-time)
+
+# One-time bulk copy of the existing R2 bucket into the new B2 bucket so B2
+# isn't empty at cutover. Reads R2 (free egress) and writes B2 (free uploads);
+# does NOT modify or delete anything in R2, and does not affect the live app
+# (which still reads R2 until the Cloudflare cutover). Re-runnable safely.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Install rclone
+        run: |
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+          rclone version
+
+      - name: Configure rclone (R2 source + B2 dest)
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = ${{ secrets.R2_ENDPOINT }}
+          acl = private
+
+          [b2]
+          type = s3
+          provider = Other
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          region = us-west-004
+          no_check_bucket = true
+          acl = private
+          EOF
+
+      - name: Copy R2 -> B2
+        env:
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          B2_BUCKET: ${{ secrets.B2_BUCKET }}
+        run: |
+          set -euo pipefail
+          echo "=== SOURCE (R2) ==="
+          rclone size "r2:${R2_BUCKET}/" --fast-list
+
+          echo "=== COPY R2 -> B2 (preserving Cache-Control metadata) ==="
+          rclone copy "r2:${R2_BUCKET}/" "b2:${B2_BUCKET}/" \
+            --fast-list --transfers 32 --checkers 16 --metadata \
+            --s3-no-check-bucket --stats 30s --stats-one-line
+
+          echo "=== DEST (B2) after copy ==="
+          rclone size "b2:${B2_BUCKET}/" --fast-list
+          echo "=== MIGRATION COPY COMPLETE ==="
