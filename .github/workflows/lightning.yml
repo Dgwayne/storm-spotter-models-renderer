@@ -69,7 +69,6 @@ jobs:
           access_key_id = ${{ secrets.B2_KEY_ID }}
           secret_access_key = ${{ secrets.B2_APP_KEY }}
           endpoint = ${{ secrets.B2_S3_ENDPOINT }}
-          acl = private
           EOF
 
       - name: Stream GLM lightning to R2 (long loop)
