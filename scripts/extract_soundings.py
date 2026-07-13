@@ -93,12 +93,19 @@ MODELS = [
 
 # Point-sounding tiles: subsample the 3 km HRRR grid every TILE_STRIDE pixels
 # (~24 km column spacing) and chop the subsampled grid into TILE_COLS^2-column
-# tiles (~230 across CONUS). Each tile file carries the full vertical columns
-# for every forecast hour, so one ~100 KB (gzipped) fetch powers a tap-anywhere
+# tiles (~60 across CONUS). Each tile file carries the full vertical columns
+# for every forecast hour, so one ~550 KB (gzipped) fetch powers a tap-anywhere
 # sounding *and* its whole scrubber. The app inverse-distance-interpolates the
 # nearest columns to the exact tap point.
+#
+# TILE_COLS is a pure renderer knob — the app reads whatever tile IDs/bboxes
+# tiles.json advertises and picks by containment, so coarsening the grid needs
+# no app change (old and new builds both follow the manifest). 24 (vs the
+# original 12) cuts the hourly tile-file count ~228 -> ~60 per model, i.e.
+# ~242k fewer R2 Class A PUTs/month, at the cost of a larger per-tap fetch
+# (still parsed off-thread + cached ~1 h; taps are occasional).
 TILE_STRIDE = 8
-TILE_COLS = 12
+TILE_COLS = 24
 
 
 def classify(var: str, lvl: str):
