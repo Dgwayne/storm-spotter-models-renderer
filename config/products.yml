@@ -61,7 +61,7 @@ products:
     pal: "hrrr_t2m.pal"
     gpu_data: { min: -60.0, max: 130.0 }
     ecmwf_match: "^2t:sfc:"
-    point_values: true
+    point_values: false
     # also_meso: publish in the manifest's mesoCatalog too — the app's
     # Mesoanalysis layer lists this product (its f00 frame already
     # renders for the models tab, so reuse costs nothing).
@@ -78,7 +78,7 @@ products:
     pal: "hrrr_td2m.pal"
     gpu_data: { min: -60.0, max: 90.0 }
     ecmwf_match: "^2d:sfc:"
-    point_values: true
+    point_values: false
     also_meso: true
 
   wind10m:
@@ -95,7 +95,7 @@ products:
     gpu_data: { min: 0.0, max: 120.0 }
     # Colon anchors the param so "100u:sfc:" can never match.
     ecmwf_match: "^(10u|10v):sfc:"
-    point_values: true
+    point_values: false
     also_meso: true
 
   gust10m:
@@ -109,7 +109,7 @@ products:
     gpu_data: { min: 0.0, max: 140.0 }
     # ECMWF 10fg = max gust since the previous 3 h step (not instantaneous).
     ecmwf_match: "^10fg:sfc:"
-    point_values: true
+    point_values: false
     also_meso: true
 
   mslp:
@@ -125,7 +125,7 @@ products:
     clr: "mslp.clr"
     pal: "hrrr_mslp.pal"
     gpu_data: { min: 940.0, max: 1050.0 }
-    point_values: true
+    point_values: false
 
   sfccape:
     display: "Surface CAPE"
@@ -136,7 +136,7 @@ products:
     clr: "cape.clr"
     pal: "hrrr_sfccape.pal"
     gpu_data: { min: 0.0, max: 6000.0 }
-    point_values: true
+    point_values: false
     also_meso: true
 
   precip1h:
@@ -150,7 +150,7 @@ products:
     clr: "precip.clr"
     pal: "hrrr_precip1h.pal"
     gpu_data: { min: 0.0, max: 6.0 }
-    point_values: true
+    point_values: false
     point_decimals: 2
 
   capeMU:
@@ -166,7 +166,7 @@ products:
     clr: "cape.clr"
     pal: "hrrr_sfccape.pal"
     gpu_data: { min: 0.0, max: 6000.0 }
-    point_values: true
+    point_values: false
 
   precipTotalM:
     display: "Total Precipitation"
@@ -181,7 +181,7 @@ products:
     clr: "precip.clr"
     pal: "gfs_precipTotal.pal"
     gpu_data: { min: 0.0, max: 20.0 }
-    point_values: true
+    point_values: false
     point_decimals: 2
 
   precip3h:
@@ -200,7 +200,7 @@ products:
     clr: "precip.clr"
     pal: "hrrr_precip1h.pal"
     gpu_data: { min: 0.0, max: 8.0 }
-    point_values: true
+    point_values: false
     point_decimals: 2
 
   wind500:
@@ -214,7 +214,7 @@ products:
     clr: "wind.clr"
     pal: "gfs_wind500.pal"
     gpu_data: { min: 0.0, max: 200.0 }
-    point_values: true
+    point_values: false
 
   precipTotal:
     display: "Total Precipitation"
@@ -225,7 +225,7 @@ products:
     clr: "precip.clr"
     pal: "gfs_precipTotal.pal"
     gpu_data: { min: 0.0, max: 20.0 }
-    point_values: true
+    point_values: false
     point_decimals: 2
 
   # ── Mesoanalysis products ────────────────────────────────────────────────
