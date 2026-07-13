@@ -22,10 +22,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      R2_BUCKET: ${{ secrets.R2_BUCKET }}
-      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
       FORCE_RERENDER: ${{ inputs.force_rerender && '1' || '' }}
 
     defaults:
@@ -68,10 +68,12 @@ jobs:
           cat > ~/.config/rclone/rclone.conf <<EOF
           [r2]
           type = s3
-          provider = Cloudflare
-          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
-          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          endpoint = ${{ secrets.R2_ENDPOINT }}
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
           acl = private
           EOF
 
