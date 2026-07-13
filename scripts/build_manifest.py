@@ -12,12 +12,14 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
 
 import yaml  # PyYAML
+
+from r2_listing import parse_tree, rclone_lsf_recursive
+from r2_listing import all_runs as tree_all_runs
 
 MODEL = sys.argv[1]
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -51,48 +53,16 @@ def expected_fhs(model: str, run_hour: int) -> list[int]:
     return list(range(d["start"], d["end"] + 1, d.get("step", 1)))
 
 
-def list_r2_runs(model: str) -> list[str]:
-    """Return sorted list of RunStamp directories present under v1/<model>/*/."""
-    prefix = f"v1/{model}/"
-    # Use rclone lsd; format is "          -1 ... <name>".
-    runs: set[str] = set()
-    for product in products:
-        pp = f"{prefix}{product}/"
-        try:
-            out = subprocess.check_output(
-                ["rclone", "lsf", "--dirs-only", f"r2:{bucket}/{pp}"],
-                text=True,
-            )
-        except subprocess.CalledProcessError:
-            continue
-        for line in out.splitlines():
-            name = line.strip().rstrip("/")
-            if re.fullmatch(r"\d{10}", name):
-                runs.add(name)
-    return sorted(runs)
-
-
-def list_r2_frames(model: str, product: str, run: str) -> set[int]:
-    """Return integer set of forecast hours present on R2 for one (product, run)."""
-    pp = f"v1/{model}/{product}/{run}/"
-    try:
-        out = subprocess.check_output(
-            ["rclone", "lsf", f"r2:{bucket}/{pp}"],
-            text=True,
-        )
-    except subprocess.CalledProcessError:
-        return set()
-    hours: set[int] = set()
-    for line in out.splitlines():
-        m = re.fullmatch(r"F(\d{3})\.png", line.strip())
-        if m:
-            hours.add(int(m.group(1)))
-    return hours
-
-
 # --- Build manifest -----------------------------------------------------------
-all_runs = list_r2_runs(MODEL)
-recent_runs = all_runs[-retain:] if all_runs else []
+# One recursive R2 listing replaces the old per-product list_r2_runs() +
+# per-(product, run) list_r2_frames() fan-out (P*(1+retain) `rclone lsf` LIST
+# calls per build). See r2_listing.parse_tree for the byte-identical semantics.
+# This is a FRESH listing at build time — deliberately NOT the driver's
+# tick-start EXISTING_KEYS_FILE, which predates this tick's uploads and prune
+# and would hide just-rendered frames for a full tick.
+r2_tree = parse_tree(rclone_lsf_recursive(bucket, MODEL) or "", products)
+all_run_stamps = tree_all_runs(r2_tree)
+recent_runs = all_run_stamps[-retain:] if all_run_stamps else []
 
 # Mesoanalysis products (category: meso) publish in a SEPARATE mesoCatalog
 # list: app versions that predate the Mesoanalysis layer only read
@@ -165,8 +135,7 @@ for run in recent_runs:
     expected = expected_fhs(MODEL, run_hour)
     available = {}
     for code in products:
-        hours = sorted(list_r2_frames(MODEL, code, run))
-        available[code] = hours
+        available[code] = sorted(r2_tree.get(code, {}).get(run, set()))
     runs_payload.append(
         {
             "runTime": dt.datetime.strptime(run, "%Y%m%d%H")

@@ -7,12 +7,13 @@ Usage:  prune_old_runs.py <MODEL> <RETAIN>
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
 
 import yaml
+
+from r2_listing import parse_tree, rclone_lsf_recursive, runs_by_product
 
 MODEL = sys.argv[1]
 RETAIN = int(sys.argv[2])
@@ -24,22 +25,11 @@ with (REPO_ROOT / "config" / "products.yml").open() as f:
 products = cfg["models"][MODEL]["products"]
 bucket = os.environ["R2_BUCKET"]
 
-
-def list_runs(product: str) -> list[str]:
-    pp = f"v1/{MODEL}/{product}/"
-    try:
-        out = subprocess.check_output(
-            ["rclone", "lsf", "--dirs-only", f"r2:{bucket}/{pp}"],
-            text=True,
-        )
-    except subprocess.CalledProcessError:
-        return []
-    runs = [ln.strip().rstrip("/") for ln in out.splitlines()]
-    return sorted(r for r in runs if re.fullmatch(r"\d{10}", r))
-
+# One recursive listing instead of one `rclone lsf --dirs-only` per product.
+runs_map = runs_by_product(parse_tree(rclone_lsf_recursive(bucket, MODEL) or "", products))
 
 for product in products:
-    runs = list_runs(product)
+    runs = runs_map.get(product, [])
     if len(runs) <= RETAIN:
         continue
     to_delete = runs[:-RETAIN]
