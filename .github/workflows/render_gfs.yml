@@ -7,6 +7,11 @@ on:
     # recent synoptic run (anything older than 5 hours).
     - cron: '30 * * * *'
   workflow_dispatch:
+    inputs:
+      force_rerender:
+        description: 'Re-render frames even when already on R2 (bypass idempotency check). Used to backfill the GPU data PNGs onto existing frames.'
+        type: boolean
+        default: false
 
 concurrency:
   group: render-gfs
@@ -21,6 +26,7 @@ jobs:
       R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
       AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      FORCE_RERENDER: ${{ inputs.force_rerender && '1' || '' }}
 
     defaults:
       run:
