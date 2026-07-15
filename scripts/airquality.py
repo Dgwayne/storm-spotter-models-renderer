@@ -31,6 +31,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -81,28 +82,48 @@ def _category(aqi: int) -> int:
     return 6
 
 
+# AirNow's aq/data endpoint rejects long date ranges (HTTP 400) — a 26 h
+# CONUS query 400s, while a ~3 h one is fine. So fetch the window in short
+# chunks and combine; the caller's hourly bucketing dedups any overlap.
+CHUNK_HOURS = 3
+
+
 def _fetch_airnow(start: dt.datetime, end: dt.datetime, key: str) -> list:
-    """One aq/data call for the whole window (renderer VM handles the size)."""
+    """Fetch [start, end) in <=CHUNK_HOURS windows and combine. A failed
+    chunk is logged and skipped rather than aborting the whole bake."""
     def fmt(d: dt.datetime) -> str:
         return d.strftime("%Y-%m-%dT%H")
 
-    url = (
-        "https://www.airnowapi.org/aq/data/"
-        f"?startDate={fmt(start)}&endDate={fmt(end)}"
-        f"&parameters={AIRNOW_PARAMS}&BBOX={AIRNOW_BBOX}"
-        "&dataType=A&format=application/json&verbose=1"
-        "&monitorType=2&includerawconcentrations=0"
-        f"&API_KEY={key}"
-    )
-    req = urllib.request.Request(
-        url, headers={"User-Agent": "spotter-airquality-renderer/1.0"}
-    )
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        raw = resp.read().decode("utf-8", "replace")
-    data = json.loads(raw)
-    if not isinstance(data, list):
-        raise RuntimeError(f"AirNow returned non-list: {raw[:200]}")
-    return data
+    rows: list = []
+    t = start
+    while t < end:
+        c_end = min(t + dt.timedelta(hours=CHUNK_HOURS), end)
+        url = (
+            "https://www.airnowapi.org/aq/data/"
+            f"?startDate={fmt(t)}&endDate={fmt(c_end)}"
+            f"&parameters={AIRNOW_PARAMS}&BBOX={AIRNOW_BBOX}"
+            "&dataType=A&format=application/json&verbose=1"
+            "&monitorType=2&includerawconcentrations=0"
+            f"&API_KEY={key}"
+        )
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "spotter-airquality-renderer/1.0"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read().decode("utf-8", "replace"))
+            if isinstance(data, list):
+                rows.extend(data)
+            else:
+                print(f"  chunk {fmt(t)} non-list response", file=sys.stderr)
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", "replace")[:200]
+            print(f"  chunk {fmt(t)}..{fmt(c_end)} HTTP {exc.code}: {body}",
+                  file=sys.stderr)
+        t = c_end
+    if not rows:
+        raise RuntimeError("AirNow returned no rows for any chunk")
+    return rows
 
 
 def _rclone_upload(local: Path, key: str, cache_seconds: int) -> None:
