@@ -18,7 +18,11 @@ from __future__ import annotations
 import re
 import subprocess
 
-RUN_RE = re.compile(r"\d{10}")
+# 10 digits = hourly run stamps (YYYYMMDDHH, every forecast model + OBS);
+# 12 digits = per-analysis minute stamps (YYYYMMDDHHMM, RTMA — see
+# render_rtma_obs.sh). Lexical sort stays chronological within a product
+# because a product's stamps are always one width.
+RUN_RE = re.compile(r"\d{10}(?:\d{2})?")
 PNG_RE = re.compile(r"F(\d{3})\.png")
 
 

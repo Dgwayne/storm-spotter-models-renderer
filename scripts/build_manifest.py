@@ -131,14 +131,17 @@ def expected_for(code: str, run_expected: list[int]) -> list[int]:
 
 runs_payload = []
 for run in recent_runs:
-    run_hour = int(run[-2:])
+    # 10-digit stamps are hourly (YYYYMMDDHH); RTMA publishes per-analysis
+    # 12-digit minute stamps (YYYYMMDDHHMM) — see render_rtma_obs.sh.
+    stamp_fmt = "%Y%m%d%H%M" if len(run) == 12 else "%Y%m%d%H"
+    run_hour = int(run[8:10])
     expected = expected_fhs(MODEL, run_hour)
     available = {}
     for code in products:
         available[code] = sorted(r2_tree.get(code, {}).get(run, set()))
     runs_payload.append(
         {
-            "runTime": dt.datetime.strptime(run, "%Y%m%d%H")
+            "runTime": dt.datetime.strptime(run, stamp_fmt)
             .replace(tzinfo=dt.timezone.utc)
             .isoformat(),
             "runStamp": run,

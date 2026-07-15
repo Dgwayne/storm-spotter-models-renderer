@@ -649,6 +649,27 @@ products:
     point_grid: [512, 512]
     category: meso
 
+  # ── RTMA surface observations (render_rtma_obs.sh) ─────────────────────
+  # 2.5 km analysis-of-observations grids for the app's Observations layer
+  # "Surface" section. The RTMA model block (bottom of this file) reuses the
+  # shared t2m/td2m/wind10m/gust10m entries above — render_rtma_obs.sh does
+  # its own field selection/conversion, reading only clr + gpu_data from
+  # here, so wgrib2_match/ecmwf_match on the shared entries are ignored.
+  # thetae is the one RTMA-only product.
+
+  thetae:
+    display: "2m Theta-E"
+    # Derived in render_rtma_obs.sh (Bolton 1980) from TMP 2m + DPT 2m +
+    # PRES surface — no wgrib2_match. Kelvin, SPC-mesoanalysis convention.
+    units_in: "K"
+    units_out: "K"
+    convert: ""
+    clr: "thetae.clr"
+    pal: ""
+    gpu_data: { min: 250.0, max: 400.0 }
+    point_values: false
+    group: "Surface"
+
   # ── Observed precipitation (MRMS QPE) ───────────────────────────────────
   # Radar+gauge observed accumulation for the app's "Observations (Precip)"
   # map layer. NOT rendered by decode_pipeline.sh — these have no runs or
@@ -2147,6 +2168,36 @@ models:
     # 26 hourly valid slots ≈ 24 h of history + slack — powers the app's
     # catalog playback loop (3/6/12/24-hr windows of hourly frames).
     retain_runs: 26
+
+  RTMA:
+    # RTMA surface-observation pseudo-model (render_rtma_obs.sh — NOT
+    # decode_pipeline.sh). Each 2.5 km analysis publishes as its own
+    # immutable run under a 12-digit YYYYMMDDHHMM stamp (Rapid-Update
+    # cycles land every 15 min), because the app's frame disk-cache is
+    # keyed by runStamp — see the script header for the full rationale.
+    # forecast_hours 0-0 → expected set exactly [0], like OBS.
+    products:
+      - t2m
+      - td2m
+      - thetae
+      - wind10m
+      - gust10m
+    # Same CONUS box as the forecast models / wind field so overlays line
+    # up. 4096 wide ≈ 1.9 km/px vs RTMA 2.5 km native — single static
+    # frame (no scrub), so the models-tab 2048 tradeoff doesn't apply;
+    # height matches the bbox's Web-Mercator aspect (74° lon / lat 21-53).
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [4096, 2283]
+    point_grid: [512, 512]
+    forecast_hours_default: { start: 0, end: 0, step: 1 }
+    s3_bucket: "noaa-rtma-pds"
+    # Informational — render_rtma_obs.sh builds keys itself (RU-preferred
+    # discovery with hourly fallback, mirroring wind_field.py).
+    s3_key_template: "rtma2p5_ru.{date}/rtma2p5_ru.t{run:04d}z.2dvaranl_ndfd.grb2"
+    # 96 RU analyses/day; retain 12 ≈ 3 h of history (the layer only ever
+    # shows the newest — retention is just cold-start slack + debugging).
+    runs_per_day: 96
+    retain_runs: 12
 
   NAM:
     # NAM 3 km CONUS nest ("NAM NEST") — the chaser-standard day-2 CAM:

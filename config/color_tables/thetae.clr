@@ -1,0 +1,27 @@
+# 2m Theta-E (K) — SPC-mesoanalysis-style ramp: cool violets/blues (dry,
+# cold air) through greens/yellows into reds/purples (moist tropical air).
+# 320+ K at the surface is the classic warm-sector instability axis.
+# IMPORTANT: no inline comments after data rows — gdaldem can't parse them.
+nv  0   0   0   0
+270 150 130 245 255
+275 120 140 250 255
+280 100 160 255 255
+285 80  185 255 255
+290 80  210 235 255
+295 110 225 190 255
+300 100 220 120 255
+305 150 225 95  255
+310 200 230 85  255
+315 235 220 75  255
+320 240 190 60  255
+325 240 150 50  255
+330 235 105 40  255
+335 220 60  35  255
+340 200 25  35  255
+345 195 0   90  255
+350 195 0   150 255
+355 175 30  205 255
+360 150 60  235 255
+365 140 95  255 255
+370 165 140 255 255
+380 200 185 255 255
