@@ -69,6 +69,11 @@ render_one() {
   decimals=$(yq -r ".products.${product}.point_decimals // 2" "$CONFIG")
   grid_w=$(yq -r ".products.${product}.point_grid[0] // 512" "$CONFIG")
   grid_h=$(yq -r ".products.${product}.point_grid[1] // 512" "$CONFIG")
+  # Optional additive value PNG (F000.data.png) for the app's crosshair
+  # inspector — empty unless the product declares `gpu_data`.
+  local gd_min gd_max
+  gd_min=$(yq -r ".products.${product}.gpu_data.min // \"\"" "$CONFIG")
+  gd_max=$(yq -r ".products.${product}.gpu_data.max // \"\"" "$CONFIG")
 
   local stamp="${vdate}${vhour}"
   local src_dir="${mrms_prefix}_Pass${pass}_00.00"
@@ -155,6 +160,30 @@ PY
     --s3-no-check-bucket --no-traverse \
     --header-upload "Cache-Control: public, max-age=300"
   echo "  uploaded ${out_rel}"
+
+  # Additive value PNG (gray + alpha) for the app's crosshair inspector —
+  # encoded from the SAME merc.tif the colorized fill above is built from,
+  # so a readout always agrees with the color under it. gray 1..255 =
+  # gd_min..gd_max linear, 0 = nodata (matches render_mrms_obs.sh's data_png
+  # encode). The colorized F000.png is untouched — the app still renders it
+  # as the fill; only the inspector reads this file. Non-fatal on failure.
+  # (--hideNoData feeds the raw -9999s so the where() guards see them; see
+  # the same note in render_mrms_obs.sh.)
+  if [ -n "${gd_min}" ] && [ -n "${gd_max}" ]; then
+    local data_rel="${out_rel%.png}.data.png"
+    if gdal_calc.py --quiet -A "${work}/merc.tif" --outfile="${work}/ga.tif" \
+         --calc="where(A==-9999,0,minimum(255,maximum(1,1+round((A-(${gd_min}))*254.0/((${gd_max})-(${gd_min}))))))" \
+         --calc="where(A==-9999,0,255)" \
+         --type=Byte --hideNoData --overwrite \
+       && gdal_translate -q -of PNG -co ZLEVEL=9 "${work}/ga.tif" "${work}/F000.data.png"; then
+      rclone copyto "${work}/F000.data.png" "r2:${R2_BUCKET}/${data_rel}" \
+        --s3-no-check-bucket --no-traverse \
+        --header-upload "Cache-Control: public, max-age=300"
+      echo "  uploaded ${data_rel} (inspector values)"
+    else
+      echo "  value-PNG encode FAILED (non-fatal, fill + grid unaffected)"
+    fi
+  fi
 
   # Pass bookkeeping: mark Pass1 bridges for later Pass2 overwrite; clear
   # the marker once a Pass2 render lands.

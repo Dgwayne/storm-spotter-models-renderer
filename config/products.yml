@@ -669,6 +669,12 @@ products:
     units_in: "mm"
     units_out: "in"
     clr: "qpe.clr"
+    # Additive value PNG (F000.data.png) for the app's crosshair inspector.
+    # The colorized F000.png still renders the fill; this just gives the
+    # readout the fill's own full-res values instead of the coarse 512²
+    # point grid. max = qpe.clr ceiling (20 in) so it never clips below a
+    # color the fill can show. See render_mrms_qpe.sh.
+    gpu_data: { min: 0.0, max: 20.0 }
     pal: ""
     group: "Precipitation"
     point_values: true
@@ -681,6 +687,7 @@ products:
     units_in: "mm"
     units_out: "in"
     clr: "qpe.clr"
+    gpu_data: { min: 0.0, max: 20.0 }
     pal: ""
     group: "Precipitation"
     point_values: true
@@ -693,6 +700,7 @@ products:
     units_in: "mm"
     units_out: "in"
     clr: "qpe.clr"
+    gpu_data: { min: 0.0, max: 20.0 }
     pal: ""
     group: "Precipitation"
     point_values: true
@@ -705,6 +713,7 @@ products:
     units_in: "mm"
     units_out: "in"
     clr: "qpe.clr"
+    gpu_data: { min: 0.0, max: 20.0 }
     pal: ""
     group: "Precipitation"
     point_values: true
@@ -717,6 +726,7 @@ products:
     units_in: "mm"
     units_out: "in"
     clr: "qpe.clr"
+    gpu_data: { min: 0.0, max: 20.0 }
     pal: ""
     group: "Precipitation"
     point_values: true
