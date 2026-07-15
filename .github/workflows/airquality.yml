@@ -1,0 +1,70 @@
+name: Air Quality (AirNow)
+
+# EPA AirNow AQI feed + 24 h animation bake for Spotter Tools Pro.
+#
+# Produces (on the shared B2 bucket / models.dgwaynes.com):
+#   airquality/v1/conus.json      latest AQI per monitor (live layer)
+#   airquality/v1/loop24.json     per-monitor 24 h series (animated dots)
+#   airquality/v1/contours/<view>/F<idx>.png   hourly shaded-surface PNGs
+#   airquality/v1/loop_manifest.json           frames/hours/bbox + URLs
+#
+# AirNow publishes hourly, so a 20-min cron is as fresh as the data ever
+# gets. GitHub cron is best-effort; a skipped tick just means the next one
+# catches up (the app tolerates 15-min-old data). Public repo => free
+# Actions minutes; B2 uploads + CDN egress are free. Net $0.
+
+on:
+  schedule:
+    # Every 20 min, staggered off HRRR (:05) / RRFS (:10) / MRMS (:2,17,32,47).
+    - cron: '12,32,52 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: airquality
+  cancel-in-progress: false
+
+jobs:
+  airquality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+      AIRNOW_API_KEY: ${{ secrets.AIRNOW_API_KEY }}
+
+    defaults:
+      run:
+        shell: bash -el {0}    # ensures the micromamba env is active per step
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up micromamba (gdal + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: airquality
+          create-args: >-
+            python=3.11
+            gdal
+            rclone
+          cache-environment: true
+          init-shell: bash
+
+      - name: Configure rclone for Cloudflare R2 (Backblaze B2)
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Bake AirNow AQI feed + contours
+        run: python scripts/airquality.py

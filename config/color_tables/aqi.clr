@@ -1,0 +1,22 @@
+# EPA AQI category ramp for gdaldem color-relief.
+#
+# Rendered in SMOOTH mode (no -nearest_color_entry): each category colour is
+# held flat across its AQI band with a 1-unit blend at each boundary, so the
+# interpolated AQI surface (gdal_grid IDW) paints as smooth-edged category
+# regions — the AirNow "contour" look — while the colours stay the exact EPA
+# category colours the dots use. Value = AQI. Alpha 255; the app's RasterLayer
+# opacity controls translucency. `nv` -> transparent outside the interpolation
+# footprint (areas with no nearby monitor).
+nv     0   0   0   0
+0      0   228 0   255
+50     0   228 0   255
+51     255 255 0   255
+100    255 255 0   255
+101    255 126 0   255
+150    255 126 0   255
+151    255 0   0   255
+200    255 0   0   255
+201    143 63  151 255
+300    143 63  151 255
+301    126 0   35  255
+500    126 0   35  255
