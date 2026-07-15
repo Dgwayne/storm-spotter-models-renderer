@@ -265,6 +265,28 @@ def main() -> int:
     st_list = [s for s in stations.values() if s["series"]]
     print(f"  {len(st_list)} monitors")
 
+    # Carry each monitor's reading forward up to CARRY_HOURS when it misses an
+    # update, so the newest frames — and the live/static contour, which is the
+    # last frame — stay full instead of collapsing to a few blobs when a
+    # slow-reporting pollutant (ozone especially) hasn't published the current
+    # hour yet. Bounded so a monitor that genuinely went offline doesn't
+    # linger a stale value all day.
+    CARRY_HOURS = 3
+    for s in st_list:
+        for arr in s["series"].values():
+            last = None
+            carried = 0
+            for i in range(FRAMES):
+                if arr[i] is not None:
+                    last = arr[i]
+                    carried = 0
+                elif last is not None and carried < CARRY_HOURS:
+                    arr[i] = last
+                    carried += 1
+                else:
+                    last = None
+                    carried = 0
+
     tmp = Path(tempfile.mkdtemp(prefix="aqi_"))
 
     # ── conus.json — latest AQI per monitor+pollutant (live layer) ────────
