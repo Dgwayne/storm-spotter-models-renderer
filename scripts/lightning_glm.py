@@ -268,16 +268,36 @@ def main() -> int:
     west = _pick_bucket(WEST_BUCKETS, prefixes, cutoff_epoch)
     print(f"==> GLM east={east} west={west} window={WINDOW_MIN}m")
 
-    # (lat, lon, epoch, keep_predicate) per satellite. East keeps the
-    # eastern side of the cutoff; West keeps the western side.
+    # Per-satellite (bucket, keep_predicate). keep returns a boolean mask
+    # over a granule's flash longitudes.
+    #
+    # Both satellites live: split at CUTOFF_LON so the ~CONUS overlap isn't
+    # doubled (East takes lon >= cutoff, West takes lon < cutoff).
+    #
+    # One satellite down (e.g. the 2026-07 GOES-19 GLM outage that blacked
+    # out the eastern US): don't black out that satellite's half. The
+    # surviving bird's GLM sees well past the cutoff. GOES-18 (West) detects
+    # lightning east to about -80 (most of CONUS bar the far East seaboard
+    # and FL), and GOES-19 (East) reaches similarly far west, so let the
+    # survivor cover the whole disk it can see until the other recovers.
+    # Reverts to the clean split automatically the next pass once both
+    # buckets return fresh data, so this needs no cleanup when the outage ends.
+    keep_all = lambda lon: np.ones(lon.shape, dtype=bool)
     plan = []
-    if east:
+    if east and west:
         plan.append((east, lambda lon: lon >= CUTOFF_LON))
-    if west:
         plan.append((west, lambda lon: lon < CUTOFF_LON))
-    if not plan:
+        mode = "split (both satellites live)"
+    elif east:
+        plan.append((east, keep_all))
+        mode = "EAST-ONLY fallback (West satellite down)"
+    elif west:
+        plan.append((west, keep_all))
+        mode = "WEST-ONLY fallback (East satellite down)"
+    else:
         print("  no GLM data available right now (satellite swap or outage?)", file=sys.stderr)
         return 0  # don't fail the loop; next pass may recover
+    print(f"  coverage mode: {mode}")
 
     # (recent-tier, grid-lat, grid-lon, time-bucket) -> (lat, lon, epoch);
     # newer epoch wins for the same cell.
