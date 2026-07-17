@@ -17,8 +17,11 @@ compatibility_date = "2025-01-01"
 # Each cron expression maps to a workflow in src/worker.js (CRON_TO_WORKFLOW).
 # HRRR: every 15 min, offset to land just after NOAA's typical publish window.
 # RRFS: every 15 min, +5 from the HRRR ticks so the sweeps stagger.
-# MRMS QPE (OBS): every 15 min — the :17 tick catches the Pass1 bridge
-# (~:16 publish) and the :02 tick settles the hour with Pass2 (~:58).
+# MRMS QPE (OBS) + GOES: every 15 min — the :17 tick catches the Pass1
+# bridge (~:16 publish) and the :02 tick settles the hour with Pass2 (~:58).
+# GOES piggybacks on this slot (free plan caps at 5 cron triggers): satellite
+# frames land in IEM's archive on the quarter-hours, so :02/:17/:32/:47
+# catches each one a few minutes after publish.
 # NAM: every 15 min on the remaining :00 slot — only 4 cycles/day, but each
 # cycle's frames trail in for ~1.5 h so frequent sweeps keep the newest
 # cycle fresh (idempotent skips make the idle ticks nearly free).
