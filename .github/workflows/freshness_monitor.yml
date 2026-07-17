@@ -1,0 +1,53 @@
+# Dead-man's switch for the whole render pipeline.
+#
+# Every render workflow is dispatched by the stp-models-cron Cloudflare
+# Worker, whose documented failure mode is SILENT (Cloudflare stops firing
+# the cron triggers while HTTP keeps working — hit 2026-07-13 and again for
+# GOES on GitHub-native cron 2026-07-17). When that happens nothing errors;
+# manifests just quietly age. This monitor is the independent observer: it
+# checks the public manifests' generatedAt and FAILS the job when one is
+# stale, which makes GitHub email the repo owner.
+#
+# Deliberately runs on GitHub's native schedule: it must not share the
+# Cloudflare Worker's fate. Native cron is best-effort (fires roughly
+# hourly in practice), which is fine for a dead-man's switch — the 120-min
+# limit already allows for skipped ticks, and the previous stall went ~16 h
+# unnoticed.
+name: Freshness monitor
+
+on:
+  schedule:
+    - cron: "25 * * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check manifest freshness
+        run: |
+          set -u
+          fail=0
+          check() {
+            local name="$1" url="$2" max_min="$3"
+            # Cache-bust: models.dgwaynes.com edge-caches manifest.json
+            # (Cache-Control max-age=14400) — a cached copy could false-alarm.
+            local gen
+            gen=$(curl -sf --max-time 30 -H "Cache-Control: no-cache" \
+                  "$url?_mon=$(date +%s)" \
+                  | python3 -c "import json,sys; print(json.load(sys.stdin)['generatedAt'])") || {
+              echo "::error::$name manifest fetch/parse failed"
+              fail=1
+              return
+            }
+            local age=$(( ( $(date -u +%s) - $(date -u -d "$gen" +%s) ) / 60 ))
+            echo "$name: generatedAt=$gen age=${age}m (limit ${max_min}m)"
+            if [ "$age" -gt "$max_min" ]; then
+              echo "::error::$name manifest is ${age} min old (limit ${max_min} min) — check the stp-models-cron Worker (a 'wrangler deploy' from cron-trigger/ re-arms a stalled scheduler)"
+              fail=1
+            fi
+          }
+          check SAT  "https://models.dgwaynes.com/v1/SAT/manifest.json"  120
+          check OBS  "https://models.dgwaynes.com/v1/OBS/manifest.json"  120
+          check HRRR "https://models.dgwaynes.com/v1/HRRR/manifest.json" 120
+          exit $fail
