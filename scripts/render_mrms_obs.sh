@@ -51,11 +51,17 @@ has_key() { grep -qxF "$1" "$EXISTING_KEYS_FILE"; }
 
 # Newest .grib2.gz key under CONUS/<dir>/<date>/ (S3 lists ascending; a
 # 2-min product day is ~720 objects — one 1000-key page). Empty if none.
+# The || true absorbs the grep no-match exit status: right after 00Z the
+# new day's directory is empty for slower products, and under
+# `set -euo pipefail` the bare pipeline would kill the whole script from
+# inside the callers' command substitutions (nightly 00:00-01:00 UTC
+# failure runs) before their [ -z ] yesterday-fallback could fire. A
+# transient curl failure is absorbed the same way — empty means "none".
 newest_key() {
   local dir="$1" date="$2"
-  curl -sf "https://noaa-mrms-pds.s3.amazonaws.com/?list-type=2&prefix=CONUS/${dir}/${date}/&max-keys=1000" \
+  { curl -sf "https://noaa-mrms-pds.s3.amazonaws.com/?list-type=2&prefix=CONUS/${dir}/${date}/&max-keys=1000" \
     | grep -oE "<Key>[^<]+</Key>" | sed -e 's|</\?Key>||g' \
-    | grep '\.grib2\.gz$' | tail -1
+    | grep '\.grib2\.gz$' | tail -1; } || true
 }
 
 RENDERED_ANY=false
