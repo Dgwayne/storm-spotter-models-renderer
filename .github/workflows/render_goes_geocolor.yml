@@ -1,0 +1,71 @@
+name: Render GOES GeoColor
+
+# Rolling window of GOES-East GeoColor frames for the app's satellite
+# animation, sourced from NASA GIBS (true-color RGB has no IEM single-band
+# equivalent). Writes a SEPARATE manifest (v1/SAT/geocolor.json) + frame
+# folder (v1/SAT/geocolor/), leaving the shared v1/SAT/manifest.json used by
+# already-installed apps completely untouched.
+#
+# Each run renders any 10-min slot in the last ~12 h not already on B2 and
+# rebuilds geocolor.json, so a delayed/skipped tick is backfilled next run.
+# GIBS already serves EPSG:3857 at our bbox, so no gdal is needed — this job
+# only needs python + rclone. Public repo => unlimited Actions minutes.
+
+on:
+  schedule:
+    - cron: '4,14,24,34,44,54 * * * *'   # every 10 min, offset past the slot
+  workflow_dispatch:
+    inputs:
+      force_rerender:
+        description: 'Re-fetch every slot in the window even if already on B2.'
+        type: boolean
+        default: false
+
+concurrency:
+  group: render-goes-geocolor
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+      FORCE_RERENDER: ${{ inputs.force_rerender && '1' || '' }}
+
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up micromamba (python + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: geocolor
+          create-args: >-
+            python=3.11
+            rclone
+          cache-environment: true
+          init-shell: bash
+
+      - name: Configure rclone for Cloudflare R2 (Backblaze B2)
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Render GeoColor frames
+        run: python scripts/render_goes_geocolor.py
