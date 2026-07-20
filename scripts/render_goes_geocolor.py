@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""render_goes_geocolor.py — rolling windows of GOES-East GeoColor frames,
-per REGION, for the app's satellite animation. Served from B2 behind
+"""render_goes_geocolor.py — rolling windows of GOES-East + GOES-West GeoColor
+frames, per REGION, for the app's satellite animation. Served from B2 behind
 models.dgwaynes.com.
 
 Why regions
@@ -51,19 +51,31 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-# ── Regions (lon/lat W,S,E,N). Everything else is derived. ─────────────
-# CONUS is the wide overview; the rest are focused oceanic/tropical boxes
-# that come out sharper (they don't hit the pixel cap). Adding a region is
-# one line here — the manifest + frame tree follow automatically.
+# ── Regions (lon/lat W,S,E,N + GOES bird). Everything else is derived. ──
+# Each region names its satellite ("sat"): East boxes pull
+# GOES-East_ABI_GeoColor, West boxes GOES-West_ABI_GeoColor. CONUS / Western US
+# are the wide overviews; the rest are focused boxes that come out sharper
+# (they don't hit the pixel cap). Adding a region is one line here — the
+# manifest + frame tree follow automatically.
 REGIONS: dict[str, dict] = {
-    "conus":     {"label": "CONUS",            "bounds": [-125.0, 22.0, -66.0, 50.0]},
-    "gulf":      {"label": "Gulf",             "bounds": [-98.0, 17.5, -80.0, 31.0]},
-    "atlantic":  {"label": "Western Atlantic", "bounds": [-82.0, 24.0, -58.0, 45.0]},
-    "caribbean": {"label": "Caribbean",        "bounds": [-89.0, 9.0, -58.0, 24.0]},
+    # GOES-East
+    "conus":     {"label": "CONUS",            "sat": "GOES-East", "bounds": [-125.0, 22.0, -66.0, 50.0]},
+    "gulf":      {"label": "Gulf",             "sat": "GOES-East", "bounds": [-98.0, 17.5, -80.0, 31.0]},
+    "atlantic":  {"label": "Western Atlantic", "sat": "GOES-East", "bounds": [-82.0, 24.0, -58.0, 45.0]},
+    "caribbean": {"label": "Caribbean",        "sat": "GOES-East", "bounds": [-89.0, 9.0, -58.0, 24.0]},
+    # GOES-West
+    "west":      {"label": "Western US",       "sat": "GOES-West", "bounds": [-135.0, 28.0, -104.0, 52.0]},
+    "pacnw":     {"label": "Pacific NW",       "sat": "GOES-West", "bounds": [-129.0, 40.0, -113.0, 51.0]},
+    "southwest": {"label": "Southwest",        "sat": "GOES-West", "bounds": [-125.0, 30.0, -103.0, 42.0]},
+    "hawaii":    {"label": "Hawaii",           "sat": "GOES-West", "bounds": [-161.5, 18.0, -154.0, 23.0]},
+    "alaska":    {"label": "Alaska",           "sat": "GOES-West", "bounds": [-172.0, 51.0, -129.0, 63.0]},
 }
 
 GIBS_WMS = "https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi"
-LAYER = "GOES-East_ABI_GeoColor"
+
+
+def _layer_for(region: str) -> str:
+    return f"{REGIONS[region]['sat']}_ABI_GeoColor"
 
 # Pixel budget. Target ~1.2 km/px (GIBS-native), capped at the 4096-px GPU
 # single-texture limit. The smaller boxes get their full 1.2 km well under the
@@ -83,8 +95,9 @@ STEP_MIN = 10
 LATENCY_MIN = 40
 
 # Download parallelism across all (region, slot) tasks. GIBS tolerates a small
-# burst; 6 keeps a cold multi-region backfill well under the job timeout.
-CONCURRENCY = 6
+# burst; 8 keeps a cold 9-region backfill well under the job timeout (steady-
+# state runs only fetch the newest slot or two per region).
+CONCURRENCY = 8
 
 R2_PREFIX = "v1/SAT"
 GEO_PREFIX = f"{R2_PREFIX}/geocolor"
@@ -117,10 +130,11 @@ def _region_geom(bounds: list[float]) -> tuple[str, int, int]:
 def _blank_threshold(width: int, height: int) -> int:
     """Min bytes for a real frame at this size. GIBS's uniform "no data" render
     is ~0.006 B/px; real GeoColor (day or night) is ~0.13 B/px+. 0.03 B/px sits
-    ~5x above blank and ~4x below the sparsest real frame across every region;
-    a 40 KB floor guards the smallest boxes. WMS XML exceptions (~700 B) are
-    caught separately by the JPEG magic-byte check."""
-    return max(40_000, round(width * height * 0.03))
+    ~5x above blank and ~4x below the sparsest real frame across every region.
+    The 20 KB floor stays below even a clear-ocean Hawaii frame (~40 KB) while
+    clearing that box's tiny no-data render (~5 KB). WMS XML exceptions (~700 B)
+    are caught separately by the JPEG magic-byte check."""
+    return max(20_000, round(width * height * 0.03))
 
 
 # ── Time grid ─────────────────────────────────────────────────────────
@@ -138,10 +152,11 @@ def _time_iso(slot: dt.datetime) -> str:
     return slot.strftime("%Y-%m-%dT%H:%M:00Z")
 
 
-def _gibs_url(bbox3857: str, width: int, height: int, slot: dt.datetime) -> str:
+def _gibs_url(layer: str, bbox3857: str, width: int, height: int,
+              slot: dt.datetime) -> str:
     return (
         f"{GIBS_WMS}?service=WMS&request=GetMap&version=1.3.0"
-        f"&layers={LAYER}&styles=&format=image/jpeg"
+        f"&layers={layer}&styles=&format=image/jpeg"
         f"&width={width}&height={height}"
         f"&crs=EPSG:3857&bbox={bbox3857}&time={_time_iso(slot)}"
     )
@@ -290,12 +305,13 @@ def main() -> int:
     for region in REGIONS:
         bbox, width, height = geom[region]
         min_bytes = _blank_threshold(width, height)
+        layer = _layer_for(region)
         for slot in slots:
             key = _key(region, slot)
             if key in existing:
                 continue
             tasks.append(_Task(region, slot,
-                               _gibs_url(bbox, width, height, slot),
+                               _gibs_url(layer, bbox, width, height, slot),
                                key, min_bytes))
     print(f"==> GeoColor render: {len(REGIONS)} regions x {len(slots)} slots; "
           f"{len(existing)} on B2, {len(tasks)} to fetch")
