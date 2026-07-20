@@ -28,11 +28,17 @@ The published field is a composite of two analyses:
   mesonets, satellite winds) — actual current wind. The detailed land
   field; takes precedence wherever it has data. RU lands ~20-30 min
   behind valid time.
-- **GFS f000 10 m wind** = the 0.25° global analysis, used to FILL
-  everything RTMA doesn't cover — Gulf, Caribbean, Atlantic MDR (Cape
-  Verde), East Pacific — so ocean hurricanes render. GFS refreshes every
-  6 h; the synoptic ocean flow evolves slowly, so the cadence mismatch
-  with 15-min RTMA is invisible.
+- **GFS 10 m wind** = the 0.25° global model, used to FILL everything
+  RTMA doesn't cover — Gulf, Caribbean, Atlantic MDR (Cape Verde), East
+  Pacific — so ocean hurricanes render. We pull the **forecast hour valid
+  at ~now**, not f000. GFS only runs every 6 h, so f000 (the cycle-time
+  analysis) freezes a moving storm up to ~10 h in the past — a 12 kt storm
+  ends up ~90 mi behind where NHC has it, which is exactly the "wind lags
+  the storm" complaint. `_find_newest_gfs` instead grabs the f00-f06 field
+  valid at the current hour (falling back a cycle with a +6 h forecast
+  hour if the newest run hasn't published yet), advecting the circulation
+  to where the storm actually is. Manifest carries `gfsTime` (valid time,
+  ≈ now), `gfsCycle` (run init), and `gfsForecastHour`.
 
 Both are public domain, anonymous reads from `noaa-rtma-pds` /
 `noaa-gfs-bdp-pds` on AWS Open Data.
@@ -65,8 +71,10 @@ pixel-aligned `np.where` (RTMA wins where valid, GFS fills the rest).
 - Manual run: Actions → "Wind Field (RTMA)" → Run workflow, or
   `gh workflow run wind.yml`.
 - Health check: `curl https://models.dgwaynes.com/wind/v1/latest.json`
-  — `analysisTime` within ~45 min of now (RTMA), `gfsTime` within ~6-10 h
-  (GFS cycle + f000 latency), `boundsLonLat` = the wide box above.
+  — `analysisTime` within ~45 min of now (RTMA), `gfsTime` within ~1 h of
+  now (GFS VALID time, since we pick the forecast hour valid at now;
+  `gfsForecastHour` is how far ahead of `gfsCycle` that is), `boundsLonLat`
+  = the wide box above.
 - Script: `scripts/wind_field.py` (stateless; safe to run repeatedly).
 
 ## Future

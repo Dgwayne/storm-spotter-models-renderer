@@ -22,11 +22,15 @@ Two fields are composited into one raster:
     of observations* (METARs + mesonets + satellite winds assimilated),
     i.e. actual current wind, not a forecast. This is the detailed land
     field and takes precedence wherever it has data.
-  * GFS (Global Forecast System) f000 10 m wind — the 0.25° global
-    analysis, used to FILL everything RTMA doesn't cover: the Gulf,
-    Caribbean, Atlantic, and East Pacific where hurricanes live. RTMA's
-    grid stops at the CONUS coastline, so without this base the layer is
-    blank over water.
+  * GFS (Global Forecast System) 10 m wind — the 0.25° global model,
+    used to FILL everything RTMA doesn't cover: the Gulf, Caribbean,
+    Atlantic, and East Pacific where hurricanes live. RTMA's grid stops
+    at the CONUS coastline, so without this base the layer is blank over
+    water. We pull the forecast hour VALID at ~now, NOT f000 (the cycle-
+    time analysis): GFS runs only every 6 h, so f000 shows a storm where
+    it was up to ~10 h ago — a 12 kt storm lags ~90 mi behind its real
+    position. The f00-f06 field valid at the current hour advects the
+    circulation to where the storm actually is now (see _find_newest_gfs).
 
 Both are free + public domain on AWS Open Data (noaa-rtma-pds /
 noaa-gfs-bdp-pds), same legal footing as the NEXRAD/GLM data the app
@@ -109,8 +113,10 @@ LL_DLAT = 0.03
 # How far back to look for a usable RTMA analysis before giving up. RU is
 # normally ~20-30 min behind real time; hourly RTMA ~50 min.
 MAX_LOOKBACK_MIN = 150
-# GFS cycles every 6 h; f000 lands a few hours after cycle time. Look
-# back far enough to always find a complete analysis (up to ~3 cycles).
+# GFS cycles every 6 h. We want the forecast hour valid at ~now; if the
+# newest cycle hasn't published that hour yet we step back a cycle (and
+# bump the forecast hour to keep the valid time near now). Look back far
+# enough to always land on a published cycle (up to ~3 cycles).
 GFS_MAX_LOOKBACK_H = 18
 
 OUT_PREFIX = "wind/v1"
@@ -176,21 +182,33 @@ def _find_newest_analysis(now: dt.datetime) -> tuple[dt.datetime, str, str] | No
     return None
 
 
-# ── GFS analysis discovery ────────────────────────────────────────────
-def _find_newest_gfs_f000(now: dt.datetime) -> tuple[dt.datetime, str] | None:
-    """Newest GFS cycle whose f000 0.25° file is on S3, newest-first.
+# ── GFS forecast discovery (valid at ~now, not the cycle-time analysis) ─
+def _find_newest_gfs(
+    now: dt.datetime,
+) -> tuple[dt.datetime, dt.datetime, int, str] | None:
+    """Newest GFS (cycle, forecast-hour) whose VALID time is closest to
+    now and is actually published. Returns (valid_time, cycle_time, fhr,
+    key), newest-cycle-first.
 
-    key: gfs.YYYYMMDD/HH/atmos/gfs.tHHz.pgrb2.0p25.f000
+    Using the forecast hour valid at ~now instead of f000 advects a moving
+    storm to its current position — f000 would freeze it at the 6-hourly
+    cycle time (up to ~10 h stale). All forecast hours of a COMPLETED run
+    exist, so if the newest cycle hasn't published our target hour yet we
+    fall back to the prior cycle with a +6 h forecast hour (same valid
+    time). GFS 0.25° is hourly through f120, and fhr here stays ≤ ~18.
+
+    key: gfs.YYYYMMDD/HH/atmos/gfs.tHHz.pgrb2.0p25.fFFF
     """
     cyc = now.replace(minute=0, second=0, microsecond=0)
     cyc = cyc.replace(hour=(cyc.hour // 6) * 6)
     t = cyc
     while (now - t) <= dt.timedelta(hours=GFS_MAX_LOOKBACK_H):
+        fhr = max(0, round((now - t).total_seconds() / 3600.0))
         key = (
-            f"gfs.{t:%Y%m%d}/{t:%H}/atmos/gfs.t{t:%H}z.pgrb2.0p25.f000"
+            f"gfs.{t:%Y%m%d}/{t:%H}/atmos/gfs.t{t:%H}z.pgrb2.0p25.f{fhr:03d}"
         )
         if _http_ok(f"{GFS_S3_BASE}/{key}.idx"):
-            return t, key
+            return t + dt.timedelta(hours=fhr), t, fhr, key
         t -= dt.timedelta(hours=6)
     return None
 
@@ -348,7 +366,7 @@ def _current_latest_stamp(bucket: str) -> str | None:
         meta = json.loads(res.stdout)
         return (
             f"{meta.get('source')}|{meta.get('analysisTime')}"
-            f"|{meta.get('gfsTime')}"
+            f"|{meta.get('gfsTime')}|{meta.get('gfsCycle')}"
         )
     except Exception:
         return None
@@ -369,13 +387,16 @@ def main() -> int:
     now = dt.datetime.now(dt.timezone.utc)
 
     # GFS is the always-present base (ocean coverage). Without it there's
-    # nothing to fill the water, so a missing GFS skips the pass.
-    gfs = _find_newest_gfs_f000(now)
+    # nothing to fill the water, so a missing GFS skips the pass. We take
+    # the forecast hour valid at ~now so moving storms sit at their
+    # current position, not the 6-hourly cycle time.
+    gfs = _find_newest_gfs(now)
     if not gfs:
-        print("  no GFS f000 available in lookback window", file=sys.stderr)
+        print("  no GFS field available in lookback window", file=sys.stderr)
         return 0  # transient upstream gap; next pass may recover
-    gfs_time, gfs_key = gfs
-    gfs_iso = _iso(gfs_time)
+    gfs_valid, gfs_cycle, gfs_fhr, gfs_key = gfs
+    gfs_iso = _iso(gfs_valid)
+    gfs_cycle_iso = _iso(gfs_cycle)
 
     # RTMA is the CONUS enhancement — optional. If it's briefly late we
     # still publish the GFS-only field rather than blanking the map.
@@ -388,16 +409,18 @@ def main() -> int:
         analysis_iso = gfs_iso
         source_label = "gfs"
 
-    # Rebuild when EITHER source advances (source_label + analysisTime
-    # cover RTMA; gfsTime covers GFS). Mirror this exact shape in
-    # _current_latest_stamp so the skip check lines up.
-    stamp = f"{source_label}|{analysis_iso}|{gfs_iso}"
+    # Rebuild when EITHER source advances: source_label + analysisTime
+    # cover RTMA; gfsTime (GFS valid time) + gfsCycle cover GFS, so a new
+    # forecast hour OR a fresher cycle both retrigger. Mirror this exact
+    # shape in _current_latest_stamp so the skip check lines up.
+    stamp = f"{source_label}|{analysis_iso}|{gfs_iso}|{gfs_cycle_iso}"
     if _current_latest_stamp(bucket) == stamp:
         print(f"==> {stamp} already published; nothing to do")
         return 0
 
     print(f"==> building composite wind field ({source_label})")
-    print(f"    gfs:  {GFS_S3_BASE}/{gfs_key}")
+    print(f"    gfs:  {gfs_cycle_iso} f{gfs_fhr:03d} valid {gfs_iso}")
+    print(f"          {GFS_S3_BASE}/{gfs_key}")
     if rtma:
         print(f"    rtma: {S3_BASE}/{rtma_key}")
 
@@ -415,17 +438,25 @@ def main() -> int:
         png_path, w, h, merc = _encode_png(work, gfs_uv, rtma_uv)
         print(f"    png {w}x{h} {png_path.stat().st_size} bytes")
 
-        # Filename keyed on the freshest analysis + a path-safe source tag
-        # (no '+', which is ambiguous in URLs). Timestamp-first so the
-        # lexical prune stays chronological.
-        stamp_time = rtma_time if rtma else gfs_time
+        # Filename: timestamp-first (lexical prune stays chronological) +
+        # a path-safe source tag (no '+', ambiguous in URLs) + the GFS
+        # valid HHMM. The GFS suffix keeps the key UNIQUE per content —
+        # within one RTMA analysis the GFS hour can tick, and the PNG is
+        # served immutable (max-age 1 day), so a reused key would pin a
+        # stale ocean field at the edge.
+        stamp_time = rtma_time if rtma else gfs_valid
         src_tag = "rtmagfs" if rtma else "gfs"
-        png_key = f"{OUT_PREFIX}/uv_{stamp_time:%Y%m%d%H%M}_{src_tag}.png"
+        png_key = (
+            f"{OUT_PREFIX}/uv_{stamp_time:%Y%m%d%H%M}_{src_tag}"
+            f"_g{gfs_valid:%H%M}.png"
+        )
         meta = {
             "schemaVersion": SCHEMA_VERSION,
             "generatedAt": _iso(now),
             "analysisTime": analysis_iso,
-            "gfsTime": gfs_iso,
+            "gfsTime": gfs_iso,          # GFS field VALID time (≈ now)
+            "gfsCycle": gfs_cycle_iso,   # GFS run init time
+            "gfsForecastHour": gfs_fhr,  # hours from cycle -> valid
             "source": source_label,
             "png": png_key,
             "width": w,
