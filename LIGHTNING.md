@@ -18,7 +18,8 @@ setup.**
   handoff). Short crons are unreliable on GitHub; the long loop keeps the
   feed fresh even if a scheduled tick is skipped.
 - **Cost:** $0. Public repo = unlimited Actions minutes; the JSON is a
-  few hundred KB at most and R2 egress is free.
+  few hundred KB (up to ~0.7 MB on an active day, after the service-area
+  clip) and egress is free.
 
 ## File format
 
@@ -72,6 +73,13 @@ shipping an app update.
   than `RECENT_MIN`; they only feed the app's per-radar-frame slicing, so
   thinning them bounds payload growth.
 - `CUTOFF_LON` — East/West satellite split meridian (default -106).
+- `COVERAGE_LAT`, `COVERAGE_LON`: service-area clip applied to every flash
+  before dedup/cap (default CONUS + Gulf + Caribbean + near-offshore,
+  lat 15..55 / lon -130..-60). Keeps the feed and the `MAX_FLASHES` cap
+  from carrying hemisphere lightning a US user can't see (the unclipped
+  feed was ~1.7 MB and let far-off storms crowd out US flashes).
+  Independent of the E/W split and the outage fallback; widen the box for
+  Alaska/Hawaii users.
 - `MAX_FLASHES` — hard safety cap on payload size.
 - `EAST_BUCKETS`, `WEST_BUCKETS` — candidate buckets, newest sat first;
   survives a GOES satellite swap automatically.
@@ -82,7 +90,9 @@ shipping an app update.
   for "where's the lightning / is this cell intensifying," with slight
   parallax offset and somewhat lower daytime detection efficiency vs a
   ground CG network.
-- Coverage is the Western Hemisphere full disk — all of CONUS, AK-adjacent,
-  HI, Gulf, Caribbean, oceans.
+- The satellites see the Western Hemisphere full disk, but the feed is
+  clipped to the app's US service area (`COVERAGE_LAT`/`COVERAGE_LON`):
+  CONUS + Gulf + Caribbean + near-offshore. Alaska and Hawaii are outside
+  the default box; widen it if the user base grows there.
 - The loop is a legitimate data pipeline, not a hosted server; it stays
   well within GitHub Actions and R2 free tiers.

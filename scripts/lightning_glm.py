@@ -29,7 +29,9 @@ from scratch (stateless — safe to run in a tight loop):
      within one workflow run, so we never re-fetch the same granule).
   4. Parse flash_lat / flash_lon; stamp every flash in a granule with the
      granule's scan-start epoch (20 s granularity — plenty for age bins).
-  5. Split East/West by longitude so the ~CONUS overlap isn't doubled.
+  5. Split East/West by longitude so the ~CONUS overlap isn't doubled,
+     then clip to the app's US service area (COVERAGE_LAT/LON) so the feed
+     and the MAX_FLASHES cap only carry flashes a US user can see.
   6. Grid-dedup (GRID_DEG + 1-min bucket) to bound payload size during
      big outbreaks while keeping visual coverage.
   7. Write flashes.json and rclone it to R2 at OUT_KEY.
@@ -66,6 +68,20 @@ WEST_BUCKETS = ["noaa-goes18", "noaa-goes17"]
 # East keeps lon >= cutoff (covers all of CONUS well); West keeps
 # lon < cutoff (better toward the Pacific / AK / HI).
 CUTOFF_LON = -106.0
+
+# Coverage clip. GLM sees the whole hemisphere (Argentina to Canada,
+# mid-Pacific to mid-Atlantic), but the app serves the US. Emitting all of
+# it ~doubled the feed (to ~1.7 MB) and let a busy day over South America
+# fill the MAX_FLASHES cap with lightning no US spotter can see, crowding
+# out the older US flashes the app's radar-loop sync needs. So every flash
+# is clipped to this box BEFORE dedup/cap. INDEPENDENT of the E/W split and
+# the single-satellite outage fallback: it applies in every coverage mode,
+# trimming only the far-hemisphere edges of whatever the live satellite(s)
+# deliver, so it never shrinks US coverage during an outage. Box = CONUS +
+# Gulf + Caribbean + near-offshore; Alaska/Hawaii fall OUTSIDE it, so widen
+# if the user base grows there.
+COVERAGE_LAT = (15.0, 55.0)
+COVERAGE_LON = (-130.0, -60.0)
 
 # Rolling window the feed carries. The APP picks a shorter display window
 # (5/10/20/30 min) client-side and, when the single-site radar animation
@@ -257,6 +273,18 @@ def _prune_cache(cutoff_epoch: int) -> None:
             f.unlink(missing_ok=True)
 
 
+def _in_coverage(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
+    """Boolean mask: flashes inside the app's US service area (COVERAGE_*).
+    Combined with the East/West split so neither the feed nor the
+    MAX_FLASHES cap ever carries hemisphere lightning a US user can't see."""
+    return (
+        (lat >= COVERAGE_LAT[0])
+        & (lat <= COVERAGE_LAT[1])
+        & (lon >= COVERAGE_LON[0])
+        & (lon <= COVERAGE_LON[1])
+    )
+
+
 def main() -> int:
     bucket_r2 = os.environ["R2_BUCKET"]
     now = dt.datetime.now(dt.timezone.utc)
@@ -312,7 +340,9 @@ def main() -> int:
             lat, lon, fep = _flashes_from_granule(path, epoch)
             if lat.size == 0:
                 continue
-            sel = keep(lon)
+            # East/West split (or fallback keep_all) AND the US service-area
+            # clip are both spatial masks, so combine them in one pass.
+            sel = keep(lon) & _in_coverage(lat, lon)
             lat, lon, fep = lat[sel], lon[sel], fep[sel]
             for la, lo, e in zip(lat, lon, fep):
                 ei = int(e)
