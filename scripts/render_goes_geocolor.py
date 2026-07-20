@@ -66,7 +66,7 @@ REGIONS: dict[str, dict] = {
     # GOES-West
     "west":      {"label": "Western US",       "sat": "GOES-West", "bounds": [-135.0, 28.0, -104.0, 52.0]},
     "pacnw":     {"label": "Pacific NW",       "sat": "GOES-West", "bounds": [-129.0, 40.0, -113.0, 51.0]},
-    "southwest": {"label": "Southwest",        "sat": "GOES-West", "bounds": [-125.0, 30.0, -103.0, 42.0]},
+    "pacific":   {"label": "Eastern Pacific",  "sat": "GOES-West", "bounds": [-160.0, 20.0, -118.0, 50.0]},
     "hawaii":    {"label": "Hawaii",           "sat": "GOES-West", "bounds": [-161.5, 18.0, -154.0, 23.0]},
     "alaska":    {"label": "Alaska",           "sat": "GOES-West", "bounds": [-172.0, 51.0, -129.0, 63.0]},
 }
@@ -84,7 +84,10 @@ def _layer_for(region: str) -> str:
 # size from its JPEG, so a dims change needs no app update).
 TARGET_MPP = 1200.0
 MAX_PX = 4096
-MIN_PX = 1024
+# Floor so a tiny box (Hawaii) still fills a high-DPI phone screen without the
+# client upscaling a too-small frame into mush. Above ~1.2 km this over-samples
+# GIBS's native data, but that reads far cleaner than a stretched 1024-px frame.
+MIN_PX = 2048
 A = 6378137.0  # WGS84 semi-major axis (EPSG:3857)
 
 # Rolling window (minutes) + cadence. GIBS publishes GeoColor on a 10-min grid
