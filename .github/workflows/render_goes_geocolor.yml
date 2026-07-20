@@ -43,13 +43,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up micromamba (python + rclone)
+      - name: Set up micromamba (python + rclone + pillow)
         uses: mamba-org/setup-micromamba@v2
         with:
           environment-name: geocolor
           create-args: >-
             python=3.11
             rclone
+            pillow
           cache-environment: true
           init-shell: bash
 

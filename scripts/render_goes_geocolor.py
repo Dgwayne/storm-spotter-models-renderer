@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import concurrent.futures as cf
 import datetime as dt
+import io
 import json
 import math
 import os
@@ -50,6 +51,8 @@ import sys
 import tempfile
 import urllib.request
 from pathlib import Path
+
+from PIL import Image, ImageChops
 
 # ── Regions (lon/lat W,S,E,N + GOES bird). Everything else is derived. ──
 # Each region names its satellite ("sat"): East boxes pull
@@ -130,14 +133,27 @@ def _region_geom(bounds: list[float]) -> tuple[str, int, int]:
     return bbox, width, height
 
 
-def _blank_threshold(width: int, height: int) -> int:
-    """Min bytes for a real frame at this size. GIBS's uniform "no data" render
-    is ~0.006 B/px; real GeoColor (day or night) is ~0.13 B/px+. 0.03 B/px sits
-    ~5x above blank and ~4x below the sparsest real frame across every region.
-    The 20 KB floor stays below even a clear-ocean Hawaii frame (~40 KB) while
-    clearing that box's tiny no-data render (~5 KB). WMS XML exceptions (~700 B)
-    are caught separately by the JPEG magic-byte check."""
-    return max(20_000, round(width * height * 0.03))
+# A frame at/above this many bytes is unambiguously real (the biggest no-data
+# render — CONUS at 4096 px — is ~60 KB). Smaller frames get a pixel check:
+# byte size alone can't tell a dark-ocean night frame from GIBS's no-data
+# render (both compress tiny), which was wrongly dropping Hawaii's night frames.
+OBVIOUSLY_REAL_BYTES = 200_000
+
+
+def _is_blank(data: bytes) -> bool:
+    """True when the JPEG is GIBS's uniform no-data render. Decodes a 48-px
+    thumbnail and requires >=2% of pixels to carry real luminance (max(r,g,b)
+    >= 16); clouds and city lights in any genuine frame — day or night — light
+    up far more than that, while a no-data render is uniform black. Mirrors the
+    app's isBlankGibsFrame check."""
+    try:
+        im = Image.open(io.BytesIO(data)).convert("RGB").resize((48, 48))
+        r, g, b = im.split()
+        mx = ImageChops.lighter(ImageChops.lighter(r, g), b)  # per-pixel max
+        lit = sum(mx.histogram()[16:])  # pixels with max(r,g,b) >= 16
+        return lit < 48 * 48 * 0.02
+    except Exception:  # noqa: BLE001 — undecodable: let the caller keep it
+        return False
 
 
 # ── Time grid ─────────────────────────────────────────────────────────
@@ -186,9 +202,10 @@ def _purge(bucket: str) -> None:
                      "--rmdirs"])
 
 
-def _download(url: str, dest: Path, min_bytes: int) -> bool:
+def _download(url: str, dest: Path) -> bool:
     """Fetch one frame. False for network errors, non-JPEG bodies (WMS XML
-    exceptions), and the uniform "no data" render (below min_bytes)."""
+    exceptions), and GIBS's uniform no-data render (pixel-checked below the
+    obviously-real size)."""
     try:
         req = urllib.request.Request(
             url, headers={"User-Agent": "storm_spotter_geocolor/1.0"})
@@ -197,7 +214,9 @@ def _download(url: str, dest: Path, min_bytes: int) -> bool:
     except Exception as exc:  # noqa: BLE001 — best-effort; retried/backfilled
         print(f"  fetch error {url[-40:]}: {exc}", file=sys.stderr)
         return False
-    if len(data) < min_bytes or data[:2] != b"\xff\xd8":  # JPEG SOI
+    if len(data) < 1000 or data[:2] != b"\xff\xd8":  # empty / XML exception
+        return False
+    if len(data) < OBVIOUSLY_REAL_BYTES and _is_blank(data):
         return False
     dest.write_bytes(data)
     return True
@@ -212,14 +231,13 @@ def _upload(src: Path, key: str, bucket: str) -> None:
 
 
 class _Task:
-    __slots__ = ("region", "slot", "url", "key", "min_bytes")
+    __slots__ = ("region", "slot", "url", "key")
 
-    def __init__(self, region, slot, url, key, min_bytes):
+    def __init__(self, region, slot, url, key):
         self.region = region
         self.slot = slot
         self.url = url
         self.key = key
-        self.min_bytes = min_bytes
 
 
 def _fetch(task: _Task, bucket: str) -> str | None:
@@ -231,7 +249,7 @@ def _fetch(task: _Task, bucket: str) -> str | None:
         for _ in range(2):
             with tempfile.TemporaryDirectory() as td:
                 dest = Path(td) / "frame.jpg"
-                if _download(task.url, dest, task.min_bytes):
+                if _download(task.url, dest):
                     _upload(dest, task.key, bucket)
                     return task.key
     except Exception as exc:  # noqa: BLE001 — upload/IO error; retried next run
@@ -299,15 +317,14 @@ def main() -> int:
     else:
         existing = _list_existing(bucket)
 
-    # Per-region geometry (bbox / dims / blank threshold), computed once.
+    # Per-region geometry (bbox / dims), computed once.
     geom = {r: _region_geom(REGIONS[r]["bounds"]) for r in REGIONS}
     for r, (_, w, h) in geom.items():
-        print(f"    {r}: {w}x{h}  min_real={_blank_threshold(w, h)} B")
+        print(f"    {r}: {w}x{h}")
 
     tasks = []
     for region in REGIONS:
         bbox, width, height = geom[region]
-        min_bytes = _blank_threshold(width, height)
         layer = _layer_for(region)
         for slot in slots:
             key = _key(region, slot)
@@ -315,7 +332,7 @@ def main() -> int:
                 continue
             tasks.append(_Task(region, slot,
                                _gibs_url(layer, bbox, width, height, slot),
-                               key, min_bytes))
+                               key))
     print(f"==> GeoColor render: {len(REGIONS)} regions x {len(slots)} slots; "
           f"{len(existing)} on B2, {len(tasks)} to fetch")
 
