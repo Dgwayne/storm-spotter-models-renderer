@@ -52,7 +52,7 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-from PIL import Image, ImageChops
+from PIL import Image
 
 # ── Regions (lon/lat W,S,E,N + GOES bird). Everything else is derived. ──
 # Each region names its satellite ("sat"): East boxes pull
@@ -68,7 +68,6 @@ REGIONS: dict[str, dict] = {
     "caribbean": {"label": "Caribbean",        "sat": "GOES-East", "bounds": [-89.0, 9.0, -58.0, 24.0]},
     # GOES-West
     "west":      {"label": "Western US",       "sat": "GOES-West", "bounds": [-135.0, 28.0, -104.0, 52.0]},
-    "pacnw":     {"label": "Pacific NW",       "sat": "GOES-West", "bounds": [-129.0, 40.0, -113.0, 51.0]},
     "pacific":   {"label": "Eastern Pacific",  "sat": "GOES-West", "bounds": [-160.0, 20.0, -118.0, 50.0]},
     "hawaii":    {"label": "Hawaii",           "sat": "GOES-West", "bounds": [-161.5, 18.0, -154.0, 23.0]},
     "alaska":    {"label": "Alaska",           "sat": "GOES-West", "bounds": [-172.0, 51.0, -129.0, 63.0]},
@@ -133,25 +132,36 @@ def _region_geom(bounds: list[float]) -> tuple[str, int, int]:
     return bbox, width, height
 
 
-# A frame at/above this many bytes is unambiguously real (the biggest no-data
-# render — CONUS at 4096 px — is ~60 KB). Smaller frames get a pixel check:
-# byte size alone can't tell a dark-ocean night frame from GIBS's no-data
-# render (both compress tiny), which was wrongly dropping Hawaii's night frames.
-OBVIOUSLY_REAL_BYTES = 200_000
-
-
-def _is_blank(data: bytes) -> bool:
-    """True when the JPEG is GIBS's uniform no-data render. Decodes a 48-px
-    thumbnail and requires >=2% of pixels to carry real luminance (max(r,g,b)
-    >= 16); clouds and city lights in any genuine frame — day or night — light
-    up far more than that, while a no-data render is uniform black. Mirrors the
-    app's isBlankGibsFrame check."""
+def _reject_frame(data: bytes) -> bool:
+    """True when a JPEG should be dropped for quality. One reduced-scale decode
+    catches two failure modes:
+      * BLANK — GIBS's uniform no-data render. Byte size can't tell it from a
+        real dark-ocean night frame (both compress tiny), so we require >=2% of
+        pixels to carry real luminance (max(r,g,b) >= 16). Clouds + city lights
+        light up far more than that; no-data is uniform black. Mirrors the app's
+        isBlankGibsFrame check.
+      * BAND — a GOES scan artifact: a run of rows tinted bright cyan when a
+        colour channel (the red band) drops out of a scan swath, seen
+        transiently on GOES-West. We count rows that are a full-width bright-cyan
+        band (B high, G high, R well below B); a healthy scene has none (deep
+        ocean is dark, turquoise coast is localized, cloud is white)."""
     try:
-        im = Image.open(io.BytesIO(data)).convert("RGB").resize((48, 48))
-        r, g, b = im.split()
-        mx = ImageChops.lighter(ImageChops.lighter(r, g), b)  # per-pixel max
-        lit = sum(mx.histogram()[16:])  # pixels with max(r,g,b) >= 16
-        return lit < 48 * 48 * 0.02
+        im = Image.open(io.BytesIO(data))
+        im.draft("RGB", (96, 96))  # fast reduced-scale JPEG decode
+        im = im.convert("RGB").resize((96, 96))
+        px = im.load()
+        lit = band = 0
+        for y in range(96):
+            cyan = 0
+            for x in range(96):
+                r, g, b = px[x, y]
+                if r >= 16 or g >= 16 or b >= 16:
+                    lit += 1
+                if b > 180 and g > 150 and r < b - 60:
+                    cyan += 1
+            if cyan > 96 * 0.4:  # a full-width cyan row
+                band += 1
+        return lit < 96 * 96 * 0.02 or band >= 5
     except Exception:  # noqa: BLE001 — undecodable: let the caller keep it
         return False
 
@@ -216,7 +226,7 @@ def _download(url: str, dest: Path) -> bool:
         return False
     if len(data) < 1000 or data[:2] != b"\xff\xd8":  # empty / XML exception
         return False
-    if len(data) < OBVIOUSLY_REAL_BYTES and _is_blank(data):
+    if _reject_frame(data):  # blank no-data render, or a cyan scan-band artifact
         return False
     dest.write_bytes(data)
     return True
