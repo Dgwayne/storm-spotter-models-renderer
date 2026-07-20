@@ -65,11 +65,13 @@ REGIONS: dict[str, dict] = {
 GIBS_WMS = "https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi"
 LAYER = "GOES-East_ABI_GeoColor"
 
-# Pixel budget. Target ~1.2 km/px (GIBS-native), capped so the biggest box
-# (CONUS) lands at 3072 px / ~2.1 km — the fast overview the app already
-# shipped — while the smaller boxes get their full 1.2 km at < 3072 px.
+# Pixel budget. Target ~1.2 km/px (GIBS-native), capped at the 4096-px GPU
+# single-texture limit. The smaller boxes get their full 1.2 km well under the
+# cap; only CONUS is wide enough to hit it, landing at 4096 px / ~1.6 km — as
+# sharp as one texture allows over the lower-48 box (the app reads each frame's
+# size from its JPEG, so a dims change needs no app update).
 TARGET_MPP = 1200.0
-MAX_PX = 3072
+MAX_PX = 4096
 MIN_PX = 1024
 A = 6378137.0  # WGS84 semi-major axis (EPSG:3857)
 
