@@ -22,7 +22,12 @@ const CRON_TO_WORKFLOW = {
   "10,25,40,55 * * * *": ["render_rrfs.yml"],
   "2,17,32,47 * * * *": ["render_mrms_qpe.yml", "render_goes.yml"],
   "0,15,30,45 * * * *": ["render_nam.yml"],
-  "7,37 * * * *": ["render_ecmwf.yml"],
+  // GFS rides the ECMWF slot: GitHub-native cron for render_gfs.yml was
+  // firing with gaps up to 4 h, compounding the old single-target render
+  // strategy into ~5-9 h of app-visible staleness. 30-min dispatches +
+  // the sweep rewrite in render_gfs.sh put new runs on the CDN within
+  // one tick of NOAA publishing.
+  "7,37 * * * *": ["render_ecmwf.yml", "render_gfs.yml"],
 };
 
 // Fallback if Cloudflare ever hands us a cron string we didn't map (e.g. after
