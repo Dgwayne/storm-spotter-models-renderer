@@ -14,14 +14,14 @@
 #                   the PNG (sample_point_values.py) for on-map numbers
 #   point_decimals: decimals to keep in the published values (default 0)
 #   point_value_fh_cap: publish that F###.json for fh <= N only, while the PNG
-#                   still renders the full forecast range. For products whose
-#                   grid is read at ONE hour (the Mesoanalysis crosshair always
-#                   samples the first expected hour) but whose frames need to
-#                   scrub — a 512² grid is ~1 MB/frame, so capping it is the
-#                   difference between ~2 MB and ~60 MB per run. build_manifest.py
-#                   then reports pointValues false in productCatalog (the models
-#                   tab would scrub off the end of the grids) and true in
-#                   mesoCatalog. Independent of fh_cap, which caps the PNG too.
+#                   still renders the full forecast range. build_manifest.py
+#                   then reports pointValues false in productCatalog (the
+#                   models tab would scrub off the end of the grids) and true
+#                   in mesoCatalog. Independent of fh_cap, which caps the PNG
+#                   too. NO CURRENT PRODUCT USES IT — srh/ehi did for a few
+#                   hours on 2026-07-27 until the crosshair inspector needed
+#                   grids at every scrubbed hour; kept for the next product
+#                   whose grid is only ever read at one hour.
 #   gpu_data:       {min, max} — when present, ALSO bake a value-encoded data
 #                   PNG next to the colored one (F###.data.png): gray 1..255 =
 #                   min..max linear in DISPLAY units, 0/alpha-0 = nodata. The
@@ -70,7 +70,7 @@ products:
     pal: "hrrr_t2m.pal"
     gpu_data: { min: -60.0, max: 130.0 }
     ecmwf_match: "^2t:sfc:"
-    point_values: false
+    point_values: true
     # also_meso: publish in the manifest's mesoCatalog too — the app's
     # Mesoanalysis layer lists this product (its f00 frame already
     # renders for the models tab, so reuse costs nothing).
@@ -87,7 +87,7 @@ products:
     pal: "hrrr_td2m.pal"
     gpu_data: { min: -60.0, max: 90.0 }
     ecmwf_match: "^2d:sfc:"
-    point_values: false
+    point_values: true
     also_meso: true
 
   wind10m:
@@ -104,7 +104,7 @@ products:
     gpu_data: { min: 0.0, max: 120.0 }
     # Colon anchors the param so "100u:sfc:" can never match.
     ecmwf_match: "^(10u|10v):sfc:"
-    point_values: false
+    point_values: true
     also_meso: true
 
   gust10m:
@@ -118,7 +118,7 @@ products:
     gpu_data: { min: 0.0, max: 140.0 }
     # ECMWF 10fg = max gust since the previous 3 h step (not instantaneous).
     ecmwf_match: "^10fg:sfc:"
-    point_values: false
+    point_values: true
     also_meso: true
 
   mslp:
@@ -134,7 +134,7 @@ products:
     clr: "mslp.clr"
     pal: "hrrr_mslp.pal"
     gpu_data: { min: 940.0, max: 1050.0 }
-    point_values: false
+    point_values: true
 
   sfccape:
     display: "Surface CAPE"
@@ -145,7 +145,7 @@ products:
     clr: "cape.clr"
     pal: "hrrr_sfccape.pal"
     gpu_data: { min: 0.0, max: 6000.0 }
-    point_values: false
+    point_values: true
     also_meso: true
 
   precip1h:
@@ -159,7 +159,7 @@ products:
     clr: "precip.clr"
     pal: "hrrr_precip1h.pal"
     gpu_data: { min: 0.0, max: 6.0 }
-    point_values: false
+    point_values: true
     point_decimals: 2
 
   capeMU:
@@ -175,7 +175,7 @@ products:
     clr: "cape.clr"
     pal: "hrrr_sfccape.pal"
     gpu_data: { min: 0.0, max: 6000.0 }
-    point_values: false
+    point_values: true
 
   precipTotalM:
     display: "Total Precipitation"
@@ -190,7 +190,7 @@ products:
     clr: "precip.clr"
     pal: "gfs_precipTotal.pal"
     gpu_data: { min: 0.0, max: 20.0 }
-    point_values: false
+    point_values: true
     point_decimals: 2
 
   precip3h:
@@ -209,7 +209,7 @@ products:
     clr: "precip.clr"
     pal: "hrrr_precip1h.pal"
     gpu_data: { min: 0.0, max: 8.0 }
-    point_values: false
+    point_values: true
     point_decimals: 2
 
   wind500:
@@ -223,7 +223,7 @@ products:
     clr: "wind.clr"
     pal: "gfs_wind500.pal"
     gpu_data: { min: 0.0, max: 200.0 }
-    point_values: false
+    point_values: true
 
   precipTotal:
     display: "Total Precipitation"
@@ -234,7 +234,7 @@ products:
     clr: "precip.clr"
     pal: "gfs_precipTotal.pal"
     gpu_data: { min: 0.0, max: 20.0 }
-    point_values: false
+    point_values: true
     point_decimals: 2
 
   # ── Mesoanalysis products ────────────────────────────────────────────────
@@ -313,13 +313,12 @@ products:
   # consumes the f00 frame these renders already produce. Everything else in
   # this section stays analysis-only (fh_cap 1 + category: meso).
   #
-  # `point_value_fh_cap` is the knob that makes the promotion affordable: the
-  # 512² value grid is ~1 MB of JSON per frame and ONLY the Mesoanalysis
-  # crosshair reads it (always at the product's first expected hour), so it
-  # still publishes for f00/f01 only instead of all 19-60 forecast hours.
-  # Every other models-tab product sits at point_values: false, so the models
-  # tab drawing no on-map numbers for these is the consistent behavior —
-  # build_manifest.py advertises pointValues per-catalog to match.
+  # Full-range 512² point grids (no point_value_fh_cap): the crosshair /
+  # long-press inspector samples these at whatever hour the models tab has
+  # scrubbed to, so every frame needs its JSON. They briefly shipped capped
+  # at f00/f01 (same day) before the inspector work made that a dead end.
+  # ~930 KB/frame raw but ~50-200 KB over the wire (CDN gzip); storage is
+  # ~2 GB across HRRR+NAM retention — pennies on B2, uploads free.
 
   srh1:
     display: "0-1km SRH"
@@ -330,7 +329,6 @@ products:
     clr: "srh.clr"
     pal: ""
     point_values: true
-    point_value_fh_cap: 1
     also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
@@ -345,7 +343,6 @@ products:
     clr: "srh.clr"
     pal: ""
     point_values: true
-    point_value_fh_cap: 1
     also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
@@ -567,7 +564,6 @@ products:
     pal: ""
     point_values: true
     point_decimals: 1
-    point_value_fh_cap: 1
     also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
@@ -590,7 +586,6 @@ products:
     pal: ""
     point_values: true
     point_decimals: 1
-    point_value_fh_cap: 1
     also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.

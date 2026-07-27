@@ -343,13 +343,11 @@ gdalwarp -q -overwrite \
 # the JSON must never lag the frame it describes. Failure here is non-fatal —
 # a frame without numbers beats no frame.
 #
-# point_value_fh_cap caps the JSON (not the PNG) at fh <= N. srh1/srh3/ehi1/
-# ehi3 render the full forecast range for the scrubbable models tab, but only
-# the Mesoanalysis crosshair reads their 512² grid and it always samples the
-# first expected hour — publishing ~1 MB of JSON for all 19-60 hours would be
-# pure waste. build_manifest.py mirrors this by reporting pointValues false in
-# productCatalog for capped products, so the models tab never asks for a grid
-# that isn't there.
+# point_value_fh_cap caps the JSON (not the PNG) at fh <= N — for a product
+# whose grid is only ever read at one hour. Currently unused (srh/ehi briefly
+# shipped capped before the crosshair inspector needed every scrubbed hour);
+# build_manifest.py mirrors any future cap by reporting pointValues false in
+# productCatalog, so the models tab never asks for a grid that isn't there.
 POINT_VALUES=$(yq -r ".products.${PRODUCT}.point_values // false" "$CONFIG")
 POINT_VALUE_FH_CAP=$(yq -r ".products.${PRODUCT}.point_value_fh_cap // \"\"" "$CONFIG")
 if [ -n "${POINT_VALUE_FH_CAP}" ] && [ "${FH}" -gt "${POINT_VALUE_FH_CAP}" ]; then
