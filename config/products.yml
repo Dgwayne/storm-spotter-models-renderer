@@ -13,6 +13,15 @@
 #   point_values:   when true, publish a per-frame F###.json value grid next to
 #                   the PNG (sample_point_values.py) for on-map numbers
 #   point_decimals: decimals to keep in the published values (default 0)
+#   point_value_fh_cap: publish that F###.json for fh <= N only, while the PNG
+#                   still renders the full forecast range. For products whose
+#                   grid is read at ONE hour (the Mesoanalysis crosshair always
+#                   samples the first expected hour) but whose frames need to
+#                   scrub — a 512² grid is ~1 MB/frame, so capping it is the
+#                   difference between ~2 MB and ~60 MB per run. build_manifest.py
+#                   then reports pointValues false in productCatalog (the models
+#                   tab would scrub off the end of the grids) and true in
+#                   mesoCatalog. Independent of fh_cap, which caps the PNG too.
 #   gpu_data:       {min, max} — when present, ALSO bake a value-encoded data
 #                   PNG next to the colored one (F###.data.png): gray 1..255 =
 #                   min..max linear in DISPLAY units, 0/alpha-0 = nodata. The
@@ -239,6 +248,10 @@ products:
   #                 `mesoCatalog` so app versions that predate the meso layer
   #                 never see them in the Weather Models picker.
   #
+  # EXCEPTION: srh1/srh3/ehi1/ehi3 dropped fh_cap/category on 2026-07-27 and
+  # became full-forecast `also_meso` products (scrubbable in the models tab
+  # AND listed in the meso picker) — see the note above the srh1 entry.
+  #
   # Derived products (stp, scp) set `derived: true` with named `inputs`
   # (letter -> idx match regex, one message each) and a gdal_calc `calc`
   # expression over those letters. Formulas are kept EXACTLY in sync with
@@ -294,6 +307,20 @@ products:
     point_grid: [512, 512]
     category: meso
 
+  # ⚠ srh1/srh3/ehi1/ehi3 are DUAL-ROLE (promoted 2026-07-27 by user request):
+  # they render the FULL forecast range for the scrubbable models tab AND set
+  # `also_meso` so the Mesoanalysis layer keeps listing them — that layer just
+  # consumes the f00 frame these renders already produce. Everything else in
+  # this section stays analysis-only (fh_cap 1 + category: meso).
+  #
+  # `point_value_fh_cap` is the knob that makes the promotion affordable: the
+  # 512² value grid is ~1 MB of JSON per frame and ONLY the Mesoanalysis
+  # crosshair reads it (always at the product's first expected hour), so it
+  # still publishes for f00/f01 only instead of all 19-60 forecast hours.
+  # Every other models-tab product sits at point_values: false, so the models
+  # tab drawing no on-map numbers for these is the consistent behavior —
+  # build_manifest.py advertises pointValues per-catalog to match.
+
   srh1:
     display: "0-1km SRH"
     wgrib2_match: ":HLCY:1000-0 m above ground:"
@@ -303,11 +330,11 @@ products:
     clr: "srh.clr"
     pal: ""
     point_values: true
-    fh_cap: 1
+    point_value_fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   srh3:
     display: "0-3km SRH"
@@ -318,11 +345,11 @@ products:
     clr: "srh.clr"
     pal: ""
     point_values: true
-    fh_cap: 1
+    point_value_fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   shear6:
     display: "0-6km Shear"
@@ -519,11 +546,16 @@ products:
     point_grid: [512, 512]
     category: meso
 
+  # ehi1/ehi3: dual-role like srh1/srh3 — see the note above those entries.
+  # Both mirror sounding_analysis.dart _ehi exactly, (CAPE * SRH) / 160000
+  # floored at 0, with the SAME surface-based CAPE the sounding sheet feeds
+  # it (_ehi(sb.capeJkg, srh1) / _ehi(sb.capeJkg, srh3)). SPC's mesoanalysis
+  # page uses MLCAPE for EHI, so these run a bit hotter than SPC's under a
+  # capped/heated boundary layer — that's the deliberate app-agreement rule
+  # already applied to STP/SCP. Do NOT "fix" one side alone.
   ehi1:
     display: "EHI (0-1km)"
     derived: true
-    # Energy-Helicity Index, mirrors sounding_analysis.dart _ehi:
-    # (CAPE * SRH) / 160000, floored at 0.
     inputs:
       A: ":CAPE:surface:"
       B: ":HLCY:1000-0 m above ground:"
@@ -535,11 +567,34 @@ products:
     pal: ""
     point_values: true
     point_decimals: 1
-    fh_cap: 1
+    point_value_fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
+
+  ehi3:
+    display: "EHI (0-3km)"
+    derived: true
+    inputs:
+      A: ":CAPE:surface:"
+      B: ":HLCY:3000-0 m above ground:"
+    calc: "maximum((A*B)/160000.0,0)"
+    units_in: ""
+    units_out: ""
+    convert: ""
+    # Shares ehi.clr with ehi1. 0-3 km EHI runs ~2-3x the 0-1 km value for
+    # the same profile (SRH3 >> SRH1), so the ramp's upper bins do the work
+    # here — matching the app, whose ehi3 legend reuses the ehi1 stops.
+    clr: "ehi.clr"
+    pal: ""
+    point_values: true
+    point_decimals: 1
+    point_value_fh_cap: 1
+    also_meso: true
+    # Denser value grid than the model default (128): the cell-picker
+    # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
+    point_grid: [512, 512]
 
   pwat:
     display: "Precipitable Water"
@@ -1964,12 +2019,19 @@ models:
       - mslp
       - sfccape
       - precip1h
+      # Severe-parameter forecasts (full range, scrubbable in the models tab;
+      # also_meso keeps them in the Mesoanalysis picker). Listed AFTER the
+      # core surface products deliberately: render_hrrr.sh walks this list in
+      # order, so a tick that runs long still lands reflectivity/temp/wind
+      # first and only trails on the severe set.
+      - srh1
+      - srh3
+      - ehi1
+      - ehi3
       # Mesoanalysis set (fh_cap: 1 — analysis frames only; see product notes)
       - mlcape
       - mucape
       - mlcin
-      - srh1
-      - srh3
       - shear6
       - stp
       - scp
@@ -1980,7 +2042,6 @@ models:
       - lclHgt
       - shear1
       - stormMotion
-      - ehi1
       - pwat
       - echoTops
       - ptype
@@ -2221,6 +2282,16 @@ models:
       - mslp
       - sfccape
       - precip3h
+      # Severe-parameter forecasts. The whole point of carrying these on NAM
+      # is range: HRRR stops at f18 (f48 synoptic), NAM runs hourly to f60 on
+      # every cycle, so this is the day-2 SRH/EHI view. Verified present in
+      # the conusnest idx 2026-07-27 (HLCY 1000-0 + 3000-0 + CAPE surface).
+      # NAM has no `also_meso` consequence worth worrying about — the app's
+      # Mesoanalysis layer reads the HRRR manifest only.
+      - srh1
+      - srh3
+      - ehi1
+      - ehi3
     # Same CONUS render box + raster size as HRRR/RRFS (3 km native; see
     # the HRRR image_size note for the 2048 scrub-smoothness tradeoff).
     bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]

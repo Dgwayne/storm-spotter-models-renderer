@@ -103,12 +103,25 @@ for code in products:
     if pc.get("category") == "meso":
         meso_catalog.append(entry)
     else:
+        # point_value_fh_cap products (srh1/srh3/ehi1/ehi3) publish their
+        # F###.json value grid for the first hour(s) only, while the PNG
+        # covers the whole forecast range — see decode_pipeline.sh step 6b.
+        # The two catalogs therefore disagree about pointValues: the meso
+        # layer reads the grid at the product's first expected hour and
+        # gets it, but the models tab would scrub straight off the end of
+        # the grids, so it must be told there are no on-map numbers here
+        # (which also matches every other forecast product — they all sit
+        # at point_values: false). Copy first: one dict feeds both lists.
+        meso_entry = entry
+        if pc.get("point_value_fh_cap") is not None and entry["pointValues"]:
+            meso_entry = dict(entry)
+            entry["pointValues"] = False
         product_catalog.append(entry)
         # also_meso products render for the full forecast range (models
         # tab) AND appear in the meso catalog — the app's Mesoanalysis
         # layer just consumes their existing f00 frames.
         if pc.get("also_meso"):
-            meso_catalog.append(entry)
+            meso_catalog.append(meso_entry)
 
 
 def expected_for(code: str, run_expected: list[int]) -> list[int]:
