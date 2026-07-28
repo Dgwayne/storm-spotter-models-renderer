@@ -17,10 +17,21 @@ const REPO = "storm-spotter-models-renderer";
 // archive on the quarter-hours, so this catches each one a few minutes
 // after it publishes (GitHub-native cron was leaving the satellite loop
 // 1-3 h stale overnight).
+// render_goes_geocolor.yml (added 2026-07-20, GIBS-sourced, its own
+// geocolor.json manifest) was left on GitHub-native cron and hit the exact
+// same failure: on 2026-07-28 its declared 10-min schedule was actually
+// firing every 1-3 h, so the app's GeoColor live view served a 3 h 12 m old
+// frame. It rides the same slot as render_goes.yml — both are satellite,
+// both are idempotent backfill-the-window renders, so a 15-min dispatch is
+// well inside GIBS' own ~40-min latency.
 const CRON_TO_WORKFLOW = {
   "5,20,35,50 * * * *": ["render_hrrr.yml"],
   "10,25,40,55 * * * *": ["render_rrfs.yml"],
-  "2,17,32,47 * * * *": ["render_mrms_qpe.yml", "render_goes.yml"],
+  "2,17,32,47 * * * *": [
+    "render_mrms_qpe.yml",
+    "render_goes.yml",
+    "render_goes_geocolor.yml",
+  ],
   "0,15,30,45 * * * *": ["render_nam.yml"],
   // GFS rides the ECMWF slot: GitHub-native cron for render_gfs.yml was
   // firing with gaps up to 4 h, compounding the old single-target render
