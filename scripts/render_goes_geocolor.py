@@ -73,6 +73,10 @@ REGIONS: dict[str, dict] = {
     # storms track through. The North Pacific box stops at 20 N and -118, so
     # nothing covered this until now.
     "epac":      {"label": "E Pacific Tropics", "sat": "GOES-West", "bounds": [-135.0, 8.0, -95.0, 32.0]},
+    # Central Pacific basin (CPHC's water) + the approach to Hawaii. Overlaps
+    # epac's west edge by 3 deg so a storm crossing 140 W stays in frame
+    # through the handoff; the Hawaii box stays the tight island zoom.
+    "cpac":      {"label": "Central Pacific",   "sat": "GOES-West", "bounds": [-175.0, 8.0, -132.0, 32.0]},
     "hawaii":    {"label": "Hawaii",           "sat": "GOES-West", "bounds": [-161.5, 18.0, -154.0, 23.0]},
     "alaska":    {"label": "Alaska",           "sat": "GOES-West", "bounds": [-172.0, 51.0, -129.0, 63.0]},
 }
