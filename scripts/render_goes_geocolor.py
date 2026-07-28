@@ -68,7 +68,11 @@ REGIONS: dict[str, dict] = {
     "caribbean": {"label": "Caribbean",        "sat": "GOES-East", "bounds": [-89.0, 9.0, -58.0, 24.0]},
     # GOES-West
     "west":      {"label": "Western US",       "sat": "GOES-West", "bounds": [-135.0, 28.0, -104.0, 52.0]},
-    "pacific":   {"label": "Eastern Pacific",  "sat": "GOES-West", "bounds": [-160.0, 20.0, -118.0, 50.0]},
+    "pacific":   {"label": "North Pacific",    "sat": "GOES-West", "bounds": [-160.0, 20.0, -118.0, 50.0]},
+    # East Pacific hurricane basin — Baja + the Mexican coast + the open water
+    # storms track through. The North Pacific box stops at 20 N and -118, so
+    # nothing covered this until now.
+    "epac":      {"label": "E Pacific Tropics", "sat": "GOES-West", "bounds": [-135.0, 8.0, -95.0, 32.0]},
     "hawaii":    {"label": "Hawaii",           "sat": "GOES-West", "bounds": [-161.5, 18.0, -154.0, 23.0]},
     "alaska":    {"label": "Alaska",           "sat": "GOES-West", "bounds": [-172.0, 51.0, -129.0, 63.0]},
 }
