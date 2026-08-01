@@ -209,6 +209,78 @@ def _region_geom(bounds: list[float],
     return bbox, width, height
 
 
+def _has_nodata_void(data: bytes, n: int = 224) -> bool:
+    """True when GIBS returned a PARTIALLY rendered frame.
+
+    GIBS composes a GetMap from source granules. When some are unpublished for
+    that timestamp it still returns 200 with the missing granules as hard-edged
+    black rectangles cut into otherwise perfect imagery. Measured on the live
+    feed: 7.4% of stored frames, up to 23% for a single region. These are what
+    flash past as black boxes mid-loop.
+
+    The blank check below cannot catch them: it only fires under 2% lit, and a
+    frame that is 79% real imagery sails through.
+
+    Two signatures separate a void from night, which is the thing that makes
+    this hard (dark ocean at night is legitimately near-black, and rejecting it
+    would gut every night loop):
+
+      * WHAT BORDERS THE DARK. A void is bounded by bright daylight imagery;
+        night fades into more darkness. Measured: voids 53-127 mean boundary
+        luminance, night and terminator 13-38.
+      * WHETHER THE EDGE IS STRAIGHT. A missing granule is an axis-aligned
+        rectangle; a terminator is a smooth curve. Measured as the longest run
+        of rows sharing one transition column (or vice versa): voids 22-58% of
+        the frame, night and terminator 0-6%.
+
+    Both must hold, so a merely dark frame is never dropped.
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        return False  # detection unavailable: keep the frame, never crash a run
+    try:
+        im = Image.open(io.BytesIO(data))
+        im.draft("RGB", (n * 2, n * 2))
+        # NEAREST on purpose: smooth resampling blurs the hard edge we detect.
+        a = np.asarray(im.convert("RGB").resize((n, n), Image.NEAREST))
+        lum = a.max(axis=2)
+        blk = lum <= 6
+        frac = float(blk.mean())
+        if frac < 0.005 or frac > 0.97:
+            return False  # nothing dark, or fully blank (the other check owns that)
+
+        ring = blk.copy()
+        for _ in range(3):
+            ring = (ring | np.roll(ring, 1, 0) | np.roll(ring, -1, 0)
+                    | np.roll(ring, 1, 1) | np.roll(ring, -1, 1))
+        ring = ring & ~blk
+        # The frame border is not evidence of anything; a real region can sit
+        # flush against it.
+        ring[:4, :] = ring[-4:, :] = ring[:, :4] = ring[:, -4:] = False
+        if ring.sum() < 40:
+            return False
+        if float(lum[ring].mean()) < 45.0:
+            return False  # darkness bounded by darkness = night, keep it
+
+        def _longest(col) -> int:
+            best = cur = 0
+            for v in col:
+                cur = cur + 1 if v else 0
+                best = max(best, cur)
+            return best
+
+        vt = blk[:, :-1] != blk[:, 1:]
+        ht = blk[:-1, :] != blk[1:, :]
+        straight = max(
+            max((_longest(vt[:, x]) for x in range(vt.shape[1])), default=0),
+            max((_longest(ht[y, :]) for y in range(ht.shape[0])), default=0),
+        ) / n
+        return straight >= 0.12
+    except Exception:  # noqa: BLE001 - undecodable: let the caller keep it
+        return False
+
+
 def _reject_frame(data: bytes) -> bool:
     """True when a JPEG should be dropped for quality. One reduced-scale decode
     catches two failure modes:
@@ -238,7 +310,9 @@ def _reject_frame(data: bytes) -> bool:
                     cyan += 1
             if cyan > 96 * 0.4:  # a full-width cyan row
                 band += 1
-        return lit < 96 * 96 * 0.02 or band >= 5
+        if lit < 96 * 96 * 0.02 or band >= 5:
+            return True
+        return _has_nodata_void(data)
     except Exception:  # noqa: BLE001 — undecodable: let the caller keep it
         return False
 
