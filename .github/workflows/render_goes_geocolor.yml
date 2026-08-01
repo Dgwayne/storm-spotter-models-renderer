@@ -20,6 +20,10 @@ on:
         description: 'Re-fetch every slot in the window even if already on B2.'
         type: boolean
         default: false
+      repair_scan:
+        description: 'Re-check stored frames and replace any that fail the quality gate (non-destructive).'
+        type: boolean
+        default: false
 
 concurrency:
   group: render-goes-geocolor
@@ -35,6 +39,7 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
       FORCE_RERENDER: ${{ inputs.force_rerender && '1' || '' }}
+      REPAIR_SCAN: ${{ inputs.repair_scan && '1' || '' }}
 
     defaults:
       run:

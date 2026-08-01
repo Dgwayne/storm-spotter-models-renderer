@@ -484,6 +484,80 @@ def _write_manifest(bucket: str, keys: set[str], now: dt.datetime) -> None:
     print(f"  manifest: {{{', '.join(f'{r}: {len(frames[r])}' for r in REGIONS)}}}")
 
 
+# ── Repair ────────────────────────────────────────────────────────────
+def _repair(bucket: str, existing: set[str], geom: dict) -> None:
+    """Re-fetch frames ALREADY on B2 that fail today's quality gate.
+
+    Needed because the pipeline is idempotent: it skips any key already
+    present, so frames stored before a detector improvement would otherwise sit
+    in the loop until they age out.
+
+    NON-DESTRUCTIVE. A frame is only ever overwritten by a replacement that
+    passes the gate; if GIBS still serves a bad render for that timestamp the
+    existing frame is left exactly as it was. Nothing is deleted.
+
+    Only GIBS regions are scanned. The SLIDER path cannot store a partial
+    frame in the first place (it refuses to assemble an incomplete mosaic).
+    """
+    targets = [k for k in existing
+               if len(k.split("/")) == 5
+               and k.split("/")[3] in REGIONS
+               and _source_of(k.split("/")[3]) == "gibs"]
+    if not targets:
+        print("==> repair: nothing to scan")
+        return
+    print(f"==> repair: pulling {len(targets)} stored frames to re-check")
+    with tempfile.TemporaryDirectory() as td:
+        local = Path(td)
+        subprocess.check_call([
+            "rclone", "copy", f"r2:{bucket}/{GEO_PREFIX}/", str(local),
+            "--transfers", "16", "--checkers", "16", "--s3-no-check-bucket",
+        ])
+        bad = []
+        for key in sorted(targets):
+            p = local / key[len(GEO_PREFIX) + 1:]
+            if not p.is_file():
+                continue
+            try:
+                if _reject_frame(p.read_bytes()):
+                    bad.append(key)
+            except Exception:  # noqa: BLE001 - unreadable: leave it alone
+                continue
+        print(f"==> repair: {len(bad)} of {len(targets)} fail the gate")
+
+        fixed = stubborn = 0
+        for key in bad:
+            parts = key.split("/")
+            region, stamp = parts[3], parts[4].removesuffix(".jpg")
+            try:
+                slot = dt.datetime.strptime(stamp, "%Y%m%d%H%M").replace(
+                    tzinfo=dt.timezone.utc)
+            except ValueError:
+                continue
+            bbox, width, height = geom[region]
+            url = _gibs_url(_layer_for(region), bbox, width, height, slot)
+            data = None
+            for _ in range(2):  # GIBS often serves a good render on a re-ask
+                got = _download(url)
+                if got is not None and not _reject_frame(got):
+                    data = got
+                    break
+            if data is None:
+                stubborn += 1
+                print(f"    {region} {stamp}: still bad upstream, left as-is")
+                continue
+            dest = local / "repair.jpg"
+            dest.write_bytes(data)
+            _upload(dest, key, bucket)
+            fixed += 1
+            print(f"    {region} {stamp}: replaced")
+        print(f"==> repair: {fixed} replaced, {stubborn} still bad upstream "
+              f"(those age out of the window on their own)")
+        if fixed:
+            print("    NOTE: Cloudflare may serve the previous copy of a "
+                  "replaced frame until its edge TTL expires.")
+
+
 # ── Main ──────────────────────────────────────────────────────────────
 def main() -> int:
     bucket = os.environ["R2_BUCKET"]
@@ -580,6 +654,10 @@ def main() -> int:
                              "--s3-no-check-bucket"])
             existing.discard(key)
             pruned += 1
+
+    # After the normal pass, so a repair run also picks up this tick's frames.
+    if os.environ.get("REPAIR_SCAN"):
+        _repair(bucket, existing, geom)
 
     _write_manifest(bucket, existing, now)
     print(f"==> done: {rendered} new frames, {pruned} pruned")
