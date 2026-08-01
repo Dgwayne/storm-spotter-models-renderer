@@ -128,6 +128,26 @@ REGIONS: dict[str, dict] = {
     "cam":      {"label": "Central America",    "sat": "G19", "source": "star", "bounds": [-95.0, 5.0, -75.0, 20.0]},
     "nsa":      {"label": "South America (north)", "sat": "G19", "source": "star", "bounds": [-82.0, -15.0, -34.0, 13.0]},
     "ssa":      {"label": "South America (south)", "sat": "G19", "source": "star", "bounds": [-80.0, -56.0, -34.0, -15.0]},
+    # ── NESDIS STAR, GOES-West (G18) ──────────────────────────────────
+    # Same full-disk cut as GOES-East, one 18 MB disk per slot for all of them.
+    # ⚠ GOES-West's disk reaches past the antimeridian (its limb sits near
+    # 142 E), but a Mapbox ImageSource box is [W,S,E,N] with W < E and cannot
+    # cross +/-180. Every box below therefore stops at -180 and the far-western
+    # limb is simply not offered; the Himawari `wpac` region covers that water
+    # far better anyway.
+    "pacus":    {"label": "PACUS",              "sat": "G18", "source": "star", "bounds": [-140.0, 22.0, -90.0, 52.0]},
+    # East corners pulled in from -60: those reached 83.6 deg, past the limb.
+    "fd_w":     {"label": "Full Disk",          "sat": "G18", "source": "star", "bounds": [-180.0, -55.0, -70.0, 55.0]},
+    "pnw":      {"label": "Pacific Northwest",  "sat": "G18", "source": "star", "bounds": [-130.0, 41.0, -110.0, 52.0]},
+    "psw":      {"label": "Pacific Southwest",  "sat": "G18", "source": "star", "bounds": [-126.0, 31.0, -108.0, 43.0]},
+    "wus":      {"label": "U.S. West Coast",    "sat": "G18", "source": "star", "bounds": [-130.0, 30.0, -112.0, 50.0]},
+    "ak":       {"label": "Alaska",             "sat": "G18", "source": "star", "bounds": [-172.0, 51.0, -129.0, 72.0]},
+    "cak":      {"label": "Central Alaska",     "sat": "G18", "source": "star", "bounds": [-160.0, 58.0, -140.0, 69.0]},
+    "sea":      {"label": "Southeastern Alaska", "sat": "G18", "source": "star", "bounds": [-145.0, 54.0, -128.0, 62.0]},
+    "np":       {"label": "Northern Pacific Ocean", "sat": "G18", "source": "star", "bounds": [-180.0, 30.0, -120.0, 60.0]},
+    "hi":       {"label": "Hawaii",             "sat": "G18", "source": "star", "bounds": [-162.0, 17.0, -152.0, 24.0]},
+    "tpw":      {"label": "Tropical Pacific Ocean", "sat": "G18", "source": "star", "bounds": [-180.0, -5.0, -110.0, 25.0]},
+    "tsp":      {"label": "Southern Pacific Ocean", "sat": "G18", "source": "star", "bounds": [-180.0, -40.0, -100.0, -5.0]},
     "wpac":      {"label": "W Pacific",        "sat": "Himawari",  "bounds": [128.0, 8.0, 172.0, 36.0],
                   "source": "slider", "slider_sat": "himawari",
                   "sector": "full_disk", "product": "geocolor",
