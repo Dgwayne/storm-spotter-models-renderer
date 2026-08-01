@@ -134,7 +134,12 @@ class FullDisk:
             return None
         try:
             im = Image.open(io.BytesIO(data))
-            arr = np.asarray(im.convert("RGB")).transpose(2, 0, 1)
+            # Skip convert() when the JPEG is already RGB. At the 0.5 km tier
+            # the decoded disk is ~1.4 GB, and a needless convert doubles peak
+            # memory for no gain.
+            if im.mode != "RGB":
+                im = im.convert("RGB")
+            arr = np.asarray(im).transpose(2, 0, 1)
         except Exception:  # noqa: BLE001 - truncated download
             return None
         n = arr.shape[1]

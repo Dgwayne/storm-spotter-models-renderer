@@ -185,6 +185,15 @@ def _window_for(region: str) -> int:
     return int(REGIONS[region].get("window_min", WINDOW_MIN))
 
 
+def _target_mpp(region: str) -> float:
+    """Metres per pixel this region aims for. STAR regions cut from the 0.5 km
+    disk can carry real detail well past the GIBS-era 1.2 km default."""
+    explicit = REGIONS[region].get("target_mpp")
+    if explicit is not None:
+        return float(explicit)
+    return STAR_TARGET_MPP if _source_of(region) == "star" else TARGET_MPP
+
+
 def _layer_for(region: str) -> str:
     return f"{REGIONS[region]['sat']}_ABI_GeoColor"
 
@@ -235,7 +244,17 @@ SLIDER_LATENCY_MIN = 20
 # satellite is cut from it, so 22 regions cost 22 warps but only ONE 18 MB
 # download. The per-run slot cap bounds a cold start: at 4 slots a run the 12 h
 # window fills in about 3 h, and steady state only ever needs 1.
-STAR_KM = 1000                  # full-disk tier: 1 km (10848 px, ~18 MB)
+# Full-disk tier. 500 = the 21696 px, 0.5 km disk (~54 MB, ~1.4 GB decoded).
+# The 1 km tier was the first cut and it was VISIBLY soft: a mid-size sector
+# like Southern Plains renders at ~676 m/px ground, so cutting it from a
+# 1002 m/px disk was upsampling, and STAR's own sector page (575 m/px, drawn
+# from the 0.5 km data) was plainly crisper side by side.
+STAR_KM = 500
+# Rendering finer than 1200 only pays off now that the source can feed it.
+# Regions already pinned at MAX_PX (CONUS, Full Disk, the ocean boxes) are
+# unaffected; this sharpens the mid-size sectors, which are the ones anyone
+# zooms into. Measured 1.44x total pixels across the East set.
+STAR_TARGET_MPP = 600.0
 STAR_MAX_SLOTS_PER_RUN = 4
 STAR_JPEG_QUALITY = 82
 # STAR publishes ~15-20 min behind wall clock, far ahead of GIBS's 40-76.
@@ -640,8 +659,7 @@ def main() -> int:
         existing = _list_existing(bucket)
 
     # Per-region geometry (bbox / dims), computed once.
-    geom = {r: _region_geom(REGIONS[r]["bounds"],
-                            REGIONS[r].get("target_mpp", TARGET_MPP))
+    geom = {r: _region_geom(REGIONS[r]["bounds"], _target_mpp(r))
             for r in REGIONS}
     for r, (_, w, h) in geom.items():
         print(f"    {r}: {w}x{h}")
