@@ -43,10 +43,12 @@ def _human(n: float) -> str:
     return f"{n / GB:.2f} GB" if n >= GB else f"{n / MB:.0f} MB"
 
 
-def _listing(bucket: str) -> list[tuple[int, str]]:
-    out = subprocess.check_output(
-        ["rclone", "lsf", "--recursive", "--files-only", "--format", "sp",
-         f"r2:{bucket}/"], text=True, timeout=3600)
+def _listing(bucket: str, versions: bool = False) -> list[tuple[int, str]]:
+    cmd = ["rclone", "lsf", "--recursive", "--files-only", "--format", "sp"]
+    if versions:
+        cmd.append("--s3-versions")
+    cmd.append(f"r2:{bucket}/")
+    out = subprocess.check_output(cmd, text=True, timeout=3600)
     rows = []
     for ln in out.splitlines():
         if ";" not in ln:
@@ -57,6 +59,36 @@ def _listing(bucket: str) -> list[tuple[int, str]]:
         except ValueError:
             continue
     return rows
+
+
+def _version_overhead(bucket: str, live_total: int, live_n: int) -> None:
+    """Compare live objects against ALL versions.
+
+    B2 buckets default to keeping every version of a file. Our renderers
+    overwrite manifests every few minutes and prune frames constantly, and each
+    of those leaves a hidden old version behind that still bills. A bucket
+    total far above the live total means the space is NOT going to be reclaimed
+    by our own pruning: it needs a bucket lifecycle rule.
+    """
+    print("--- live objects vs all versions ---")
+    try:
+        allv = _listing(bucket, versions=True)
+    except Exception as exc:  # noqa: BLE001 - diagnostic only
+        print(f"  version listing unavailable: {exc}\n")
+        return
+    all_total = sum(s for s, _ in allv)
+    extra = all_total - live_total
+    print(f"  live     : {live_n:>7,} objects  {_human(live_total)}")
+    print(f"  all vers : {len(allv):>7,} objects  {_human(all_total)}")
+    if extra > live_total * 0.15:
+        print(f"  OLD VERSIONS: {_human(extra)} in {len(allv) - live_n:,} "
+              f"dead objects ({100 * extra / max(all_total, 1):.0f}% of billed "
+              f"storage).")
+        print("  Our pruning cannot reclaim this. It needs a B2 lifecycle rule")
+        print("  on the bucket (keep only the last version).")
+    else:
+        print("  versioning overhead is negligible; billed size ~= live size.")
+    print()
 
 
 def _stamp(path: str) -> dt.datetime | None:
@@ -78,6 +110,8 @@ def main() -> int:
     rows = _listing(bucket)
     total = sum(s for s, _ in rows)
     print(f"==> {len(rows):,} objects, {_human(total)} total\n")
+
+    _version_overhead(bucket, total, len(rows))
 
     # ── Where the space is, by prefix ─────────────────────────────────
     for depth in (2, 3):
