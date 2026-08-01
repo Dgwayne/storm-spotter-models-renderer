@@ -177,6 +177,73 @@ class FullDisk:
             buf, "JPEG", quality=jpeg_quality, optimize=True)
         return buf.getvalue()
 
+    # ── Meso sectors ──────────────────────────────────────────────────
+    def solve_meso_center(self, tag: str, meso: int,
+                          stamp: str, search_px: int = 80):
+        """Exact fixed-grid centre of a meso sector, in geos metres.
+
+        STAR names the sector directory with a lat/lon ROUNDED TO WHOLE
+        DEGREES ("43N-93W"), which is a label, not georeferencing: measured up
+        to 33 km out. So the label only seeds a search, and the true centre
+        comes from template-matching the meso frame inside this full disk.
+
+        Both are crops of the SAME fixed grid at the same tier, so the match is
+        a pure translation with no scaling: a meso is 1000 px at the 1 km tier
+        and the disk is 1002.01 m/px, so their pixels are identical by
+        construction.
+
+        Cheap enough to run once per position DIRECTORY, not per frame: the
+        sector is stationary until operations moves it, and a move creates a
+        new directory.
+        """
+        import numpy as np
+        from PIL import Image
+        from rasterio.crs import CRS
+        from rasterio.warp import transform as rtransform
+
+        # Always solve at the 1 km tier, whatever disk is loaded. The match is
+        # O(template area x search area), so a 2000 px template at the 0.5 km
+        # tier is ~8x the work for precision we do not need: the label it is
+        # correcting is tens of km out, and the answer comes back in geos
+        # metres, which applies to every tier.
+        try:
+            data = _get(meso_url(self.sat, tag, meso, stamp, 1000))
+            patch = np.asarray(Image.open(io.BytesIO(data)).convert("L")
+                               ).astype(np.float32)
+        except Exception:  # noqa: BLE001
+            return None
+        m = patch.shape[0]
+        step = max(1, int(round(1002.01 / self.res)))
+        disk = self.array[:, ::step, ::step].mean(axis=0).astype(np.float32)
+        res = self.res * step
+        n = disk.shape[0]
+
+        lat, lon = parse_meso_tag(tag)
+        gx, gy = rtransform(CRS.from_epsg(4326), CRS.from_proj4(proj4(self.sat)),
+                            [lon], [lat])
+        if not (math.isfinite(gx[0]) and math.isfinite(gy[0])):
+            return None
+        cx = (gx[0] + FD_HALF_M) / res
+        cy = (FD_HALF_M - gy[0]) / res
+
+        tpl = (patch - patch.mean()) / (patch.std() + 1e-6)
+        best = None
+        for dy in range(-search_px, search_px + 1, 2):
+            for dx in range(-search_px, search_px + 1, 2):
+                y0 = int(cy - m / 2 + dy)
+                x0 = int(cx - m / 2 + dx)
+                if y0 < 0 or x0 < 0 or y0 + m > n or x0 + m > n:
+                    continue
+                win = disk[y0:y0 + m, x0:x0 + m]
+                c = float(((win - win.mean()) / (win.std() + 1e-6) * tpl).mean())
+                if best is None or c > best[0]:
+                    best = (c, dx, dy)
+        if best is None or best[0] < 0.25:
+            return None            # no confident lock; skip rather than guess
+        _, dx, dy = best
+        return ((cx + dx) * res - FD_HALF_M,
+                FD_HALF_M - (cy + dy) * res)
+
     def coverage(self, bounds: list[float], probe: int = 96) -> float:
         """Fraction of the box that carries imagery. A box reaching past the
         limb comes back partly black, which is a bounds bug, not a data gap."""
@@ -187,3 +254,157 @@ class FullDisk:
             return 0.0
         arr = np.asarray(Image.open(io.BytesIO(data)).convert("RGB"))
         return float((arr.max(axis=2) > 6).mean())
+
+
+# ── Meso sectors ──────────────────────────────────────────────────────
+# The ABI mesoscale sectors are 1000 x 1000 km boxes that operations
+# REPOSITIONS several times a day to follow storms, so they have no fixed
+# bounds. STAR publishes the position in the URL and in the CDN path, which is
+# why this needs no AWS netCDF: a move simply creates a new directory.
+#
+# Meso timestamps carry SECONDS (13 digits, YYYYDDDHHMMSS) because the sector
+# scans every 30-60 s, unlike every other STAR product's 11-digit stamp.
+MESO_INDEX = "https://www.star.nesdis.noaa.gov/GOES/index.php"
+# Half-extent of a meso box in geos metres, at the tier its pixels match.
+MESO_HALF_M = 501_005.0
+
+
+def parse_meso_tag(tag: str) -> tuple[float, float]:
+    """'43N-93W' -> (43.0, -93.0). Rounded to whole degrees by STAR."""
+    m = re.match(r"(\d+)([NS])-(\d+)([EW])", tag)
+    if not m:
+        raise ValueError(tag)
+    lat = float(m.group(1)) * (1 if m.group(2) == "N" else -1)
+    lon = float(m.group(3)) * (1 if m.group(4) == "E" else -1)
+    return lat, lon
+
+
+def meso_positions() -> list[dict]:
+    """Active meso sectors, straight off STAR's own nav links."""
+    try:
+        html = _get(MESO_INDEX, 120).decode("utf8", "replace")
+    except Exception:  # noqa: BLE001
+        return []
+    seen, out = set(), []
+    for sat, la, ns, lo, ew in re.findall(
+            r"meso\.php\?sat=(G\d+)&(?:amp;)?lat=(\d+)([NS])"
+            r"&(?:amp;)?lon=(\d+)([EW])", html):
+        if sat not in SATELLITES:
+            continue
+        tag = f"{la}{ns}-{lo}{ew}"
+        key = (sat, tag)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"sat": sat, "tag": tag})
+    return out
+
+
+def meso_url(sat: str, tag: str, meso: int, stamp: str, px: int) -> str:
+    c = SATELLITES[sat]["cdn"]
+    return (f"{CDN}/{c}/ABI/MESO/{tag}/{meso:02d}/"
+            f"{stamp}_{c}-ABI-MESO-{meso:02d}-{tag}-{px}x{px}.jpg")
+
+
+def meso_frames(sat: str, tag: str, meso: int, px: int) -> list[str]:
+    """Available 13-digit stamps for this sector, oldest first."""
+    c = SATELLITES[sat]["cdn"]
+    try:
+        html = _get(f"{CDN}/{c}/ABI/MESO/{tag}/{meso:02d}/", 120).decode(
+            "utf8", "replace")
+    except Exception:  # noqa: BLE001
+        return []
+    return sorted(set(re.findall(
+        rf"(\d{{13}})_{c}-ABI-MESO-{meso:02d}-{tag}-{px}x{px}\.jpg", html)))
+
+
+def inscribed_box(sat: str, gx: float, gy: float,
+                  half_m: float = MESO_HALF_M) -> list[float] | None:
+    """Largest axis-aligned lon/lat box INSIDE a meso's fixed-grid square.
+
+    A square in the fixed grid is a curved quad in lon/lat, so its lon/lat
+    bounding box would poke outside the imagery and render black edges. Taking
+    the innermost edge instead guarantees every pixel of the output is real.
+    """
+    from rasterio.crs import CRS
+    from rasterio.warp import transform as rtransform
+
+    geos = CRS.from_proj4(proj4(sat))
+    wgs = CRS.from_epsg(4326)
+    steps = [i / 24.0 for i in range(25)]
+    west, east, south, north = [], [], [], []
+    for t in steps:
+        x = gx - half_m + 2 * half_m * t
+        y = gy - half_m + 2 * half_m * t
+        for px, py, bucket in (
+                (gx - half_m, y, west), (gx + half_m, y, east),
+                (x, gy - half_m, south), (x, gy + half_m, north)):
+            lon, lat = rtransform(geos, wgs, [px], [py])
+            if math.isfinite(lon[0]) and math.isfinite(lat[0]):
+                bucket.append(lon[0] if bucket in (west, east) else lat[0])
+    if not (west and east and south and north):
+        return None
+    box = [max(west), max(south), min(east), min(north)]
+    if box[0] >= box[2] or box[1] >= box[3]:
+        return None
+    return box
+
+
+class MesoFrame:
+    """One meso image, warped from the fixed grid to a lon/lat box."""
+
+    def __init__(self, sat: str, array, gx: float, gy: float, half_m: float):
+        self.sat = sat
+        self.array = array
+        self.gx, self.gy, self.half_m = gx, gy, half_m
+
+    @classmethod
+    def fetch(cls, sat: str, tag: str, meso: int, stamp: str, px: int,
+              gx: float, gy: float) -> "MesoFrame | None":
+        import numpy as np
+        from PIL import Image
+        try:
+            data = _get(meso_url(sat, tag, meso, stamp, px))
+        except Exception:  # noqa: BLE001
+            return None
+        if len(data) < 20_000 or data[:2] != b"\xff\xd8":
+            return None
+        try:
+            im = Image.open(io.BytesIO(data))
+            if im.mode != "RGB":
+                im = im.convert("RGB")
+            arr = np.asarray(im).transpose(2, 0, 1)
+        except Exception:  # noqa: BLE001
+            return None
+        return cls(sat, arr, gx, gy, MESO_HALF_M)
+
+    def crop(self, bounds: list[float], out_w: int, out_h: int,
+             jpeg_quality: int = 82) -> bytes | None:
+        import numpy as np
+        from PIL import Image
+        from rasterio.crs import CRS
+        from rasterio.transform import Affine
+        from rasterio.warp import reproject, Resampling
+
+        a = 6378137.0
+        mx = lambda lon: math.radians(lon) * a                    # noqa: E731
+        my = lambda lat: math.log(                                 # noqa: E731
+            math.tan(math.radians(90.0 + lat) / 2.0)) * a
+        w, s, e, n = bounds
+        res = 2 * self.half_m / self.array.shape[1]
+        src_t = Affine(res, 0, self.gx - self.half_m,
+                       0, -res, self.gy + self.half_m)
+        dst = np.zeros((3, out_h, out_w), "uint8")
+        dst_t = Affine((mx(e) - mx(w)) / out_w, 0, mx(w),
+                       0, -(my(n) - my(s)) / out_h, my(n))
+        try:
+            reproject(self.array, dst,
+                      src_transform=src_t, src_crs=CRS.from_proj4(proj4(self.sat)),
+                      dst_transform=dst_t, dst_crs=CRS.from_epsg(3857),
+                      resampling=Resampling.cubic, num_threads=2)
+        except Exception:  # noqa: BLE001
+            return None
+        buf = io.BytesIO()
+        Image.fromarray(dst.transpose(1, 2, 0)).save(
+            buf, "JPEG", quality=jpeg_quality, optimize=True)
+        return buf.getvalue()
