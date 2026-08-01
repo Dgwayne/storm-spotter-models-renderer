@@ -55,4 +55,9 @@ jobs:
           # on throttled GitHub-native cron until a user noticed night
           # imagery at 9:30 am local (2026-07-28).
           check GEOCOLOR "https://models.dgwaynes.com/v1/SAT/geocolor.json" 120
+          # Soundings refresh hourly (:35 Worker dispatch); even a no-op run
+          # touches generatedAt, so a stale manifest means missed dispatches
+          # or failing extracts — not a late NOAA run. 180 = one missed hour
+          # + a full ~25-min extract + slack.
+          check SOUNDINGS "https://models.dgwaynes.com/v1/soundings/manifest.json" 180
           exit $fail

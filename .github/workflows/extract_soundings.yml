@@ -5,10 +5,14 @@ name: Extract Soundings
 # v1/soundings/<SITE>.json. The Storm Spotter velocity dealiaser uses these
 # as a trusted reference wind to unfold aliased Doppler velocity.
 #
-# Runs hourly a few minutes before the top of the hour: find_latest_run()
-# looks back up to 6 hours, so even when the freshest run's f00 hasn't
-# published yet it falls back to the previous (always-available) run. The
-# environmental wind changes slowly, so a profile up to ~1 h old is fine.
+# Runs hourly: dispatched at :35 by the stp-models-cron Cloudflare Worker
+# (cron-trigger/ — HRRR f18 for the previous hour's cycle publishes ~:15-:30,
+# so :35 catches each new complete run minutes after it lands). The GitHub
+# schedule below is the decorative/fallback cron only; GitHub-native cron is
+# throttled and unreliable (see CRON_TO_WORKFLOW in cron-trigger/src/worker.js).
+# find_latest_run() looks back up to 8 hours, so a late NOAA run just means
+# falling back to the previous complete one, and the script no-ops (manifest
+# touch only) when the CDN already serves the newest run.
 
 on:
   schedule:
@@ -22,7 +26,7 @@ concurrency:
 jobs:
   extract:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 55
     env:
       R2_BUCKET: ${{ secrets.B2_BUCKET }}
       R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}

@@ -13,6 +13,10 @@ const REPO = "storm-spotter-models-renderer";
 // file(s) it should dispatch. The free plan allows exactly 5 cron triggers,
 // so extra workflows piggyback on an existing slot rather than adding a 6th
 // (each dispatch is just one more subrequest in the same invocation).
+// An entry can also be { wf, minutes: [...] } to fire on a SUBSET of the
+// slot's ticks — for workflows that want an hourly cadence but must ride a
+// 15-min slot (a full soundings extract is not an idempotent sweep, so
+// dispatching it 4x/hour would just queue useless 15-min runs).
 // GOES rides the :02/:17/:32/:47 slot — satellite frames land in IEM's
 // archive on the quarter-hours, so this catches each one a few minutes
 // after it publishes (GitHub-native cron was leaving the satellite loop
@@ -25,7 +29,15 @@ const REPO = "storm-spotter-models-renderer";
 // both are idempotent backfill-the-window renders, so a 15-min dispatch is
 // well inside GIBS' own ~40-min latency.
 const CRON_TO_WORKFLOW = {
-  "5,20,35,50 * * * *": ["render_hrrr.yml"],
+  // Soundings (skew-T sites + point tiles, hourly f00-f18 scrubber) ride the
+  // HRRR slot's :35 tick only: HRRR f18 for the previous hour's cycle
+  // publishes ~:15-:30, so :35 extracts each new complete run minutes after
+  // it lands. Was GitHub-native-cron-only ('50 * * * *'), which is throttled
+  // — the same staleness trap as GOES/GFS/GeoColor before it.
+  "5,20,35,50 * * * *": [
+    "render_hrrr.yml",
+    { wf: "extract_soundings.yml", minutes: [35] },
+  ],
   "10,25,40,55 * * * *": ["render_rrfs.yml"],
   "2,17,32,47 * * * *": [
     "render_mrms_qpe.yml",
@@ -45,9 +57,14 @@ const CRON_TO_WORKFLOW = {
 // editing wrangler.toml but not this file) — better to fire HRRR than nothing.
 const DEFAULT_WORKFLOW = "render_hrrr.yml";
 
+// Entries are plain workflow-name strings or { wf, minutes } objects.
+const entryName = (e) => (typeof e === "string" ? e : e.wf);
+const entryFiresAt = (e, minute) =>
+  typeof e === "string" || e.minutes.includes(minute);
+
 // Every workflow this Worker knows how to dispatch (for the manual endpoint).
 const KNOWN_WORKFLOWS = new Set(
-  Object.values(CRON_TO_WORKFLOW).flat().concat(DEFAULT_WORKFLOW),
+  Object.values(CRON_TO_WORKFLOW).flat().map(entryName).concat(DEFAULT_WORKFLOW),
 );
 
 async function dispatch(workflow, token) {
@@ -76,7 +93,13 @@ export default {
     if (!env.GH_DISPATCH_TOKEN) {
       throw new Error("GH_DISPATCH_TOKEN secret is not set");
     }
-    const workflows = CRON_TO_WORKFLOW[event.cron] || [DEFAULT_WORKFLOW];
+    // event.scheduledTime is the SCHEDULED epoch ms (not the actual firing
+    // time), so the minute extracted here matches the cron expression even
+    // when Cloudflare fires a beat late.
+    const minute = new Date(event.scheduledTime).getUTCMinutes();
+    const workflows = (CRON_TO_WORKFLOW[event.cron] || [DEFAULT_WORKFLOW])
+      .filter((e) => entryFiresAt(e, minute))
+      .map(entryName);
     ctx.waitUntil(
       Promise.all(workflows.map((wf) => dispatch(wf, env.GH_DISPATCH_TOKEN))),
     );

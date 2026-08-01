@@ -47,6 +47,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -55,8 +56,10 @@ SITES_CSV = REPO_ROOT / "config" / "nexrad_sites.csv"
 
 LEVELS = list(range(1000, 99, -50))  # 1000,950,...,150,100  (19 levels)
 ISOBARIC_VARS = ("UGRD", "VGRD", "HGT", "TMP", "DPT")
-# Forecast hours to emit (3-hourly out to +18 h).
-FHOURS = [0, 3, 6, 9, 12, 15, 18]
+# Forecast hours to emit: HOURLY out to +18 h. Both HRRR and RRFS publish
+# every forecast hour for every cycle, so the app's scrubber steps 1 h.
+# (The original 3-hourly cut was a conservative first pass, not a data limit.)
+FHOURS = list(range(0, 19))
 LOOKBACK_HOURS = 8
 BUCKET = os.environ["R2_BUCKET"]
 
@@ -93,19 +96,19 @@ MODELS = [
 
 # Point-sounding tiles: subsample the 3 km HRRR grid every TILE_STRIDE pixels
 # (~24 km column spacing) and chop the subsampled grid into TILE_COLS^2-column
-# tiles (~60 across CONUS). Each tile file carries the full vertical columns
-# for every forecast hour, so one ~550 KB (gzipped) fetch powers a tap-anywhere
-# sounding *and* its whole scrubber. The app inverse-distance-interpolates the
-# nearest columns to the exact tap point.
+# tiles. Each tile file carries the full vertical columns for every forecast
+# hour, so one fetch powers a tap-anywhere sounding *and* its whole scrubber.
+# The app inverse-distance-interpolates the nearest columns to the tap point.
 #
 # TILE_COLS is a pure renderer knob — the app reads whatever tile IDs/bboxes
-# tiles.json advertises and picks by containment, so coarsening the grid needs
-# no app change (old and new builds both follow the manifest). 24 (vs the
-# original 12) cuts the hourly tile-file count ~228 -> ~60 per model, i.e.
-# ~242k fewer R2 Class A PUTs/month, at the cost of a larger per-tap fetch
-# (still parsed off-thread + cached ~1 h; taps are occasional).
+# tiles.json advertises and picks by containment, so re-chunking the grid
+# needs no app change (old and new builds both follow the manifest). At 16, a
+# tile holds 256 columns: with 19 hourly forecast hours per column that keeps
+# the per-tap download near the old 7-hour/24-col size (~600 KB gzipped). The
+# larger file count (~135/model vs ~60) is free on B2 (no per-PUT cost — the
+# R2 Class A pricing that the old 24 was sized for is gone).
 TILE_STRIDE = 8
-TILE_COLS = 24
+TILE_COLS = 16
 
 
 def classify(var: str, lvl: str):
@@ -146,7 +149,7 @@ def _get(url: str, byte_range=None, attempts=4) -> bytes:
 
     The NOAA HRRR S3 bucket occasionally drops a response mid-stream
     (http.client.IncompleteRead) or times out. A single hiccup on any one of
-    the ~7 forecast-hour fetches used to abort the whole hourly run; retry a
+    the ~19 forecast-hour fetches used to abort the whole hourly run; retry a
     few times before giving up. Genuine 404s are not retried.
     """
     req = urllib.request.Request(url)
@@ -170,6 +173,21 @@ def _get(url: str, byte_range=None, attempts=4) -> bytes:
 
 def grib_urls(model: dict, d: str, h: str, fh: int) -> list[str]:
     return [t.format(d=d, h=h, fh=fh) for t in model["files"]]
+
+
+def cdn_manifest(prefix: str):
+    """The manifest currently served on the CDN (dict), or None. Used to skip
+    a re-extract when NOAA hasn't published a new run since the last sweep —
+    Worker dispatches are fixed-cadence, not publish-aware. Cache-busted: the
+    edge caches manifest.json."""
+    url = (f"https://models.dgwaynes.com/v1/soundings/{prefix}manifest.json"
+           f"?_={int(time.time())}")
+    req = urllib.request.Request(url, headers={"Cache-Control": "no-cache"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read().decode())
+    except Exception:
+        return None
 
 
 def find_latest_run(model: dict):
@@ -215,9 +233,17 @@ def fetch_subset(url: str, work: Path):
         return None
     work.mkdir(parents=True, exist_ok=True)
     grib = work / "in.grib2"
+    # The ~100 selected messages are fetched as individual ranged GETs. Doing
+    # them sequentially made S3 round-trip latency the dominant wall-clock
+    # cost once FHOURS went hourly (19 hours x ~100 ranges x 2 models); a
+    # small thread pool overlaps the latency. Results are written in index
+    # order, so the assembled GRIB layout (and band_keys mapping) is
+    # byte-identical to the sequential version.
+    with ThreadPoolExecutor(max_workers=12) as ex:
+        parts = list(ex.map(lambda r: _get(url, r), ranges))
     with open(grib, "wb") as f:
-        for r in ranges:
-            f.write(_get(url, r))
+        for part in parts:
+            f.write(part)
     return grib, band_keys
 
 
@@ -580,7 +606,8 @@ def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir,
 
 def process_model(model: dict, sites, out_root: Path, work_root: Path) -> int:
     """Extract one model end-to-end into out_root/<prefix>. Returns the number
-    of site profiles written (0 = model skipped/failed)."""
+    of site profiles written; 0 = model failed / nothing published; -1 = the
+    CDN already serves the newest run (healthy no-op, manifest touched)."""
     name = model["name"]
     run_dt = find_latest_run(model)
     if run_dt is None:
@@ -588,6 +615,22 @@ def process_model(model: dict, sites, out_root: Path, work_root: Path) -> int:
         return 0
     d, h = run_dt.strftime("%Y%m%d"), run_dt.strftime("%H")
     run_iso = run_dt.isoformat()
+
+    # Idempotent skip: the newest complete run is already on the CDN (NOAA
+    # late, or an extra dispatch). Touch generatedAt so the freshness monitor
+    # measures OUR liveness rather than NOAA's publish cadence, and stage
+    # only the manifest.
+    cdn = cdn_manifest(model["prefix"])
+    if (cdn is not None and cdn.get("run") == run_iso
+            and cdn.get("forecastHours") == FHOURS):
+        out_dir = out_root / model["prefix"] if model["prefix"] else out_root
+        out_dir.mkdir(parents=True, exist_ok=True)
+        cdn["generatedAt"] = dt.datetime.now(dt.timezone.utc).isoformat()
+        (out_dir / "manifest.json").write_text(json.dumps(cdn))
+        print(f"==> {name}: CDN already serves run {run_iso}; "
+              "manifest touched, extract skipped")
+        return -1
+
     print(f"==> {name} run {run_dt:%Y%m%d%H}Z, forecast hours {FHOURS}")
 
     offs = utc_offsets(sites, run_dt)
@@ -724,16 +767,20 @@ def main() -> int:
         print("no model produced any profiles; exit 1")
         return 1
 
+    # Upload whatever was staged — full extracts and/or touched manifests
+    # from idempotent skips (the skip path stages only manifest.json).
     subprocess.check_call([
         "rclone", "copy", str(out_root), f"r2:{BUCKET}/v1/soundings/",
         "--s3-no-check-bucket", "--no-traverse",
         "--header-upload", "Cache-Control: public, max-age=600",
     ])
     print("==> uploaded soundings to v1/soundings/ — " +
-          ", ".join(f"{k}: {v} sites" for k, v in results.items()))
+          ", ".join(f"{k}: {'fresh (skip)' if v < 0 else f'{v} sites'}"
+                    for k, v in results.items()))
     # HRRR is the load-bearing output (dealiaser + app default): flag its
-    # absence as a failure even when RRFS succeeded.
-    return 0 if results.get("hrrr", 0) > 0 else 1
+    # absence as a failure even when RRFS succeeded. -1 (already current)
+    # counts as success.
+    return 0 if results.get("hrrr", 0) != 0 else 1
 
 
 if __name__ == "__main__":
