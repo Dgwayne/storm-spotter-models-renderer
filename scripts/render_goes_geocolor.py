@@ -54,6 +54,8 @@ from pathlib import Path
 
 from PIL import Image
 
+import slider_source  # CIRA SLIDER geostationary tiles -> EPSG:3857
+
 # ── Regions (lon/lat W,S,E,N + GOES bird). Everything else is derived. ──
 # Each region names its satellite ("sat"): East boxes pull
 # GOES-East_ABI_GeoColor, West boxes GOES-West_ABI_GeoColor. CONUS / Western US
@@ -79,9 +81,42 @@ REGIONS: dict[str, dict] = {
     "cpac":      {"label": "Central Pacific",   "sat": "GOES-West", "bounds": [-175.0, 8.0, -132.0, 32.0]},
     "hawaii":    {"label": "Hawaii",           "sat": "GOES-West", "bounds": [-161.5, 18.0, -154.0, 23.0]},
     "alaska":    {"label": "Alaska",           "sat": "GOES-West", "bounds": [-172.0, 51.0, -129.0, 63.0]},
+    # Himawari-9 (140.7 E) via CIRA SLIDER: the Western Pacific typhoon basin.
+    # GOES cannot serve this: GOES-West's usable limb stops near 142 E, and even
+    # where it does reach (a storm at 160 E sits 62 deg off nadir) GeoColor's
+    # Rayleigh correction breaks down and renders washed out and brown-tinted.
+    # GIBS has no Himawari GeoColor at all, so this one is warped from SLIDER's
+    # geostationary tiles (see slider_source.py). Deliberately a BASIN, not a
+    # storm box: it holds a typhoon from the open Pacific through the approach
+    # to Japan and the East China Sea, and serves every future storm too.
+    # Sized to land just under the 4096 single-texture cap, so it renders at its
+    # full ~1.2 km without being clipped the way CONUS is.
+    "wpac":      {"label": "W Pacific",        "sat": "Himawari",  "bounds": [128.0, 8.0, 172.0, 36.0],
+                  "source": "slider", "slider_sat": "himawari",
+                  "sector": "full_disk", "product": "geocolor",
+                  # At the default 1.2 km this box is 11.6 MP / ~3 MB a frame,
+                  # roughly double the CONUS payload. Matching CONUS's own
+                  # effective resolution puts it back in line with the rest.
+                  "target_mpp": 1600.0,
+                  # Start small and widen once we have real numbers: every slot
+                  # here costs CIRA a few dozen tile requests, and unlike GIBS
+                  # theirs is a research web app, not bulk-serving infrastructure.
+                  "window_min": 360},
 }
 
 GIBS_WMS = "https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi"
+
+
+def _source_of(region: str) -> str:
+    """'gibs' (GOES, EPSG:3857 straight from a GetMap) or 'slider' (Himawari,
+    geostationary tiles we reproject ourselves)."""
+    return REGIONS[region].get("source", "gibs")
+
+
+def _window_for(region: str) -> int:
+    """Rolling window in minutes. Per-region so an expensive source can start
+    with a short history without shortening everyone else's."""
+    return int(REGIONS[region].get("window_min", WINDOW_MIN))
 
 
 def _layer_for(region: str) -> str:
@@ -112,6 +147,23 @@ LATENCY_MIN = 40
 # state runs only fetch the newest slot or two per region).
 CONCURRENCY = 8
 
+# ── SLIDER politeness (Himawari regions) ──────────────────────────────
+# GIBS is NASA infrastructure built for programmatic access; CIRA SLIDER is a
+# research web app, and one frame there costs a few dozen tile requests instead
+# of one GetMap. So slider regions run in their own serialized pass: at most
+# SLIDER_TILE_CONCURRENCY connections open at any moment (NOT multiplied by the
+# outer pool), and at most SLIDER_MAX_FRAMES_PER_RUN new frames per run. A cold
+# start therefore fills in gradually over successive runs instead of arriving as
+# one burst — the whole pipeline is idempotent, so that costs nothing but time.
+SLIDER_TILE_CONCURRENCY = 4
+SLIDER_MAX_FRAMES_PER_RUN = 6
+# We encode these ourselves (GIBS hands us a finished JPEG). 82 is where cloud
+# texture still holds up but the payload stops ballooning.
+SLIDER_JPEG_QUALITY = 82
+# SLIDER publishes well ahead of GIBS (observed ~10-20 min vs GIBS's 40-76),
+# so its regions look for newer slots than the GOES ones.
+SLIDER_LATENCY_MIN = 20
+
 R2_PREFIX = "v1/SAT"
 GEO_PREFIX = f"{R2_PREFIX}/geocolor"
 MANIFEST_KEY = f"{R2_PREFIX}/geocolor.json"
@@ -126,15 +178,23 @@ def _merc_y(lat: float) -> float:
     return math.log(math.tan((90.0 + lat) * math.pi / 360.0)) * A
 
 
-def _region_geom(bounds: list[float]) -> tuple[str, int, int]:
+def _region_geom(bounds: list[float],
+                 target_mpp: float = TARGET_MPP) -> tuple[str, int, int]:
     """(bbox3857 string, width, height) for a lon/lat [W,S,E,N] box. Width
     targets ~1.2 km/px capped to [MIN_PX, MAX_PX]; height keeps square pixels
     (also capped). Square pixels + an EPSG:3857 bbox mean the app pins an
-    ImageSource to the lon/lat corners with no projection mismatch."""
+    ImageSource to the lon/lat corners with no projection mismatch.
+
+    target_mpp is per-region because frame BYTES scale with box area at a fixed
+    m/px: a basin-sized box at the default 1.2 km would be ~2x the payload of
+    the CONUS frames we already ship. Coarsening such a region to CONUS's own
+    effective resolution keeps the whole set consistent AND affordable. Note the
+    tile fetch is unaffected — we still pull the finer zoom and downsample it,
+    which anti-aliases better than fetching the coarser one."""
     w, s, e, n = bounds
     xw = _merc_x(e) - _merc_x(w)
     yh = _merc_y(n) - _merc_y(s)
-    width = min(MAX_PX, max(MIN_PX, round(xw / TARGET_MPP)))
+    width = min(MAX_PX, max(MIN_PX, round(xw / target_mpp)))
     height = min(MAX_PX, round(width * yh / xw))
     bbox = f"{_merc_x(w):.4f},{_merc_y(s):.4f},{_merc_x(e):.4f},{_merc_y(n):.4f}"
     return bbox, width, height
@@ -175,14 +235,17 @@ def _reject_frame(data: bytes) -> bool:
 
 
 # ── Time grid ─────────────────────────────────────────────────────────
-def _slots(now: dt.datetime) -> list[dt.datetime]:
+def _slots(now: dt.datetime, window_min: int = WINDOW_MIN,
+           latency_min: int = LATENCY_MIN) -> list[dt.datetime]:
     """10-min-aligned UTC slots across the window, newest last, anchored at
-    now - latency (floored to the grid)."""
-    latest_raw = now - dt.timedelta(minutes=LATENCY_MIN)
+    now - latency (floored to the grid). SLIDER publishes far sooner than GIBS,
+    so its regions pass a smaller latency and pick up frames GIBS has not
+    rendered yet."""
+    latest_raw = now - dt.timedelta(minutes=latency_min)
     latest = latest_raw.replace(
         minute=(latest_raw.minute // STEP_MIN) * STEP_MIN, second=0, microsecond=0)
     return [latest - dt.timedelta(minutes=m)
-            for m in range(WINDOW_MIN, -1, -STEP_MIN)]
+            for m in range(window_min, -1, -STEP_MIN)]
 
 
 def _time_iso(slot: dt.datetime) -> str:
@@ -220,10 +283,9 @@ def _purge(bucket: str) -> None:
                      "--rmdirs"])
 
 
-def _download(url: str, dest: Path) -> bool:
-    """Fetch one frame. False for network errors, non-JPEG bodies (WMS XML
-    exceptions), and GIBS's uniform no-data render (pixel-checked below the
-    obviously-real size)."""
+def _download(url: str) -> bytes | None:
+    """Fetch one GIBS frame. None for network errors and non-JPEG bodies (WMS
+    XML exceptions)."""
     try:
         req = urllib.request.Request(
             url, headers={"User-Agent": "storm_spotter_geocolor/1.0"})
@@ -231,13 +293,10 @@ def _download(url: str, dest: Path) -> bool:
             data = r.read()
     except Exception as exc:  # noqa: BLE001 — best-effort; retried/backfilled
         print(f"  fetch error {url[-40:]}: {exc}", file=sys.stderr)
-        return False
+        return None
     if len(data) < 1000 or data[:2] != b"\xff\xd8":  # empty / XML exception
-        return False
-    if _reject_frame(data):  # blank no-data render, or a cyan scan-band artifact
-        return False
-    dest.write_bytes(data)
-    return True
+        return None
+    return data
 
 
 def _upload(src: Path, key: str, bucket: str) -> None:
@@ -249,27 +308,48 @@ def _upload(src: Path, key: str, bucket: str) -> None:
 
 
 class _Task:
-    __slots__ = ("region", "slot", "url", "key")
+    __slots__ = ("region", "slot", "key", "url", "bounds", "width", "height")
 
-    def __init__(self, region, slot, url, key):
+    def __init__(self, region, slot, key, url=None,
+                 bounds=None, width=0, height=0):
         self.region = region
         self.slot = slot
-        self.url = url
         self.key = key
+        self.url = url          # gibs regions
+        self.bounds = bounds    # slider regions
+        self.width = width
+        self.height = height
+
+
+def _render(task: _Task) -> bytes | None:
+    """Produce one frame's JPEG bytes from whichever source the region uses."""
+    if _source_of(task.region) != "slider":
+        return _download(task.url)
+    cfg = REGIONS[task.region]
+    return slider_source.render(
+        task.bounds, task.width, task.height, task.slot,
+        sat=cfg["slider_sat"], sector=cfg["sector"], product=cfg["product"],
+        concurrency=SLIDER_TILE_CONCURRENCY, jpeg_quality=SLIDER_JPEG_QUALITY)
 
 
 def _fetch(task: _Task, bucket: str) -> str | None:
-    """Download + upload one (region, slot); one retry (GIBS's on-demand WMS can
-    return a transient blank/XML on the first hit even when the frame exists).
-    Never raises — any error leaves the slot un-stored for a later idempotent
-    run. Returns the key on success, else None."""
+    """Build + upload one (region, slot); one retry (GIBS's on-demand WMS can
+    return a transient blank/XML on the first hit even when the frame exists,
+    and a SLIDER tile can drop out mid-mosaic). Never raises: any error leaves
+    the slot un-stored for a later idempotent run. Returns the key on success."""
     try:
         for _ in range(2):
+            data = _render(task)
+            if data is None:
+                continue
+            # blank no-data render, or a cyan scan-band artifact
+            if _reject_frame(data):
+                continue
             with tempfile.TemporaryDirectory() as td:
                 dest = Path(td) / "frame.jpg"
-                if _download(task.url, dest):
-                    _upload(dest, task.key, bucket)
-                    return task.key
+                dest.write_bytes(data)
+                _upload(dest, task.key, bucket)
+                return task.key
     except Exception as exc:  # noqa: BLE001 — upload/IO error; retried next run
         print(f"  {task.region} {task.slot:%Y%m%d%H%M} failed: {exc}",
               file=sys.stderr)
@@ -326,7 +406,6 @@ def main() -> int:
     bucket = os.environ["R2_BUCKET"]
     force = bool(os.environ.get("FORCE_RERENDER"))
     now = dt.datetime.now(dt.timezone.utc)
-    slots = _slots(now)
 
     if force:
         print("==> FORCE: purging geocolor tree for a clean rebuild")
@@ -336,36 +415,77 @@ def main() -> int:
         existing = _list_existing(bucket)
 
     # Per-region geometry (bbox / dims), computed once.
-    geom = {r: _region_geom(REGIONS[r]["bounds"]) for r in REGIONS}
+    geom = {r: _region_geom(REGIONS[r]["bounds"],
+                            REGIONS[r].get("target_mpp", TARGET_MPP))
+            for r in REGIONS}
     for r, (_, w, h) in geom.items():
         print(f"    {r}: {w}x{h}")
 
-    tasks = []
+    gibs_tasks: list[_Task] = []
+    slider_tasks: list[_Task] = []
     for region in REGIONS:
         bbox, width, height = geom[region]
+        slider = _source_of(region) == "slider"
+        slots = _slots(now, _window_for(region),
+                       SLIDER_LATENCY_MIN if slider else LATENCY_MIN)
+        if slider:
+            # Ask SLIDER what it actually holds before spending tile requests on
+            # slots that do not exist.
+            cfg = REGIONS[region]
+            have = slider_source.available_times(
+                cfg["slider_sat"], cfg["sector"], cfg["product"])
+            pending = [s for s in slots
+                       if _key(region, s) not in existing
+                       and (not have or f"{s:%Y%m%d%H%M}00" in have)]
+            # Newest first: if the per-run cap bites, the freshest frames are
+            # the ones that land.
+            for slot in sorted(pending, reverse=True)[:SLIDER_MAX_FRAMES_PER_RUN]:
+                slider_tasks.append(_Task(region, slot, _key(region, slot),
+                                          bounds=cfg["bounds"],
+                                          width=width, height=height))
+            if len(pending) > SLIDER_MAX_FRAMES_PER_RUN:
+                print(f"    {region}: {len(pending)} slots pending, taking "
+                      f"{SLIDER_MAX_FRAMES_PER_RUN} this run (backfills over "
+                      f"later runs)")
+            continue
         layer = _layer_for(region)
         for slot in slots:
             key = _key(region, slot)
             if key in existing:
                 continue
-            tasks.append(_Task(region, slot,
-                               _gibs_url(layer, bbox, width, height, slot),
-                               key))
-    print(f"==> GeoColor render: {len(REGIONS)} regions x {len(slots)} slots; "
-          f"{len(existing)} on B2, {len(tasks)} to fetch")
+            gibs_tasks.append(_Task(region, slot, key,
+                                    url=_gibs_url(layer, bbox, width, height,
+                                                  slot)))
+    print(f"==> GeoColor render: {len(REGIONS)} regions; {len(existing)} on B2, "
+          f"{len(gibs_tasks)} GIBS + {len(slider_tasks)} SLIDER to fetch")
 
     rendered = 0
-    if tasks:
+    if gibs_tasks:
         with cf.ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
-            for key in pool.map(lambda t: _fetch(t, bucket), tasks):
+            for key in pool.map(lambda t: _fetch(t, bucket), gibs_tasks):
                 if key:
                     existing.add(key)
                     rendered += 1
+    # Serialized on purpose: _render already opens SLIDER_TILE_CONCURRENCY
+    # connections per frame, and running frames in parallel too would multiply
+    # them into a burst against CIRA.
+    for task in slider_tasks:
+        key = _fetch(task, bucket)
+        if key:
+            existing.add(key)
+            rendered += 1
 
     # Prune anything older than the window so storage stays bounded.
-    cutoff = now - dt.timedelta(minutes=LATENCY_MIN + WINDOW_MIN + STEP_MIN)
+    # Per-region, since a region may run a shorter window than the default.
+    cutoffs = {r: now - dt.timedelta(
+        minutes=LATENCY_MIN + _window_for(r) + STEP_MIN) for r in REGIONS}
+    default_cutoff = now - dt.timedelta(
+        minutes=LATENCY_MIN + WINDOW_MIN + STEP_MIN)
     pruned = 0
     for key in list(existing):
+        parts = key.split("/")
+        cutoff = cutoffs.get(parts[3], default_cutoff) if len(parts) == 5 \
+            else default_cutoff
         stamp = key.rsplit("/", 1)[-1].removesuffix(".jpg")
         try:
             kt = dt.datetime.strptime(stamp, "%Y%m%d%H%M").replace(

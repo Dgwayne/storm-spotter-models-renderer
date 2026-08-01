@@ -51,6 +51,7 @@ jobs:
             python=3.11
             rclone
             pillow
+            rasterio
           cache-environment: true
           init-shell: bash
 
