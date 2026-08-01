@@ -16,7 +16,9 @@ concurrency:
 jobs:
   report:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Two full recursive listings of ~90k objects. 30 min was not enough once
+    # the version pass was added.
+    timeout-minutes: 60
     env:
       R2_BUCKET: ${{ secrets.B2_BUCKET }}
 

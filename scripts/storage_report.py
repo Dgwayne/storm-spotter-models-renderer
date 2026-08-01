@@ -61,28 +61,44 @@ def _listing(bucket: str, versions: bool = False) -> list[tuple[int, str]]:
     return rows
 
 
+# rclone renders a non-current version as `name-vYYYY-MM-DD-HHMMSS-mmm.ext`.
+_VERSION_SUFFIX = re.compile(r"-v(\d{4}-\d{2}-\d{2}-\d{6})-\d{3}(?=\.|$)")
+
+
 def _versions_with_age(bucket: str) -> list[tuple[int, dt.datetime | None, str]]:
-    """Every stored version as (size, modtime, path)."""
+    """Every stored version as (size, version_time_or_None, path).
+
+    Deliberately does NOT ask rclone for modtime. Doing that costs a metadata
+    call per object, which over ~86k objects blew straight through the job
+    timeout, and B2's S3 layer is awkward about modtime HEADs anyway (it 403s
+    on the CopyObject-modtime op, hence --size-only in the migration configs).
+
+    Instead we read the version stamp rclone bakes into the filename. Current
+    versions carry no stamp, which is exactly how we tell them apart.
+    """
     out = subprocess.check_output(
         ["rclone", "lsf", "--recursive", "--files-only", "--s3-versions",
-         "--format", "stp", f"r2:{bucket}/"], text=True, timeout=3600)
+         "--format", "sp", f"r2:{bucket}/"], text=True, timeout=3600)
     rows = []
     for ln in out.splitlines():
-        parts = ln.split(";", 2)
-        if len(parts) != 3:
+        if ";" not in ln:
             continue
+        size, path = ln.split(";", 1)
         try:
-            size = int(parts[0])
+            size = int(size)
         except ValueError:
             continue
-        mt = None
-        try:
-            mt = dt.datetime.fromisoformat(parts[1].replace("Z", "+00:00"))
-            if mt.tzinfo is None:
-                mt = mt.replace(tzinfo=dt.timezone.utc)
-        except ValueError:
-            pass
-        rows.append((size, mt, parts[2].strip()))
+        path = path.strip()
+        m = _VERSION_SUFFIX.search(path)
+        stamp = None
+        if m:
+            try:
+                stamp = dt.datetime.strptime(
+                    m.group(1), "%Y-%m-%d-%H%M%S").replace(
+                        tzinfo=dt.timezone.utc)
+            except ValueError:
+                pass
+        rows.append((size, stamp, path))
     return rows
 
 
@@ -115,29 +131,32 @@ def _version_overhead(bucket: str, live_total: int, live_n: int) -> None:
     now = dt.datetime.now(dt.timezone.utc)
     buckets = {"< 1 day": 0, "1-2 days": 0, "2-7 days": 0, "> 7 days": 0}
     oldest = None
-    for size, mt, _ in allv:
-        if mt is None:
+    dead_sized = 0
+    for size, stamp, _ in allv:
+        if stamp is None:      # current version, not dead weight
             continue
-        age_d = (now - mt).total_seconds() / 86400
-        oldest = mt if oldest is None or mt < oldest else oldest
+        dead_sized += size
+        age_d = (now - stamp).total_seconds() / 86400
+        oldest = stamp if oldest is None or stamp < oldest else oldest
         key = ("< 1 day" if age_d < 1 else "1-2 days" if age_d < 2
                else "2-7 days" if age_d < 7 else "> 7 days")
         buckets[key] += size
-    print("\n  age of ALL stored versions (lifecycle should age these out):")
+    print("\n  age of SUPERSEDED versions (the lifecycle should age these out):")
     for k, v in buckets.items():
-        print(f"    {k:>9}: {_human(v)}")
+        pct = 100 * v / dead_sized if dead_sized else 0
+        print(f"    {k:>9}: {_human(v):>9}  ({pct:.0f}%)")
     if oldest:
-        print(f"    oldest object: {oldest:%Y-%m-%d %H:%M}Z "
-              f"({(now - oldest).days} days)")
+        print(f"    oldest: {oldest:%Y-%m-%d %H:%M}Z "
+              f"({(now - oldest).days} days old)")
     stuck = buckets["2-7 days"] + buckets["> 7 days"]
-    if stuck > all_total * 0.25:
-        print("\n  VERDICT: a large share sits well past the 1-day lifecycle "
-              "floor,\n  so 'keep only the last version' is NOT being applied "
-              "as expected.")
-    else:
-        print("\n  VERDICT: versions are aging out. This is the steady state "
-              "of an\n  overwrite-heavy workload under a 1-day lifecycle "
-              "floor, not a leak.")
+    if dead_sized and stuck > dead_sized * 0.25:
+        print("\n  VERDICT: a large share sits well past the 1-day lifecycle")
+        print("  floor, so 'keep only the last version' is NOT being applied.")
+        print("  Check the bucket's lifecycle settings in the B2 console.")
+    elif dead_sized:
+        print("\n  VERDICT: versions ARE aging out. This is the designed steady")
+        print("  state of an overwrite-heavy workload under B2's 1-day")
+        print("  lifecycle floor, not a leak. Nothing to fix.")
     print()
 
 
