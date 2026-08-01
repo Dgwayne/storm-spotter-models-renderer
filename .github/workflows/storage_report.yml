@@ -1,0 +1,55 @@
+name: Storage Report
+
+# Read-only breakdown of what the B2 bucket is holding: where the space goes by
+# prefix, what is past its prune window and awaiting reclaim, and whether each
+# geocolor region actually stores the loop length the app offers to play.
+#
+# Manual only. Nothing here writes or deletes.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: storage-report
+  cancel-in-progress: true
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up micromamba (python + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: report
+          create-args: >-
+            python=3.11
+            rclone
+          cache-environment: true
+          init-shell: bash
+
+      - name: Configure rclone for Cloudflare R2 (Backblaze B2)
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Report
+        run: python scripts/storage_report.py
