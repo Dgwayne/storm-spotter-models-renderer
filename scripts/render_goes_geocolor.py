@@ -55,6 +55,7 @@ from pathlib import Path
 from PIL import Image
 
 import slider_source  # CIRA SLIDER geostationary tiles -> EPSG:3857
+import star_source    # NESDIS STAR full disk -> EPSG:3857
 
 # ── Regions (lon/lat W,S,E,N + GOES bird). Everything else is derived. ──
 # Each region names its satellite ("sat"): East boxes pull
@@ -91,6 +92,42 @@ REGIONS: dict[str, dict] = {
     # to Japan and the East China Sea, and serves every future storm too.
     # Sized to land just under the 4096 single-texture cap, so it renders at its
     # full ~1.2 km without being clipped the way CONUS is.
+    # ── NESDIS STAR, GOES-East (G19) ──────────────────────────────────
+    # Cut from the STAR full disk rather than GIBS. STAR publishes a finished
+    # whole-sector image per timestamp or nothing, so it cannot emit the
+    # partial renders that put black rectangles in GIBS frames. One 18 MB full
+    # disk per slot serves every region below, so upstream load does not grow
+    # with the region count. See star_source.py for the fixed-grid constants.
+    #
+    # The GIBS regions above are deliberately LEFT IN PLACE: shipped apps read
+    # them out of geocolor.json by id and cannot switch until they update.
+    #
+    # Boxes are checked against the visible disk (limb = 81.3 deg from the
+    # sub-point). Everything here is on-disk; "oblique" corners over open ocean
+    # are inherent to the geometry and are what STAR shows too.
+    "conus_e":  {"label": "CONUS",              "sat": "G19", "source": "star", "bounds": [-125.0, 22.0, -66.0, 50.0]},
+    "fd_e":     {"label": "Full Disk",          "sat": "G19", "source": "star", "bounds": [-135.0, -60.0, -5.0, 60.0]},
+    "nr":       {"label": "Northern Rockies",   "sat": "G19", "source": "star", "bounds": [-118.0, 41.0, -101.0, 52.0]},
+    "umv":      {"label": "Upper Mississippi Valley", "sat": "G19", "source": "star", "bounds": [-100.0, 38.0, -84.0, 49.0]},
+    "cgl":      {"label": "Great Lakes",        "sat": "G19", "source": "star", "bounds": [-93.0, 40.0, -74.0, 50.0]},
+    "ne":       {"label": "Northeast",          "sat": "G19", "source": "star", "bounds": [-82.0, 37.0, -66.0, 48.0]},
+    "sr":       {"label": "Southern Rockies",   "sat": "G19", "source": "star", "bounds": [-115.0, 31.0, -100.0, 42.0]},
+    "sp":       {"label": "Southern Plains",    "sat": "G19", "source": "star", "bounds": [-105.0, 28.0, -90.0, 40.0]},
+    "smv":      {"label": "Southern Mississippi Valley", "sat": "G19", "source": "star", "bounds": [-97.0, 28.0, -82.0, 39.0]},
+    "se":       {"label": "Southeast",          "sat": "G19", "source": "star", "bounds": [-92.0, 24.0, -75.0, 37.0]},
+    "eus":      {"label": "U.S. East Coast",    "sat": "G19", "source": "star", "bounds": [-84.0, 30.0, -66.0, 45.0]},
+    # NW corner pulled in from [-142, 70]: that reached 82.3 deg, past the limb.
+    "can":      {"label": "Canada",             "sat": "G19", "source": "star", "bounds": [-132.0, 42.0, -52.0, 67.0]},
+    "na":       {"label": "Northern Atlantic Ocean", "sat": "G19", "source": "star", "bounds": [-80.0, 25.0, -20.0, 55.0]},
+    "car":      {"label": "Caribbean",          "sat": "G19", "source": "star", "bounds": [-90.0, 8.0, -58.0, 27.0]},
+    "ga":       {"label": "Gulf of America",    "sat": "G19", "source": "star", "bounds": [-98.0, 17.0, -80.0, 31.0]},
+    "pr":       {"label": "Puerto Rico",        "sat": "G19", "source": "star", "bounds": [-70.0, 15.0, -62.0, 20.0]},
+    "taw":      {"label": "Tropical Atlantic Ocean", "sat": "G19", "source": "star", "bounds": [-70.0, 0.0, -10.0, 30.0]},
+    "eep":      {"label": "Eastern Pacific Ocean", "sat": "G19", "source": "star", "bounds": [-140.0, 0.0, -85.0, 30.0]},
+    "mex":      {"label": "Mexico",             "sat": "G19", "source": "star", "bounds": [-118.0, 13.0, -85.0, 33.0]},
+    "cam":      {"label": "Central America",    "sat": "G19", "source": "star", "bounds": [-95.0, 5.0, -75.0, 20.0]},
+    "nsa":      {"label": "South America (north)", "sat": "G19", "source": "star", "bounds": [-82.0, -15.0, -34.0, 13.0]},
+    "ssa":      {"label": "South America (south)", "sat": "G19", "source": "star", "bounds": [-80.0, -56.0, -34.0, -15.0]},
     "wpac":      {"label": "W Pacific",        "sat": "Himawari",  "bounds": [128.0, 8.0, 172.0, 36.0],
                   "source": "slider", "slider_sat": "himawari",
                   "sector": "full_disk", "product": "geocolor",
@@ -172,6 +209,17 @@ SLIDER_JPEG_QUALITY = 82
 # SLIDER publishes well ahead of GIBS (observed ~10-20 min vs GIBS's 40-76),
 # so its regions look for newer slots than the GOES ones.
 SLIDER_LATENCY_MIN = 20
+
+# ── STAR (GOES regions) ───────────────────────────────────────────────
+# One full disk per (satellite, slot) is decoded ONCE and every region for that
+# satellite is cut from it, so 22 regions cost 22 warps but only ONE 18 MB
+# download. The per-run slot cap bounds a cold start: at 4 slots a run the 12 h
+# window fills in about 3 h, and steady state only ever needs 1.
+STAR_KM = 1000                  # full-disk tier: 1 km (10848 px, ~18 MB)
+STAR_MAX_SLOTS_PER_RUN = 4
+STAR_JPEG_QUALITY = 82
+# STAR publishes ~15-20 min behind wall clock, far ahead of GIBS's 40-76.
+STAR_LATENCY_MIN = 25
 
 R2_PREFIX = "v1/SAT"
 GEO_PREFIX = f"{R2_PREFIX}/geocolor"
@@ -580,11 +628,34 @@ def main() -> int:
 
     gibs_tasks: list[_Task] = []
     slider_tasks: list[_Task] = []
+    # STAR work is keyed by (satellite, slot): every region for that pair comes
+    # out of ONE decoded full disk.
+    star_pending: dict[tuple[str, dt.datetime], list[_Task]] = {}
+    star_times: dict[str, set[str]] = {}
     for region in REGIONS:
         bbox, width, height = geom[region]
-        slider = _source_of(region) == "slider"
-        slots = _slots(now, _window_for(region),
-                       SLIDER_LATENCY_MIN if slider else LATENCY_MIN)
+        src = _source_of(region)
+        slider = src == "slider"
+        latency = (SLIDER_LATENCY_MIN if slider
+                   else STAR_LATENCY_MIN if src == "star" else LATENCY_MIN)
+        slots = _slots(now, _window_for(region), latency)
+        if src == "star":
+            cfg = REGIONS[region]
+            sat = cfg["sat"]
+            if sat not in star_times:
+                star_times[sat] = star_source.available_times(
+                    sat, star_source.FD_PX[STAR_KM])
+            have = star_times[sat]
+            for slot in slots:
+                key = _key(region, slot)
+                if key in existing:
+                    continue
+                if have and star_source._stamp(slot) not in have:
+                    continue
+                star_pending.setdefault((sat, slot), []).append(
+                    _Task(region, slot, key, bounds=cfg["bounds"],
+                          width=width, height=height))
+            continue
         if slider:
             # Ask SLIDER what it actually holds before spending tile requests on
             # slots that do not exist.
@@ -613,8 +684,17 @@ def main() -> int:
             gibs_tasks.append(_Task(region, slot, key,
                                     url=_gibs_url(layer, bbox, width, height,
                                                   slot)))
+    # Newest slots first, so if the per-run cap bites the freshest imagery is
+    # what lands; the rest backfills over later runs.
+    star_slots = sorted(star_pending, key=lambda k: k[1], reverse=True)
+    star_take = star_slots[:STAR_MAX_SLOTS_PER_RUN]
+    star_n = sum(len(star_pending[k]) for k in star_take)
+    if len(star_slots) > STAR_MAX_SLOTS_PER_RUN:
+        print(f"    STAR: {len(star_slots)} slots pending, taking "
+              f"{STAR_MAX_SLOTS_PER_RUN} this run (backfills over later runs)")
     print(f"==> GeoColor render: {len(REGIONS)} regions; {len(existing)} on B2, "
-          f"{len(gibs_tasks)} GIBS + {len(slider_tasks)} SLIDER to fetch")
+          f"{len(gibs_tasks)} GIBS + {len(slider_tasks)} SLIDER + "
+          f"{star_n} STAR frames from {len(star_take)} full disks")
 
     rendered = 0
     if gibs_tasks:
@@ -631,6 +711,33 @@ def main() -> int:
         if key:
             existing.add(key)
             rendered += 1
+
+    # One download + one decode per (satellite, slot), then cut every region.
+    for sat, slot in star_take:
+        tasks = star_pending[(sat, slot)]
+        fd = star_source.FullDisk.fetch(sat, slot, STAR_KM)
+        if fd is None:
+            print(f"    STAR {sat} {slot:%Y%m%d%H%M}: full disk unavailable")
+            continue
+        made = 0
+        for task in tasks:
+            try:
+                data = fd.crop(task.bounds, task.width, task.height,
+                               STAR_JPEG_QUALITY)
+                if data is None or _reject_frame(data):
+                    continue
+                with tempfile.TemporaryDirectory() as td:
+                    dest = Path(td) / "frame.jpg"
+                    dest.write_bytes(data)
+                    _upload(dest, task.key, bucket)
+                existing.add(task.key)
+                rendered += 1
+                made += 1
+            except Exception as exc:  # noqa: BLE001 - retried next run
+                print(f"    {task.region} {slot:%Y%m%d%H%M} failed: {exc}",
+                      file=sys.stderr)
+        del fd  # ~350 MB of decoded disk; drop it before the next slot
+        print(f"    STAR {sat} {slot:%H%M}Z: {made}/{len(tasks)} regions")
 
     # Prune anything older than the window so storage stays bounded.
     # Per-region, since a region may run a shorter window than the default.

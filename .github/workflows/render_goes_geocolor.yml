@@ -32,7 +32,9 @@ concurrency:
 jobs:
   render:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # STAR adds a full-disk download + decode + N warps per slot on top of the
+    # GIBS and SLIDER passes.
+    timeout-minutes: 45
     env:
       R2_BUCKET: ${{ secrets.B2_BUCKET }}
       R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
