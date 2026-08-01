@@ -61,6 +61,31 @@ def _listing(bucket: str, versions: bool = False) -> list[tuple[int, str]]:
     return rows
 
 
+def _versions_with_age(bucket: str) -> list[tuple[int, dt.datetime | None, str]]:
+    """Every stored version as (size, modtime, path)."""
+    out = subprocess.check_output(
+        ["rclone", "lsf", "--recursive", "--files-only", "--s3-versions",
+         "--format", "stp", f"r2:{bucket}/"], text=True, timeout=3600)
+    rows = []
+    for ln in out.splitlines():
+        parts = ln.split(";", 2)
+        if len(parts) != 3:
+            continue
+        try:
+            size = int(parts[0])
+        except ValueError:
+            continue
+        mt = None
+        try:
+            mt = dt.datetime.fromisoformat(parts[1].replace("Z", "+00:00"))
+            if mt.tzinfo is None:
+                mt = mt.replace(tzinfo=dt.timezone.utc)
+        except ValueError:
+            pass
+        rows.append((size, mt, parts[2].strip()))
+    return rows
+
+
 def _version_overhead(bucket: str, live_total: int, live_n: int) -> None:
     """Compare live objects against ALL versions.
 
@@ -72,22 +97,47 @@ def _version_overhead(bucket: str, live_total: int, live_n: int) -> None:
     """
     print("--- live objects vs all versions ---")
     try:
-        allv = _listing(bucket, versions=True)
+        allv = _versions_with_age(bucket)
     except Exception as exc:  # noqa: BLE001 - diagnostic only
         print(f"  version listing unavailable: {exc}\n")
         return
-    all_total = sum(s for s, _ in allv)
+    all_total = sum(s for s, _, _ in allv)
     extra = all_total - live_total
     print(f"  live     : {live_n:>7,} objects  {_human(live_total)}")
     print(f"  all vers : {len(allv):>7,} objects  {_human(all_total)}")
-    if extra > live_total * 0.15:
-        print(f"  OLD VERSIONS: {_human(extra)} in {len(allv) - live_n:,} "
-              f"dead objects ({100 * extra / max(all_total, 1):.0f}% of billed "
-              f"storage).")
-        print("  Our pruning cannot reclaim this. It needs a B2 lifecycle rule")
-        print("  on the bucket (keep only the last version).")
+    print(f"  dead     : {len(allv) - live_n:>7,} objects  {_human(extra)}"
+          f"  ({100 * extra / max(all_total, 1):.0f}% of billed storage)")
+
+    # The bucket lifecycle is meant to be "keep only the last version", whose
+    # floor is 1 day. So the question is NOT whether dead versions exist, it is
+    # whether they AGE OUT. Anything well past a couple of days means the rule
+    # is not actually being applied.
+    now = dt.datetime.now(dt.timezone.utc)
+    buckets = {"< 1 day": 0, "1-2 days": 0, "2-7 days": 0, "> 7 days": 0}
+    oldest = None
+    for size, mt, _ in allv:
+        if mt is None:
+            continue
+        age_d = (now - mt).total_seconds() / 86400
+        oldest = mt if oldest is None or mt < oldest else oldest
+        key = ("< 1 day" if age_d < 1 else "1-2 days" if age_d < 2
+               else "2-7 days" if age_d < 7 else "> 7 days")
+        buckets[key] += size
+    print("\n  age of ALL stored versions (lifecycle should age these out):")
+    for k, v in buckets.items():
+        print(f"    {k:>9}: {_human(v)}")
+    if oldest:
+        print(f"    oldest object: {oldest:%Y-%m-%d %H:%M}Z "
+              f"({(now - oldest).days} days)")
+    stuck = buckets["2-7 days"] + buckets["> 7 days"]
+    if stuck > all_total * 0.25:
+        print("\n  VERDICT: a large share sits well past the 1-day lifecycle "
+              "floor,\n  so 'keep only the last version' is NOT being applied "
+              "as expected.")
     else:
-        print("  versioning overhead is negligible; billed size ~= live size.")
+        print("\n  VERDICT: versions are aging out. This is the steady state "
+              "of an\n  overwrite-heavy workload under a 1-day lifecycle "
+              "floor, not a leak.")
     print()
 
 
@@ -167,13 +217,21 @@ def main() -> int:
         if t:
             e[2] = t if e[2] is None or t < e[2] else e[2]
             e[3] = t if e[3] is None or t > e[3] else e[3]
+    # Compare against the CONFIGURED window, not the observed span. A 12 h
+    # window with a few missing slots lands just under 12 h, and judging by
+    # span alone made that look like a shortfall when nothing was wrong.
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import render_goes_geocolor as R
+        configured = {r: R._window_for(r) for r in R.REGIONS}
+    except Exception:  # noqa: BLE001 - fall back to the local table
+        configured = {}
     longest = APP_WINDOW_CHOICES_MIN[-1]
     for r, (size, n, old, new) in sorted(per_region.items()):
         span = (new - old).total_seconds() / 60 if old and new else 0
-        usable = max([w for w in APP_WINDOW_CHOICES_MIN if w <= span + 5],
-                     default=0)
-        flag = "" if usable >= longest else \
-            f"  <-- app offers {longest // 60}h, can only fill {usable // 60}h"
+        win = configured.get(r, GEOCOLOR_REGION_WINDOW.get(r, 720))
+        flag = "" if win >= longest else \
+            f"  <-- stores {win // 60}h, app offers {longest // 60}h"
         avg = size / n if n else 0
         print(f"  {r:<10} {n:>3} frames  {_human(size):>8}  "
               f"avg {avg / MB:.2f} MB  span {span / 60:.1f}h{flag}")
