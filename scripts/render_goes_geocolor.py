@@ -98,10 +98,19 @@ REGIONS: dict[str, dict] = {
                   # roughly double the CONUS payload. Matching CONUS's own
                   # effective resolution puts it back in line with the rest.
                   "target_mpp": 1600.0,
-                  # Start small and widen once we have real numbers: every slot
-                  # here costs CIRA a few dozen tile requests, and unlike GIBS
-                  # theirs is a research web app, not bulk-serving infrastructure.
-                  "window_min": 360},
+                  # Started at 360 while the source was unproven. Raised to the
+                  # default 12 h once the storage report showed what it really
+                  # costs: 0.54 MB a frame on average (most of a day here is
+                  # night over open ocean, which compresses to very little), so
+                  # a full window is ~40 MB. Steady-state CIRA load is
+                  # unchanged either way, since that is one new frame per slot
+                  # regardless of how far back the window reaches; only the
+                  # one-time backfill is longer. Anything shorter than the
+                  # app's longest loop choice makes its 12 h picker dishonest.
+                  # (No window_min key at all: _window_for falls back to the
+                  # default. WINDOW_MIN is defined below this table, so naming
+                  # it here would be a NameError at import.)
+                  },
 }
 
 GIBS_WMS = "https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi"
