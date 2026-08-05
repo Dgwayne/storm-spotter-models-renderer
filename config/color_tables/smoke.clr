@@ -1,0 +1,15 @@
+# Near-surface smoke (ug/m^3) — transparent in clean air, hazy gray-yellow
+# for light smoke, through orange/red to purple for dense plumes.
+# interpolate_color: plumes are continuous, bins would band them.
+nv    0   0   0   0
+1     255 255 255 0
+4     200 200 190 40
+8     230 220 130 80
+15    240 200 80  120
+25    245 170 50  150
+40    245 140 40  175
+60    240 100 35  200
+90    230 60  30  220
+140   200 30  25  235
+200   150 20  60  245
+300   110 30  110 255

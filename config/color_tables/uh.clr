@@ -1,0 +1,12 @@
+# Hourly-max 2-5 km updraft helicity (m^2/s^2). Transparent below the
+# noise floor; 75+ = notable rotating updraft, 150+ = strong, binned so
+# thresholds read at a glance (SPC-style).
+nv    0   0   0   0
+8     255 255 255 0
+15    250 250 150 130
+30    250 220 60  170
+60    250 170 45  200
+100   245 110 40  225
+160   235 55  35  245
+240   200 35  150 255
+330   245 245 245 255

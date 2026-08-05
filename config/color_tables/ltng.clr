@@ -1,0 +1,11 @@
+# HRRR lightning threat (flashes/km^2/5min-ish; small magnitudes).
+# Transparent until a real signal, yellow -> orange -> red -> magenta.
+nv    0   0   0   0
+0.3   255 255 255 0
+0.7   250 250 170 120
+1.5   248 240 90  170
+3     250 200 50  200
+5     250 140 40  225
+8     240 70  40  245
+12    200 40  170 255
+16    255 255 255 255

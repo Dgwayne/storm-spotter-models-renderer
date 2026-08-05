@@ -1,0 +1,14 @@
+# Vertically integrated smoke (mg/m^2) — same hue ladder as smoke.clr,
+# stops scaled to column loading (light haze ~100, dense plume 1000+).
+nv    0   0   0   0
+15    255 255 255 0
+60    200 200 190 40
+120   230 220 130 80
+225   240 200 80  120
+375   245 170 50  150
+600   245 140 40  175
+900   240 100 35  200
+1350  230 60  30  220
+2100  200 30  25  235
+3000  150 20  60  245
+4500  110 30  110 255

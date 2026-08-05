@@ -1,0 +1,11 @@
+# Total freezing rain QPF (inches, liquid equivalent). Pink -> violet ->
+# deep purple; 0.25+ is damaging ice, 0.5+ catastrophic.
+nv     0   0   0   0
+0.005  255 255 255 0
+0.05   235 190 220 120
+0.1    225 150 205 160
+0.25   210 110 195 200
+0.5    180 75  185 230
+0.75   150 55  175 245
+1.0    115 40  160 255
+1.5    75  25  130 255
