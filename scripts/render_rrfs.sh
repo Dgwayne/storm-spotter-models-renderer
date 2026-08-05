@@ -29,6 +29,32 @@ HOURS_BACK=4
 PRODUCTS=$(yq -r ".models.${MODEL}.products[]" "$CONFIG")
 RETAIN=$(yq -r ".models.${MODEL}.retain_runs" "$CONFIG")
 
+# PRODUCT_FILTER: optional space-separated subset of the product list —
+# set by the workflow's matrix jobs so render groups run in parallel
+# (see render_groups in products.yml). Unset = render everything.
+if [ -n "${PRODUCT_FILTER:-}" ]; then
+  FILTERED=""
+  for p in ${PRODUCT_FILTER}; do
+    if ! printf '%s\n' ${PRODUCTS} | grep -qxF "${p}"; then
+      echo "ERROR: PRODUCT_FILTER contains '${p}', not in models.${MODEL}.products" >&2
+      exit 1
+    fi
+    FILTERED="${FILTERED}${p}"$'\n'
+  done
+  PRODUCTS="${FILTERED}"
+  echo "==> Product filter active: $(echo ${PRODUCTS} | tr '\n' ' ')"
+fi
+
+# Per-product forecast-hour floors/caps (fh_min products like ptype/ltng
+# have no f00 message). Skipping here — not just inside decode_pipeline.sh
+# — avoids ~1 s of spawn overhead per skipped tuple (see render_hrrr.sh).
+declare -A FH_CAPS
+declare -A FH_MINS
+for product in $PRODUCTS; do
+  FH_CAPS[$product]=$(yq -r ".products.${product}.fh_cap // \"\"" "$CONFIG")
+  FH_MINS[$product]=$(yq -r ".products.${product}.fh_min // \"\"" "$CONFIG")
+done
+
 # ── Pre-fetch R2 listing for fast idempotent skips ────────────────
 # One recursive listing per tick instead of an rclone round-trip per
 # (run × product × fh) tuple — see render_hrrr.sh for the numbers.
@@ -64,6 +90,13 @@ for offset in $(seq 0 "${HOURS_BACK}"); do
 
   for product in $PRODUCTS; do
     for fh in $(seq 0 "${FH_END}"); do
+      # ── Per-product fh cap/floor ──────────────────────────────────
+      if [ -n "${FH_CAPS[$product]}" ] && [ "${fh}" -gt "${FH_CAPS[$product]}" ]; then
+        continue
+      fi
+      if [ -n "${FH_MINS[$product]}" ] && [ "${fh}" -lt "${FH_MINS[$product]}" ]; then
+        continue
+      fi
       # Parent-level idempotent skip against the pre-listed bucket cache —
       # an already-rendered frame costs one in-memory grep and never spawns
       # decode_pipeline.sh at all (see render_hrrr.sh for rationale).
@@ -91,14 +124,18 @@ for offset in $(seq 0 "${HOURS_BACK}"); do
   fi
 done
 
-# ── Prune R2 to the most recent N runs ─────────────────────────────
-echo ""
-echo "==> Pruning RRFS to last ${RETAIN} runs"
-python3 "${SCRIPT_DIR}/prune_old_runs.py" "${MODEL}" "${RETAIN}"
+# ── Prune + final manifest (single finalize job when fanned out) ───
+if [ -n "${SKIP_FINALIZE:-}" ]; then
+  echo ""
+  echo "==> SKIP_FINALIZE set — prune + final manifest left to the finalize job"
+else
+  echo ""
+  echo "==> Pruning RRFS to last ${RETAIN} runs"
+  python3 "${SCRIPT_DIR}/prune_old_runs.py" "${MODEL}" "${RETAIN}"
 
-# ── Rebuild manifest (final, post-backfill + post-prune) ──────────
-echo "==> Rebuilding RRFS manifest"
-python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}"
+  echo "==> Rebuilding RRFS manifest"
+  python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}"
+fi
 
 echo ""
 echo "==> RRFS render complete (attempted runs: ${ATTEMPTED_RUNS[*]})"
