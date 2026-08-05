@@ -38,6 +38,25 @@ HOURS_BACK=4
 PRODUCTS=$(yq -r ".models.${MODEL}.products[]" "$CONFIG")
 RETAIN=$(yq -r ".models.${MODEL}.retain_runs" "$CONFIG")
 
+# PRODUCT_FILTER: optional space-separated subset of the product list.
+# The workflow's matrix jobs set this so render groups run in parallel
+# (see render_groups in products.yml). Unset = render everything, so a
+# manual `bash scripts/render_hrrr.sh` behaves exactly as before.
+# Unknown codes are a hard error: a typo in a render group must fail the
+# job, not silently render nothing.
+if [ -n "${PRODUCT_FILTER:-}" ]; then
+  FILTERED=""
+  for p in ${PRODUCT_FILTER}; do
+    if ! printf '%s\n' ${PRODUCTS} | grep -qxF "${p}"; then
+      echo "ERROR: PRODUCT_FILTER contains '${p}', not in models.${MODEL}.products" >&2
+      exit 1
+    fi
+    FILTERED="${FILTERED}${p}"$'\n'
+  done
+  PRODUCTS="${FILTERED}"
+  echo "==> Product filter active: $(echo ${PRODUCTS} | tr '\n' ' ')"
+fi
+
 # Per-product forecast-hour caps (mesoanalysis products render f00-f01
 # only). Skipping capped hours HERE — not just inside decode_pipeline.sh —
 # matters: even an exit-0 decode spawn costs ~1 s of yq/python overhead,
@@ -132,14 +151,25 @@ for offset in $(seq 0 "${HOURS_BACK}"); do
   fi
 done
 
-# ── Prune R2 to the most recent N runs ─────────────────────────────
-echo ""
-echo "==> Pruning HRRR to last ${RETAIN} runs"
-python3 "${SCRIPT_DIR}/prune_old_runs.py" "${MODEL}" "${RETAIN}"
+# ── Prune + final manifest ─────────────────────────────────────────
+# SKIP_FINALIZE: set by the workflow's matrix render jobs — prune and the
+# authoritative manifest rebuild belong to the single finalize job that
+# runs after every group finishes, so parallel groups never race a prune
+# against another group's uploads. The early per-group manifest publish
+# above stays: build_manifest.py derives everything from a fresh bucket
+# listing, so concurrent snapshots are all valid and last-writer-wins.
+if [ -n "${SKIP_FINALIZE:-}" ]; then
+  echo ""
+  echo "==> SKIP_FINALIZE set — prune + final manifest left to the finalize job"
+else
+  echo ""
+  echo "==> Pruning HRRR to last ${RETAIN} runs"
+  python3 "${SCRIPT_DIR}/prune_old_runs.py" "${MODEL}" "${RETAIN}"
 
-# ── Rebuild manifest (final, post-backfill + post-prune) ──────────
-echo "==> Rebuilding HRRR manifest"
-python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}"
+  # Final manifest (post-backfill + post-prune)
+  echo "==> Rebuilding HRRR manifest"
+  python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}"
+fi
 
 echo ""
 echo "==> HRRR render complete (attempted runs: ${ATTEMPTED_RUNS[*]})"

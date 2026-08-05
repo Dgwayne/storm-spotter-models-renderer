@@ -2043,6 +2043,25 @@ models:
       - frzLvl
       - rh2m
       - vis
+    # Parallel render groups: the workflow's plan job turns this map into a
+    # job matrix, one render job per group (render_hrrr.sh PRODUCT_FILTER).
+    # RULES:
+    #   * Every product in `products` must appear in EXACTLY one group —
+    #     the plan job diffs the union against the products list and fails
+    #     the tick loudly on drift (a product missing from every group
+    #     would otherwise silently never render).
+    #   * `core` holds the headline products (reflectivity/temp/wind) in
+    #     its own job so a long severe-param backfill can never starve
+    #     them — the old single-job "list order = priority" trick, made
+    #     structural.
+    #   * Groups are balanced for FULL-RANGE load (each product ≈ same
+    #     per-frame gdal cost; derived products just fetch a few more
+    #     GRIB messages).
+    render_groups:
+      core:     [refc, t2m, td2m, wind10m, gust10m, mslp, sfccape, precip1h]
+      severe-a: [srh1, srh3, ehi1, ehi3, shear1, shear6, stormMotion]
+      severe-b: [mlcape, mucape, mlcin, cape3km, liftedIdx, lapse75, lclHgt]
+      enviro:   [stp, scp, pwat, echoTops, ptype, frzLvl, rh2m, vis]
     # CONUS bbox (Lambert -> reprojected to EPSG:3857 by gdalwarp at render time)
     bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
     # Smoothness over sharpness (decided after testing). Animation scrub
