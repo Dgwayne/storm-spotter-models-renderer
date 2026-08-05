@@ -41,6 +41,7 @@
 products:
   refc:
     display: "Composite Reflectivity"
+    group: "Radar"
     # No trailing colon: HRRR/GFS idx lines say ":REFC:entire atmosphere:"
     # but RRFS writes ":REFC:entire atmosphere (considered as a single
     # layer):" — the prefix matches all three, still a single message each.
@@ -58,6 +59,7 @@ products:
 
   t2m:
     display: "2m Temperature"
+    group: "Surface"
     wgrib2_match: ":TMP:2 m above ground:"
     # GRIB encodes Kelvin per WMO convention, but GDAL's GRIB driver
     # auto-normalizes temperature to Celsius on read (per the GRIB
@@ -78,6 +80,7 @@ products:
 
   td2m:
     display: "2m Dewpoint"
+    group: "Surface"
     wgrib2_match: ":DPT:2 m above ground:"
     # GDAL auto-normalizes K -> C, same as t2m. See note there.
     units_in: "C"
@@ -92,6 +95,7 @@ products:
 
   wind10m:
     display: "10m Wind Speed"
+    group: "Surface"
     # Special: this product needs UGRD + VGRD combined into magnitude.
     # Handled with two-pass wgrib2 + gdal_calc; see decode_pipeline.sh.
     wgrib2_match: ":(UGRD|VGRD):10 m above ground:"
@@ -109,6 +113,7 @@ products:
 
   gust10m:
     display: "10m Wind Gust"
+    group: "Surface"
     wgrib2_match: ":GUST:surface:"
     units_in: "m/s"
     units_out: "kt"
@@ -123,6 +128,7 @@ products:
 
   mslp:
     display: "Mean Sea-Level Pressure"
+    group: "Surface"
     # HRRR uses MSLMA, GFS uses PRMSL. NAM carries BOTH PRMSL and MSLET —
     # two messages are fetched and gdal_translate -b 1 takes the first in
     # message order, so NAM renders PRMSL (the standard reduction).
@@ -138,6 +144,7 @@ products:
 
   sfccape:
     display: "Surface CAPE"
+    group: "Instability"
     wgrib2_match: ":CAPE:surface:"
     units_in: "J/kg"
     units_out: "J/kg"
@@ -150,6 +157,7 @@ products:
 
   precip1h:
     display: "1-hour Precipitation"
+    group: "Precipitation & Moisture"
     # 1-hour bucket ending at the current fh: "(fh-1)-fh hour acc".
     # decode_pipeline.sh substitutes {fh} and {fh_minus_1} before matching.
     wgrib2_match: ":APCP:surface:{fh_minus_1}-{fh} hour acc"
@@ -164,6 +172,7 @@ products:
 
   capeMU:
     display: "CAPE (Most Unstable)"
+    group: "Instability"
     # ECMWF open data publishes MUCAPE (not surface-based) — a separate
     # product code from sfccape so the display name stays honest, and from
     # the meso `mucape` (which is HRRR-analysis-only with fh_cap 1).
@@ -179,6 +188,7 @@ products:
 
   precipTotalM:
     display: "Total Precipitation"
+    group: "Precipitation & Moisture"
     # ECMWF tp is a running total in METERS (vs kg/m^2 ≈ mm everywhere
     # else) — own product code so the m → in conversion can't collide
     # with precipTotal's mm → in.
@@ -195,6 +205,7 @@ products:
 
   precip3h:
     display: "3-hour Precipitation"
+    group: "Precipitation & Moisture"
     # NAM's APCP buckets reset every 3 hours (f01 "0-1", f02 "0-2",
     # f03 "0-3", f04 "3-4", ...) — a constant-width bucket only completes
     # at 3-hour multiples, so fh_step renders every 3rd frame and the
@@ -214,6 +225,7 @@ products:
 
   wind500:
     display: "500mb Wind Speed"
+    group: "Upper Air"
     wgrib2_match: ":(UGRD|VGRD):500 mb:"
     ecmwf_match: "^(u|v):pl:500$"
     composite_uv: true
@@ -227,6 +239,7 @@ products:
 
   precipTotal:
     display: "Total Precipitation"
+    group: "Precipitation & Moisture"
     wgrib2_match: ":APCP:surface:0-"
     units_in: "kg/m^2"
     units_out: "in"
@@ -248,6 +261,7 @@ products:
 
   tcc:
     display: "Cloud Cover"
+    group: "Clouds & Satellite"
     wgrib2_match: ":TCDC:entire atmosphere"
     units_in: "%"
     units_out: "%"
@@ -259,6 +273,7 @@ products:
 
   lcc:
     display: "Cloud Cover (Low)"
+    group: "Clouds & Satellite"
     wgrib2_match: ":LCDC:low cloud layer:"
     units_in: "%"
     units_out: "%"
@@ -270,6 +285,7 @@ products:
 
   mcc:
     display: "Cloud Cover (Mid)"
+    group: "Clouds & Satellite"
     wgrib2_match: ":MCDC:middle cloud layer:"
     units_in: "%"
     units_out: "%"
@@ -281,6 +297,7 @@ products:
 
   hcc:
     display: "Cloud Cover (High)"
+    group: "Clouds & Satellite"
     wgrib2_match: ":HCDC:high cloud layer:"
     units_in: "%"
     units_out: "%"
@@ -298,6 +315,7 @@ products:
 
   refd1km:
     display: "1km AGL Reflectivity"
+    group: "Radar"
     # File also carries REFD at 4000 m and 263 K — anchor the level.
     wgrib2_match: ":REFD:1000 m above ground:"
     units_in: "dBZ"
@@ -310,6 +328,7 @@ products:
 
   irsat:
     display: "Simulated IR Satellite"
+    group: "Clouds & Satellite"
     # SBT124 = simulated GOES-East longwave-IR-window brightness temp.
     # (SBT123 in the same file is the water-vapor channel — a possible
     # future product, don't loosen this match.)
@@ -326,6 +345,7 @@ products:
 
   smokesfc:
     display: "Near-Surface Smoke"
+    group: "Fire Weather"
     wgrib2_match: ":MASSDEN:8 m above ground:"
     # Raw kg/m^3 -> ug/m^3. ⚠ verify against the first render's logged
     # raw.tif stats (expected raw magnitudes ~1e-9..1e-7).
@@ -339,6 +359,7 @@ products:
 
   smokeint:
     display: "Integrated Smoke"
+    group: "Fire Weather"
     wgrib2_match: ":COLMD:entire atmosphere"
     # Raw kg/m^2 -> mg/m^2. Same first-render stats check as smokesfc.
     units_in: "kg/m^2"
@@ -351,6 +372,7 @@ products:
 
   ltng:
     display: "Lightning Threat"
+    group: "Composites & Convection"
     wgrib2_match: ":LTNG:entire atmosphere:"
     units_in: "flashes/km^2"
     units_out: "fl/km²"
@@ -362,6 +384,7 @@ products:
 
   sbcin:
     display: "Surface CIN"
+    group: "Instability"
     # File carries CIN at surface, 180-0, 90-0 (mlcin) and 255-0 mb —
     # ":CIN:surface:" is unique.
     wgrib2_match: ":CIN:surface:"
@@ -374,6 +397,7 @@ products:
 
   uh25:
     display: "Updraft Helicity (1h max)"
+    group: "Wind Shear & Rotation"
     # Hourly-max 2-5 km UH. File also has 2000-0 and 3000-0 m layers.
     wgrib2_match: ":MXUPHL:5000-2000 m above ground:"
     units_in: "m^2/s^2"
@@ -385,6 +409,7 @@ products:
 
   snod:
     display: "Snow Depth"
+    group: "Winter Weather"
     wgrib2_match: ":SNOD:surface:"
     units_in: "m"
     units_out: "in"
@@ -396,6 +421,7 @@ products:
 
   asnow:
     display: "Total Snowfall"
+    group: "Winter Weather"
     # HRRR's native ASNOW accumulation (what Pivotal labels Total
     # Snowfall) — NOT a Kuchera-ratio product; that needs the wrfprs
     # column temps and stays out of scope.
@@ -410,6 +436,7 @@ products:
 
   frzr:
     display: "Total Freezing Rain"
+    group: "Winter Weather"
     wgrib2_match: ":FRZR:surface:0-"
     units_in: "kg/m^2"
     units_out: "in"
@@ -452,6 +479,7 @@ products:
 
   mlcape:
     display: "MLCAPE"
+    group: "Instability"
     wgrib2_match: ":CAPE:90-0 mb above ground:"
     units_in: "J/kg"
     units_out: "J/kg"
@@ -466,6 +494,7 @@ products:
 
   mucape:
     display: "MUCAPE"
+    group: "Instability"
     wgrib2_match: ":CAPE:255-0 mb above ground:"
     units_in: "J/kg"
     units_out: "J/kg"
@@ -480,6 +509,7 @@ products:
 
   mlcin:
     display: "MLCIN"
+    group: "Instability"
     wgrib2_match: ":CIN:90-0 mb above ground:"
     units_in: "J/kg"
     units_out: "J/kg"
@@ -501,6 +531,7 @@ products:
 
   srh1:
     display: "0-1km SRH"
+    group: "Wind Shear & Rotation"
     wgrib2_match: ":HLCY:1000-0 m above ground:"
     units_in: "m^2/s^2"
     units_out: "m²/s²"
@@ -515,6 +546,7 @@ products:
 
   srh3:
     display: "0-3km SRH"
+    group: "Wind Shear & Rotation"
     wgrib2_match: ":HLCY:3000-0 m above ground:"
     units_in: "m^2/s^2"
     units_out: "m²/s²"
@@ -529,6 +561,7 @@ products:
 
   shear6:
     display: "0-6km Shear"
+    group: "Wind Shear & Rotation"
     # ⚠ HRRR labels VUCSH/VVCSH as [1/s] but the encoded values are the
     # bulk wind-difference vector components in m/s (verified empirically
     # 2026-07-08: magnitudes 0-35 with p99 ≈ 23 — true shear-per-second
@@ -548,6 +581,7 @@ products:
 
   stp:
     display: "Sig. Tornado (STP)"
+    group: "Composites & Convection"
     derived: true
     # Mirrors sounding_analysis.dart _stpFixed (STP-cin variant):
     #   capeTerm  = SBCAPE/1500
@@ -578,6 +612,7 @@ products:
 
   scp:
     display: "Supercell Comp. (SCP)"
+    group: "Composites & Convection"
     derived: true
     # Mirrors sounding_analysis.dart _scp with the SRH3/BWD6 fallback:
     #   (MUCAPE/1000) * (SRH3/50) * shearTerm
@@ -608,6 +643,7 @@ products:
 
   cape3km:
     display: "0-3km CAPE"
+    group: "Instability"
     wgrib2_match: ":CAPE:0-3000 m above ground:"
     units_in: "J/kg"
     units_out: "J/kg"
@@ -622,6 +658,7 @@ products:
 
   liftedIdx:
     display: "Lifted Index"
+    group: "Instability"
     # ⚠ LFTX is a temperature-typed field (K): if GDAL's CF normalization
     # subtracts 273.15 the raw stats will sit near -280 — check the logged
     # raw.tif stats on first render and add `convert: "A + 273.15"` if so.
@@ -639,6 +676,7 @@ products:
 
   lapse75:
     display: "700-500mb Lapse Rate"
+    group: "Instability"
     derived: true
     # (T700 - T500) / (z500 - z700) in °C/km. Temperature DIFFERENCE, so
     # any K→C normalization by the GRIB driver cancels out. max() guards
@@ -663,6 +701,7 @@ products:
 
   lclHgt:
     display: "LCL Height"
+    group: "Instability"
     derived: true
     # LCL above ground = LCL MSL height minus terrain height.
     inputs:
@@ -682,6 +721,7 @@ products:
 
   shear1:
     display: "0-1km Shear"
+    group: "Wind Shear & Rotation"
     # Same [1/s]-labeled-but-actually-m/s gotcha as shear6.
     wgrib2_match: ":(VUCSH|VVCSH):0-1000 m above ground:"
     composite_uv: true
@@ -698,6 +738,7 @@ products:
 
   stormMotion:
     display: "Storm Motion"
+    group: "Wind Shear & Rotation"
     # Bunkers right-mover storm motion vector -> speed. (Direction can't
     # render as a raster; the sounding hodograph covers it.)
     wgrib2_match: ":(USTM|VSTM):0-6000 m above ground:"
@@ -722,6 +763,7 @@ products:
   # already applied to STP/SCP. Do NOT "fix" one side alone.
   ehi1:
     display: "EHI (0-1km)"
+    group: "Composites & Convection"
     derived: true
     inputs:
       A: ":CAPE:surface:"
@@ -741,6 +783,7 @@ products:
 
   ehi3:
     display: "EHI (0-3km)"
+    group: "Composites & Convection"
     derived: true
     inputs:
       A: ":CAPE:surface:"
@@ -763,6 +806,7 @@ products:
 
   pwat:
     display: "Precipitable Water"
+    group: "Precipitation & Moisture"
     wgrib2_match: ":PWAT:entire atmosphere"
     units_in: "kg/m^2"
     units_out: "in"
@@ -778,6 +822,7 @@ products:
 
   echoTops:
     display: "Echo Tops"
+    group: "Composites & Convection"
     wgrib2_match: ":RETOP:cloud top:"
     units_in: "m"
     units_out: "kft"
@@ -792,6 +837,7 @@ products:
 
   ptype:
     display: "Precip Type"
+    group: "Precipitation & Moisture"
     derived: true
     # Categorical composite of HRRR's dominant-type 0/1 flags:
     # 1 rain, 2 snow, 3 sleet, 4 freezing rain. Rendered with the
@@ -822,6 +868,7 @@ products:
 
   frzLvl:
     display: "Freezing Level"
+    group: "Winter Weather"
     wgrib2_match: ":HGT:0C isotherm:"
     units_in: "m"
     units_out: "m"
@@ -836,6 +883,7 @@ products:
 
   rh2m:
     display: "2m Relative Humidity"
+    group: "Surface"
     wgrib2_match: ":RH:2 m above ground:"
     units_in: "%"
     units_out: "%"
@@ -850,6 +898,7 @@ products:
 
   vis:
     display: "Surface Visibility"
+    group: "Surface"
     wgrib2_match: ":VIS:surface:"
     units_in: "m"
     units_out: "mi"
