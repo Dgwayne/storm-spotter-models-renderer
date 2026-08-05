@@ -1,0 +1,10 @@
+# High cloud cover (%) — icy cyan veil (cirrus tones) so a screenshot is
+# distinguishable from the low/mid level products. Same alpha ramp as
+# cloud.clr; interpolate_color smooths it.
+nv    0   0   0   0
+5     210 235 248 0
+20    205 233 247 60
+40    200 230 246 110
+60    196 228 245 160
+80    192 226 244 205
+100   188 224 243 240

@@ -237,6 +237,59 @@ products:
     point_values: true
     point_decimals: 2
 
+  # ── Cloud cover family (added 2026-08-05, Pivotal parity) ──────────────
+  # HRRR wrfsfc carries all four at every hour incl. f00 (verified against
+  # the 2026-08-05 18z idx). ⚠ TCDC appears TWICE in the file — "entire
+  # atmosphere" AND "boundary layer cloud layer" — so the match anchors the
+  # level text. No-trailing-colon prefix like refc, so an RRFS-style
+  # "(considered as a single layer)" suffix still matches if these are ever
+  # mirrored there. interpolate_color: coverage is a continuous veil, not a
+  # threshold-read parameter — hard bins would just look like banding.
+
+  tcc:
+    display: "Cloud Cover"
+    wgrib2_match: ":TCDC:entire atmosphere"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "cloud.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+
+  lcc:
+    display: "Cloud Cover (Low)"
+    wgrib2_match: ":LCDC:low cloud layer:"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "cloudlow.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+
+  mcc:
+    display: "Cloud Cover (Mid)"
+    wgrib2_match: ":MCDC:middle cloud layer:"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "cloudmid.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+
+  hcc:
+    display: "Cloud Cover (High)"
+    wgrib2_match: ":HCDC:high cloud layer:"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "cloudhigh.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+
   # ── Mesoanalysis products ────────────────────────────────────────────────
   # Severe-weather parameters for the app's Mesoanalysis map layer
   # (SPC-mesoanalysis-style shaded fields under radar).
@@ -1996,6 +2049,12 @@ models:
       - mslp
       - sfccape
       - precip1h
+      # Cloud cover family (2026-08-05) — listed with the surface products
+      # so the picker reads core -> clouds -> severe -> enviro
+      - tcc
+      - lcc
+      - mcc
+      - hcc
       # Severe-parameter forecasts (full range, scrubbable in the models tab;
       # also_meso keeps them in the Mesoanalysis picker). Listed AFTER the
       # core surface products deliberately: render_hrrr.sh walks this list in
@@ -2042,6 +2101,7 @@ models:
     #     GRIB messages).
     render_groups:
       core:     [refc, t2m, td2m, wind10m, gust10m, mslp, sfccape, precip1h]
+      clouds:   [tcc, lcc, mcc, hcc]
       severe-a: [srh1, srh3, ehi1, ehi3, shear1, shear6, stormMotion]
       severe-b: [mlcape, mucape, mlcin, cape3km, liftedIdx, lapse75, lclHgt]
       enviro:   [stp, scp, pwat, echoTops, ptype, frzLvl, rh2m, vis]

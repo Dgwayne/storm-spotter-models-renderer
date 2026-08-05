@@ -1,0 +1,9 @@
+# Middle cloud cover (%) — neutral white-blue veil. Same alpha ramp as
+# cloud.clr; interpolate_color smooths it.
+nv    0   0   0   0
+5     240 242 246 0
+20    238 240 246 60
+40    236 239 245 110
+60    234 237 245 160
+80    232 236 244 205
+100   230 235 244 245

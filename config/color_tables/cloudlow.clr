@@ -1,0 +1,10 @@
+# Low cloud cover (%) — warm-gray veil (stratus/fog tones) so a
+# screenshot is distinguishable from the mid/high level products.
+# Same alpha ramp as cloud.clr; interpolate_color smooths it.
+nv    0   0   0   0
+5     230 225 218 0
+20    228 222 214 70
+40    225 219 210 120
+60    222 216 206 170
+80    220 213 202 210
+100   218 210 198 245
