@@ -238,19 +238,25 @@ products:
     point_decimals: 2
 
   # ── Mesoanalysis products ────────────────────────────────────────────────
-  # Analysis-hour severe-weather parameters for the app's Mesoanalysis map
-  # layer (SPC-mesoanalysis-style shaded fields under radar).
+  # Severe-weather parameters for the app's Mesoanalysis map layer
+  # (SPC-mesoanalysis-style shaded fields under radar).
   #
-  #   fh_cap: 1     render only f00 (the analysis) + f01 (bridge frame while
-  #                 the next run's f00 is still publishing). Keeps the added
-  #                 render cost to ~18 frames/hour instead of doubling ticks.
-  #   category: meso  build_manifest.py publishes these in a separate
-  #                 `mesoCatalog` so app versions that predate the meso layer
-  #                 never see them in the Weather Models picker.
+  # HISTORY: this whole section began as analysis-only (fh_cap: 1 +
+  # category: meso — f00/f01 frames, mesoCatalog-only so the models tab
+  # never listed them). srh1/srh3/ehi1/ehi3 were promoted to full-forecast
+  # `also_meso` products on 2026-07-27, and the REST of the section followed
+  # on 2026-08-05 (Pivotal-parity request) once the render workflow fanned
+  # out into parallel product-group jobs and could afford the frames. Every
+  # product here is now dual-role: scrubbable in the models tab AND listed
+  # in the meso picker (whose layer just consumes the f00 frame these
+  # renders already produce).
   #
-  # EXCEPTION: srh1/srh3/ehi1/ehi3 dropped fh_cap/category on 2026-07-27 and
-  # became full-forecast `also_meso` products (scrubbable in the models tab
-  # AND listed in the meso picker) — see the note above the srh1 entry.
+  # For any FUTURE analysis-only product, the old mechanics still work:
+  #   fh_cap: 1       render only f00 + f01 (bridge frame while the next
+  #                   run's f00 is still publishing)
+  #   category: meso  publish in mesoCatalog ONLY, so app versions that
+  #                   predate the meso layer never see a 2-frame product
+  #                   in the forecast-scrub models picker
   #
   # Derived products (stp, scp) set `derived: true` with named `inputs`
   # (letter -> idx match regex, one message each) and a gdal_calc `calc`
@@ -271,11 +277,10 @@ products:
     clr: "cape.clr"
     pal: ""
     point_values: true
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   mucape:
     display: "MUCAPE"
@@ -286,11 +291,10 @@ products:
     clr: "cape.clr"
     pal: ""
     point_values: true
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   mlcin:
     display: "MLCIN"
@@ -301,24 +305,17 @@ products:
     clr: "cin.clr"
     pal: ""
     point_values: true
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
-  # ⚠ srh1/srh3/ehi1/ehi3 are DUAL-ROLE (promoted 2026-07-27 by user request):
-  # they render the FULL forecast range for the scrubbable models tab AND set
-  # `also_meso` so the Mesoanalysis layer keeps listing them — that layer just
-  # consumes the f00 frame these renders already produce. Everything else in
-  # this section stays analysis-only (fh_cap 1 + category: meso).
-  #
-  # Full-range 512² point grids (no point_value_fh_cap): the crosshair /
-  # long-press inspector samples these at whatever hour the models tab has
-  # scrubbed to, so every frame needs its JSON. They briefly shipped capped
-  # at f00/f01 (same day) before the inspector work made that a dead end.
-  # ~930 KB/frame raw but ~50-200 KB over the wire (CDN gzip); storage is
-  # ~2 GB across HRRR+NAM retention — pennies on B2, uploads free.
+  # Full-range 512² point grids (no point_value_fh_cap) on this whole
+  # section: the crosshair / long-press inspector samples these at whatever
+  # hour the models tab has scrubbed to, so every frame needs its JSON.
+  # srh/ehi briefly shipped capped at f00/f01 (2026-07-27, same day) before
+  # the inspector work made that a dead end. ~930 KB/frame raw but
+  # ~50-200 KB over the wire (CDN gzip) — pennies on B2, uploads free.
 
   srh1:
     display: "0-1km SRH"
@@ -362,11 +359,10 @@ products:
     clr: "shear.clr"
     pal: ""
     point_values: true
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   stp:
     display: "Sig. Tornado (STP)"
@@ -393,11 +389,10 @@ products:
     pal: ""
     point_values: true
     point_decimals: 1
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   scp:
     display: "Supercell Comp. (SCP)"
@@ -418,11 +413,10 @@ products:
     pal: ""
     point_values: true
     point_decimals: 1
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   # ── Mesoanalysis catalog v2 (SPC-style groups) ──────────────────────────
   # Same rules as the first meso set: fh_cap 1, category meso, formulas
@@ -439,11 +433,10 @@ products:
     clr: "cape3km.clr"
     pal: ""
     point_values: true
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   liftedIdx:
     display: "Lifted Index"
@@ -457,11 +450,10 @@ products:
     clr: "lifted.clr"
     pal: ""
     point_values: true
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   lapse75:
     display: "700-500mb Lapse Rate"
@@ -482,11 +474,10 @@ products:
     pal: ""
     point_values: true
     point_decimals: 1
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   lclHgt:
     display: "LCL Height"
@@ -502,11 +493,10 @@ products:
     clr: "lcl.clr"
     pal: ""
     point_values: true
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   shear1:
     display: "0-1km Shear"
@@ -519,11 +509,10 @@ products:
     clr: "shear1.clr"
     pal: ""
     point_values: true
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   stormMotion:
     display: "Storm Motion"
@@ -537,11 +526,10 @@ products:
     clr: "wind.clr"
     pal: ""
     point_values: true
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   # ehi1/ehi3: dual-role like srh1/srh3 — see the note above those entries.
   # Both mirror sounding_analysis.dart _ehi exactly, (CAPE * SRH) / 160000
@@ -601,11 +589,10 @@ products:
     pal: ""
     point_values: true
     point_decimals: 2
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   echoTops:
     display: "Echo Tops"
@@ -616,11 +603,10 @@ products:
     clr: "etops.clr"
     pal: ""
     point_values: true
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   ptype:
     display: "Precip Type"
@@ -632,7 +618,7 @@ products:
     #
     # fh_min: the categorical flags are ALL-ZERO at f00 (verified
     # 2026-07-08: f00 CRAIN nonzero=0, f01 nonzero=109k) — HRRR only
-    # populates them on forecast hours. Render f01 only; the app's
+    # populates them on forecast hours. Render starts at f01; the app's
     # meso layer follows each product's first expected hour.
     fh_min: 1
     inputs:
@@ -647,11 +633,10 @@ products:
     clr: "ptype.clr"
     pal: ""
     point_values: false
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   frzLvl:
     display: "Freezing Level"
@@ -662,11 +647,10 @@ products:
     clr: "frzlvl.clr"
     pal: ""
     point_values: true
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   rh2m:
     display: "2m Relative Humidity"
@@ -677,11 +661,10 @@ products:
     clr: "rh.clr"
     pal: ""
     point_values: true
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   vis:
     display: "Surface Visibility"
@@ -693,11 +676,10 @@ products:
     pal: ""
     point_values: true
     point_decimals: 1
-    fh_cap: 1
+    also_meso: true
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
-    category: meso
 
   # ── RTMA surface observations (render_rtma_obs.sh) ─────────────────────
   # 2.5 km analysis-of-observations grids for the app's Observations layer
@@ -2023,14 +2005,15 @@ models:
       - srh3
       - ehi1
       - ehi3
-      # Mesoanalysis set (fh_cap: 1 — analysis frames only; see product notes)
+      # Former analysis-only meso set — promoted to full-range dual-role
+      # 2026-08-05 (see the Mesoanalysis section header note)
       - mlcape
       - mucape
       - mlcin
       - shear6
       - stp
       - scp
-      # Meso catalog v2 (SPC-style groups)
+      # Meso catalog v2 (SPC-style groups) — promoted 2026-08-05 too
       - cape3km
       - liftedIdx
       - lapse75
