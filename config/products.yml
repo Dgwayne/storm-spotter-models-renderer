@@ -186,6 +186,25 @@ products:
     gpu_data: { min: 0.0, max: 6000.0 }
     point_values: true
 
+  tccF:
+    display: "Cloud Cover"
+    group: "Clouds & Satellite"
+    # ECMWF-only twin of tcc (same pattern as precipTotalM): IFS paramId
+    # 164 encodes total cloud cover as a 0-1 FRACTION where every other
+    # model publishes %, so this converts x100 onto the shared cloud.clr
+    # ramp. FIRST-RENDER CHECK: the F###.json values must span ~0-100 —
+    # if they read 0-10000 the fraction assumption was wrong; drop the
+    # convert and purge (the irsat drill).
+    ecmwf_match: "^tcc:sfc:"
+    wgrib2_match: ""
+    units_in: "(0-1)"
+    units_out: "%"
+    convert: "A * 100.0"
+    clr: "cloud.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+
   precipTotalM:
     display: "Total Precipitation"
     group: "Surface & Precipitation/Precipitation"
@@ -403,6 +422,9 @@ products:
   vv700:
     display: "700mb Vertical Velocity"
     group: "Upper Air/Dynamics"
+    # ECMWF open data publishes omega as pl param 'w' (Pa/s, same sign
+    # convention).
+    ecmwf_match: "^w:pl:700$"
     wgrib2_match: ":VVEL:700 mb:"
     # Omega in Pa/s; NEGATIVE = lift. vv.clr paints lift warm.
     units_in: "Pa/s"
@@ -1039,6 +1061,9 @@ products:
   pwat:
     display: "Precipitable Water"
     group: "Surface & Precipitation/Precipitation"
+    # ECMWF's tcwv (total column water vapour) is the same quantity in
+    # the same kg/m^2, so the shared mm -> in convert applies.
+    ecmwf_match: "^tcwv:sfc:"
     wgrib2_match: ":PWAT:entire atmosphere"
     units_in: "kg/m^2"
     units_out: "in"
@@ -2898,11 +2923,17 @@ models:
       - gust10m
       - mslp
       - precipTotalM
-      # Full pressure-level wind ladder (2026-08-06) — the open-data index
-      # publishes u/v at every one of these levels (verified). tcc is NOT
-      # here yet: ECMWF may encode it as a 0-1 fraction vs everyone
-      # else's %, so it needs a units check before joining the shared
-      # entry (or a fraction-converting twin like precipTotalM).
+      # Round 3 (2026-08-06): everything else the open-data index carries
+      # that maps onto existing product designs — tccF is the 0-1-fraction
+      # cloud-cover twin (see its entry), pwat rides tcwv, vv700 rides
+      # 'w'. Still absent for real reasons: ECMWF 'ptype' uses WMO code-
+      # table categories (different encoding than our derived 1-4 flags),
+      # 'vo' is RELATIVE vorticity (vort500 is absolute), derived
+      # products (lapse75, ehi, shear) need per-input ecmwf matching the
+      # pipeline doesn't have, and 'sd' snow depth is metres of water
+      # equivalent needing a density conversion.
+      - tccF
+      - pwat
       - wind925
       - wind850
       - wind700
@@ -2910,6 +2941,11 @@ models:
       - wind300
       - wind250
       - wind200
+      - rh925
+      - rh850
+      - rh700
+      - rh500
+      - vv700
     # Global grid; render the same CONUS box as the other models for
     # app-side overlay parity (a GLOBAL entry can come later).
     bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
