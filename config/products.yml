@@ -189,17 +189,16 @@ products:
   tccF:
     display: "Cloud Cover"
     group: "Clouds & Satellite"
-    # ECMWF-only twin of tcc (same pattern as precipTotalM): IFS paramId
-    # 164 encodes total cloud cover as a 0-1 FRACTION where every other
-    # model publishes %, so this converts x100 onto the shared cloud.clr
-    # ramp. FIRST-RENDER CHECK: the F###.json values must span ~0-100 —
-    # if they read 0-10000 the fraction assumption was wrong; drop the
-    # convert and purge (the irsat drill).
+    # ECMWF-feed twin of tcc. The 0-1-fraction assumption was WRONG:
+    # first AIFS render read 0-10020 through the x100 convert (verified
+    # 2026-08-06 via F-json), i.e. the open-data GRIB already carries %.
+    # Convert dropped, bad frames purged. Kept as a separate code from
+    # tcc anyway so a future feed-specific unit surprise stays isolated.
     ecmwf_match: "^tcc:sfc:"
     wgrib2_match: ""
-    units_in: "(0-1)"
+    units_in: "%"
     units_out: "%"
-    convert: "A * 100.0"
+    convert: ""
     clr: "cloud.clr"
     pal: ""
     interpolate_color: true
@@ -208,12 +207,12 @@ products:
   lccF:
     display: "Cloud Cover (Low)"
     group: "Clouds & Satellite"
-    # AIFS-only fraction twin of lcc — same 0-1 -> % story as tccF.
     ecmwf_match: "^lcc:sfc:"
     wgrib2_match: ""
-    units_in: "(0-1)"
+    # Open-data GRIB carries % already — see the tccF note.
+    units_in: "%"
     units_out: "%"
-    convert: "A * 100.0"
+    convert: ""
     clr: "cloudlow.clr"
     pal: ""
     interpolate_color: true
@@ -224,9 +223,10 @@ products:
     group: "Clouds & Satellite"
     ecmwf_match: "^mcc:sfc:"
     wgrib2_match: ""
-    units_in: "(0-1)"
+    # Open-data GRIB carries % already — see the tccF note.
+    units_in: "%"
     units_out: "%"
-    convert: "A * 100.0"
+    convert: ""
     clr: "cloudmid.clr"
     pal: ""
     interpolate_color: true
@@ -237,9 +237,10 @@ products:
     group: "Clouds & Satellite"
     ecmwf_match: "^hcc:sfc:"
     wgrib2_match: ""
-    units_in: "(0-1)"
+    # Open-data GRIB carries % already — see the tccF note.
+    units_in: "%"
     units_out: "%"
-    convert: "A * 100.0"
+    convert: ""
     clr: "cloudhigh.clr"
     pal: ""
     interpolate_color: true
