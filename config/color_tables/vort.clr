@@ -1,0 +1,12 @@
+# Absolute vorticity (10^-5 s^-1, display units after A*1e5). Classic
+# 500mb chart look: transparent near zero, yellow -> orange -> red ->
+# magenta for cyclonic maxima; faint gray for anticyclonic (negative).
+nv    0   0   0   0
+-10   180 180 190 120
+0     255 255 255 0
+8     250 245 160 90
+14    250 220 90  150
+20    250 170 60  200
+28    240 110 45  235
+38    220 55  35  250
+50    170 30  110 255

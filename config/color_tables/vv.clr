@@ -1,0 +1,13 @@
+# Vertical velocity omega (Pa/s). NEGATIVE = upward motion (synoptic
+# lift) in warm colors; positive = subsidence in blues; transparent
+# band around zero so quiet air shows the map.
+nv    0   0   0   0
+-3    200 30  120 255
+-2    240 80  40  240
+-1.2  250 160 60  200
+-0.6  250 220 120 150
+-0.2  255 255 255 0
+0.2   255 255 255 0
+0.6   170 200 230 130
+1.5   110 150 210 190
+3     60  90  180 240

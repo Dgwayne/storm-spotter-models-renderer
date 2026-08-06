@@ -1,0 +1,13 @@
+# Upper-air relative humidity (%) — brown = dry air, transparent through
+# the neutral middle so the map shows, greens = moist. Unlike rh.clr
+# (fire-weather 2m RH, dry-only signal) this shows BOTH tails; used by
+# the pressure-level rh* products. interpolate_color smooths it.
+nv    0   0   0   0
+0     150 100 40  220
+20    190 150 90  190
+40    220 200 160 120
+50    255 255 255 0
+60    210 235 200 100
+75    150 215 150 170
+90    80  180 90  220
+100   30  140 60  250

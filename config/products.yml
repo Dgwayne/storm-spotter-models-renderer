@@ -242,9 +242,28 @@ products:
     point_values: true
     point_decimals: 2
 
+  # ── Pressure-level wind family ─────────────────────────────────────────
+  # One entry per level (925 low-level jet .. 200 jet stream). All share
+  # wind.clr + the gfs_wind500 legend; ECMWF matches included — its open
+  # data publishes u/v at every one of these levels (verified 2026-08-06).
+
+  wind925:
+    display: "925mb Wind Speed"
+    group: "Upper Air/Wind"
+    wgrib2_match: ":(UGRD|VGRD):925 mb:"
+    ecmwf_match: "^(u|v):pl:925$"
+    composite_uv: true
+    units_in: "m/s"
+    units_out: "kt"
+    convert: "A * 1.94384"
+    clr: "wind.clr"
+    pal: "gfs_wind500.pal"
+    gpu_data: { min: 0.0, max: 200.0 }
+    point_values: true
+
   wind850:
     display: "850mb Wind Speed"
-    group: "Upper Air"
+    group: "Upper Air/Wind"
     wgrib2_match: ":(UGRD|VGRD):850 mb:"
     ecmwf_match: "^(u|v):pl:850$"
     composite_uv: true
@@ -256,9 +275,37 @@ products:
     gpu_data: { min: 0.0, max: 200.0 }
     point_values: true
 
+  wind700:
+    display: "700mb Wind Speed"
+    group: "Upper Air/Wind"
+    wgrib2_match: ":(UGRD|VGRD):700 mb:"
+    ecmwf_match: "^(u|v):pl:700$"
+    composite_uv: true
+    units_in: "m/s"
+    units_out: "kt"
+    convert: "A * 1.94384"
+    clr: "wind.clr"
+    pal: "gfs_wind500.pal"
+    gpu_data: { min: 0.0, max: 200.0 }
+    point_values: true
+
+  wind300:
+    display: "300mb Wind Speed"
+    group: "Upper Air/Wind"
+    wgrib2_match: ":(UGRD|VGRD):300 mb:"
+    ecmwf_match: "^(u|v):pl:300$"
+    composite_uv: true
+    units_in: "m/s"
+    units_out: "kt"
+    convert: "A * 1.94384"
+    clr: "wind.clr"
+    pal: "gfs_wind500.pal"
+    gpu_data: { min: 0.0, max: 200.0 }
+    point_values: true
+
   wind250:
     display: "250mb Wind Speed"
-    group: "Upper Air"
+    group: "Upper Air/Wind"
     wgrib2_match: ":(UGRD|VGRD):250 mb:"
     ecmwf_match: "^(u|v):pl:250$"
     composite_uv: true
@@ -270,9 +317,125 @@ products:
     gpu_data: { min: 0.0, max: 200.0 }
     point_values: true
 
+  wind200:
+    display: "200mb Wind Speed"
+    group: "Upper Air/Wind"
+    wgrib2_match: ":(UGRD|VGRD):200 mb:"
+    ecmwf_match: "^(u|v):pl:200$"
+    composite_uv: true
+    units_in: "m/s"
+    units_out: "kt"
+    convert: "A * 1.94384"
+    clr: "wind.clr"
+    pal: "gfs_wind500.pal"
+    gpu_data: { min: 0.0, max: 200.0 }
+    point_values: true
+
+  # ── Upper-air moisture (pressure-level RH) ─────────────────────────────
+
+  rh925:
+    display: "925mb Relative Humidity"
+    group: "Upper Air/Moisture"
+    wgrib2_match: ":RH:925 mb:"
+    ecmwf_match: "^r:pl:925$"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "uarh.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+
+  rh850:
+    display: "850mb Relative Humidity"
+    group: "Upper Air/Moisture"
+    wgrib2_match: ":RH:850 mb:"
+    ecmwf_match: "^r:pl:850$"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "uarh.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+
+  rh700:
+    display: "700mb Relative Humidity"
+    group: "Upper Air/Moisture"
+    wgrib2_match: ":RH:700 mb:"
+    ecmwf_match: "^r:pl:700$"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "uarh.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+
+  rh500:
+    display: "500mb Relative Humidity"
+    group: "Upper Air/Moisture"
+    wgrib2_match: ":RH:500 mb:"
+    ecmwf_match: "^r:pl:500$"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "uarh.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+
+  # ── Upper-air dynamics ─────────────────────────────────────────────────
+
+  vort500:
+    display: "500mb Absolute Vorticity"
+    group: "Upper Air/Dynamics"
+    wgrib2_match: ":ABSV:500 mb:"
+    # Raw s^-1 -> display 10^-5 s^-1 (the classic chart unit).
+    units_in: "1/s"
+    units_out: "10⁻⁵/s"
+    convert: "A * 100000.0"
+    clr: "vort.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+
+  vv700:
+    display: "700mb Vertical Velocity"
+    group: "Upper Air/Dynamics"
+    wgrib2_match: ":VVEL:700 mb:"
+    # Omega in Pa/s; NEGATIVE = lift. vv.clr paints lift warm.
+    units_in: "Pa/s"
+    units_out: "Pa/s"
+    convert: ""
+    clr: "vv.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+    point_decimals: 1
+
+  shearSfc500:
+    display: "Bulk Shear (Sfc-500mb)"
+    group: "Severe Weather/Wind Shear"
+    derived: true
+    # |V(500mb) - V(10m)| in kt — Pivotal's "Bulk Shear: Surface-500 mb".
+    # GFS carries no VUCSH fields, so this stands in for deep-layer shear.
+    inputs:
+      A: ":UGRD:10 m above ground:"
+      B: ":VGRD:10 m above ground:"
+      C: ":UGRD:500 mb:"
+      D: ":VGRD:500 mb:"
+    calc: "sqrt((C-A)*(C-A)+(D-B)*(D-B))*1.94384"
+    units_in: ""
+    units_out: "kt"
+    convert: ""
+    clr: "shear.clr"
+    pal: ""
+    point_values: true
+
   wind500:
     display: "500mb Wind Speed"
-    group: "Upper Air"
+    group: "Upper Air/Wind"
     wgrib2_match: ":(UGRD|VGRD):500 mb:"
     ecmwf_match: "^(u|v):pl:500$"
     composite_uv: true
@@ -2735,7 +2898,18 @@ models:
       - gust10m
       - mslp
       - precipTotalM
+      # Full pressure-level wind ladder (2026-08-06) — the open-data index
+      # publishes u/v at every one of these levels (verified). tcc is NOT
+      # here yet: ECMWF may encode it as a 0-1 fraction vs everyone
+      # else's %, so it needs a units check before joining the shared
+      # entry (or a fraction-converting twin like precipTotalM).
+      - wind925
+      - wind850
+      - wind700
       - wind500
+      - wind300
+      - wind250
+      - wind200
     # Global grid; render the same CONUS box as the other models for
     # app-side overlay parity (a GLOBAL entry can come later).
     bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
@@ -2790,18 +2964,32 @@ models:
       - rh2m
       - vis
       - snod
-      - wind500
+      # Upper-air suite (2026-08-06 round 2): full wind ladder, RH,
+      # dynamics, and the derived sfc-500mb bulk shear.
+      - shearSfc500
+      - wind925
       - wind850
+      - wind700
+      - wind500
+      - wind300
       - wind250
+      - wind200
+      - rh925
+      - rh850
+      - rh700
+      - rh500
+      - vort500
+      - vv700
     # Parallel render groups — same contract as HRRR's (plan job enforces
     # exact coverage). 1024² global-grid frames are ~4x cheaper than the
     # 3 km CONUS models', so groups can run a little wider.
     render_groups:
-      core:   [refc, t2m, td2m, wind10m, gust10m, mslp, sfccape, precipTotal]
-      sky:    [tcc, lcc, mcc, hcc, refd1km]
-      severe: [srh3, ehi3, mlcape, mucape, mlcin, sbcin, liftedIdx, lapse75, stormMotion]
-      enviro: [pwat, frzLvl, rh2m, vis, snod, ptype, precip6h]
-      upper:  [wind500, wind850, wind250]
+      core:       [refc, t2m, td2m, wind10m, gust10m, mslp, sfccape, precipTotal]
+      sky:        [tcc, lcc, mcc, hcc, refd1km]
+      severe:     [srh3, ehi3, mlcape, mucape, mlcin, sbcin, liftedIdx, lapse75, stormMotion, shearSfc500]
+      enviro:     [pwat, frzLvl, rh2m, vis, snod, ptype, precip6h]
+      upper-wind: [wind925, wind850, wind700, wind500, wind300, wind250, wind200]
+      upper-dyn:  [rh925, rh850, rh700, rh500, vort500, vv700]
     # Global; we still render CONUS for app-side overlay parity. App can request
     # a global bbox later by adding a "GFS_GLOBAL" model entry.
     bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
