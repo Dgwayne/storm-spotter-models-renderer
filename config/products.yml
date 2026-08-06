@@ -205,6 +205,46 @@ products:
     interpolate_color: true
     point_values: true
 
+  lccF:
+    display: "Cloud Cover (Low)"
+    group: "Clouds & Satellite"
+    # AIFS-only fraction twin of lcc — same 0-1 -> % story as tccF.
+    ecmwf_match: "^lcc:sfc:"
+    wgrib2_match: ""
+    units_in: "(0-1)"
+    units_out: "%"
+    convert: "A * 100.0"
+    clr: "cloudlow.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+
+  mccF:
+    display: "Cloud Cover (Mid)"
+    group: "Clouds & Satellite"
+    ecmwf_match: "^mcc:sfc:"
+    wgrib2_match: ""
+    units_in: "(0-1)"
+    units_out: "%"
+    convert: "A * 100.0"
+    clr: "cloudmid.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+
+  hccF:
+    display: "Cloud Cover (High)"
+    group: "Clouds & Satellite"
+    ecmwf_match: "^hcc:sfc:"
+    wgrib2_match: ""
+    units_in: "(0-1)"
+    units_out: "%"
+    convert: "A * 100.0"
+    clr: "cloudhigh.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+
   precipTotalM:
     display: "Total Precipitation"
     group: "Surface & Precipitation/Precipitation"
@@ -435,6 +475,46 @@ products:
     interpolate_color: true
     point_values: true
     point_decimals: 1
+
+  vv850:
+    display: "850mb Vertical Velocity"
+    group: "Upper Air/Dynamics"
+    # GEFS's pgrb2a subset carries VVEL at 850 mb only (vv700 is the
+    # full-res models' level).
+    ecmwf_match: "^w:pl:850$"
+    wgrib2_match: ":VVEL:850 mb:"
+    units_in: "Pa/s"
+    units_out: "Pa/s"
+    convert: ""
+    clr: "vv.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+    point_decimals: 1
+
+  capeML180:
+    display: "CAPE (180-0mb)"
+    group: "Severe Weather/Instability"
+    # GEFS pgrb2a's only CAPE layer — a deep mixed-layer variant, own
+    # code so it never masquerades as surface-based or 90-0 ML CAPE.
+    wgrib2_match: ":CAPE:180-0 mb above ground:"
+    units_in: "J/kg"
+    units_out: "J/kg"
+    convert: ""
+    clr: "cape.clr"
+    pal: ""
+    point_values: true
+
+  cinML180:
+    display: "CIN (180-0mb)"
+    group: "Severe Weather/Instability"
+    wgrib2_match: ":CIN:180-0 mb above ground:"
+    units_in: "J/kg"
+    units_out: "J/kg"
+    convert: ""
+    clr: "cin.clr"
+    pal: ""
+    point_values: true
 
   shearSfc500:
     display: "Bulk Shear (Sfc-500mb)"
@@ -2960,6 +3040,92 @@ models:
     s3_key_template: "{date}/{run:02d}z/ifs/0p25/oper/{date}{run:02d}0000-{fh}h-oper-fc.grib2"
     runs_per_day: 2
     runs: [0, 12]
+    retain_runs: 4
+
+  AIFS:
+    # ECMWF's AIFS (AI Forecast System), single deterministic — the "AI
+    # Euro". Same open-data endpoint + licence as ECMWF (CC-BY-4.0,
+    # "Contains modified ECMWF AIFS open data"); all four cycles,
+    # 6-hourly steps to f360 = 15 days (verified 2026-08-06: f360 200,
+    # f366 404). Param set is the AI-model subset: NO gusts, CAPE,
+    # simulated reflectivity, or pl relative humidity (only specific
+    # humidity q); clouds are 0-1 fractions -> the *F twin entries.
+    products:
+      - t2m
+      - td2m
+      - wind10m
+      - mslp
+      - precipTotalM
+      - tccF
+      - lccF
+      - mccF
+      - hccF
+      - wind925
+      - wind850
+      - wind700
+      - wind500
+      - wind300
+      - wind250
+      - wind200
+      - vv700
+    render_groups:
+      core:   [t2m, td2m, wind10m, mslp, precipTotalM]
+      clouds: [tccF, lccF, mccF, hccF]
+      upper:  [wind925, wind850, wind700, wind500, wind300, wind250, wind200, vv700]
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [1024, 1024]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 360, step: 6 }
+    base_url: "https://data.ecmwf.int/forecasts"
+    index_format: "ecmwf"
+    s3_key_template: "{date}/{run:02d}z/aifs-single/0p25/oper/{date}{run:02d}0000-{fh}h-oper-fc.grib2"
+    runs_per_day: 4
+    runs: [0, 6, 12, 18]
+    retain_runs: 4
+
+  GEFS:
+    # GEFS ensemble MEAN (the geavg member), 0.5° pgrb2a subset, 6-hourly
+    # to f384 — the 16-day trend view. Subset limits, verified against
+    # the 00z f024 idx 2026-08-06: no DPT/GUST/VIS/REFC/ABSV/HGT-0C;
+    # CAPE/CIN only as 180-0 mb ML (own entries); VVEL only at 850 mb;
+    # TCDC is a 6-h AVERAGE with no f00 message (one red slot at f00 —
+    # cosmetic); APCP is clean 6-h buckets (precip6h), no running total.
+    products:
+      - t2m
+      - rh2m
+      - wind10m
+      - mslp
+      - precip6h
+      - pwat
+      - tcc
+      - snod
+      - capeML180
+      - cinML180
+      - wind925
+      - wind850
+      - wind700
+      - wind500
+      - wind300
+      - wind250
+      - wind200
+      - rh925
+      - rh850
+      - rh700
+      - rh500
+      - vv850
+    render_groups:
+      core:       [t2m, rh2m, wind10m, mslp, precip6h]
+      enviro:     [pwat, tcc, snod, capeML180, cinML180]
+      upper-wind: [wind925, wind850, wind700, wind500, wind300, wind250, wind200]
+      upper-dyn:  [rh925, rh850, rh700, rh500, vv850]
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [1024, 1024]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 384, step: 6 }
+    s3_bucket: "noaa-gefs-pds"
+    s3_key_template: "gefs.{date}/{run:02d}/atmos/pgrb2ap5/geavg.t{run:02d}z.pgrb2a.0p50.f{fh:03d}"
+    runs_per_day: 4
+    runs: [0, 6, 12, 18]
     retain_runs: 4
 
   GFS:

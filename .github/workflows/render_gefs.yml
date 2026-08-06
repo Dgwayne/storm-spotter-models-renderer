@@ -1,0 +1,204 @@
+name: Render GEFS
+
+on:
+  schedule:
+    # Backstop cron; the cron-trigger Worker dispatches on :7/:37 with the
+    # other global models. Sweep is idempotent, extra ticks are no-ops.
+    - cron: '18,48 * * * *'
+  workflow_dispatch:
+    inputs:
+      force_rerender:
+        description: 'Re-render frames even when already on R2 (bypass idempotency check). Used to recover from a pipeline-bug-produced corrupt batch.'
+        type: boolean
+        default: false
+
+concurrency:
+  group: render-gefs
+  cancel-in-progress: false
+
+# Fan-out structure (introduced 2026-08-05 to hold the tick inside the cron
+# cadence as the product catalog grows):
+#   plan     — turns products.yml's models.GEFS.render_groups into a job
+#              matrix, and FAILS if the groups don't exactly cover the
+#              product list (a product outside every group would silently
+#              never render).
+#   render   — one job per group, PRODUCT_FILTER-scoped, SKIP_FINALIZE=1.
+#              Each group still publishes an early manifest after the newest
+#              run renders (build_manifest.py snapshots a fresh bucket
+#              listing, so concurrent publishes are all valid).
+#   finalize — single post-fan-out job: prune to retain_runs, then the
+#              authoritative manifest rebuild. Runs even when a group fails
+#              (a red group just leaves its frames missing; the manifest
+#              must still move forward for the app).
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.groups.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yq (Go binary)
+        run: |
+          set -e
+          sudo curl -sSfL -o /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Build render-group matrix
+        id: groups
+        run: |
+          set -e
+          covered=$(yq -r '.models.GEFS.render_groups[][]' config/products.yml | sort)
+          declared=$(yq -r '.models.GEFS.products[]' config/products.yml | sort)
+          dupes=$(printf '%s\n' "$covered" | uniq -d)
+          if [ -n "$dupes" ]; then
+            echo "::error::products listed in more than one render group:"
+            echo "$dupes"
+            exit 1
+          fi
+          if ! diff <(printf '%s\n' "$covered") <(printf '%s\n' "$declared"); then
+            echo "::error::render_groups do not exactly cover models.GEFS.products (diff above: < only-in-groups, > only-in-products)"
+            exit 1
+          fi
+          matrix=$(yq -o=json -I=0 \
+            '[.models.GEFS.render_groups | to_entries[] | {"group": .key, "products": (.value | join(" "))}]' \
+            config/products.yml)
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+          echo "matrix: ${matrix}"
+
+  render:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    name: render (${{ matrix.group }})
+    strategy:
+      # One group failing must not cancel the others — each group's frames
+      # are independent, and the finalize job reconciles whatever landed.
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+      FORCE_RERENDER: ${{ inputs.force_rerender && '1' || '' }}
+      PRODUCT_FILTER: ${{ matrix.products }}
+      SKIP_FINALIZE: '1'
+
+    defaults:
+      run:
+        shell: bash -el {0}    # ensures conda env is activated for every step
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up micromamba (wgrib2 + gdal + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: renderer
+          create-args: >-
+            python=3.11
+            wgrib2
+            gdal
+            libgdal-netcdf
+            libgdal-grib
+            rclone
+            pyyaml
+            curl
+          cache-environment: true
+          init-shell: bash
+
+      - name: Install yq (Go binary)
+        run: |
+          set -e
+          sudo curl -sSfL -o /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          yq --version
+          wgrib2 --version || true
+          gdalinfo --version
+          rclone --version | head -1
+
+      - name: Configure rclone for Cloudflare R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Render GEFS (${{ matrix.group }})
+        run: bash scripts/render_gefs_mean.sh
+
+  finalize:
+    needs: render
+    # Run on partial group failure too (default behavior would skip us);
+    # only a cancelled workflow skips finalize.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up micromamba (wgrib2 + gdal + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: renderer
+          create-args: >-
+            python=3.11
+            wgrib2
+            gdal
+            libgdal-netcdf
+            libgdal-grib
+            rclone
+            pyyaml
+            curl
+          cache-environment: true
+          init-shell: bash
+
+      - name: Configure rclone for Cloudflare R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Prune + rebuild manifest
+        run: |
+          set -e
+          RETAIN=$(python3 - <<'EOF'
+          import yaml
+          cfg = yaml.safe_load(open("config/products.yml"))
+          print(cfg["models"]["GEFS"].get("retain_runs", 5))
+          EOF
+          )
+          echo "==> Pruning GEFS to last ${RETAIN} runs"
+          python3 scripts/prune_old_runs.py GEFS "${RETAIN}"
+          echo "==> Rebuilding GEFS manifest"
+          python3 scripts/build_manifest.py GEFS

@@ -50,7 +50,12 @@ const CRON_TO_WORKFLOW = {
   // strategy into ~5-9 h of app-visible staleness. 30-min dispatches +
   // the sweep rewrite in render_gfs.sh put new runs on the CDN within
   // one tick of NOAA publishing.
-  "7,37 * * * *": ["render_ecmwf.yml", "render_gfs.yml"],
+  "7,37 * * * *": [
+    "render_ecmwf.yml",
+    "render_gfs.yml",
+    "render_aifs.yml",
+    "render_gefs.yml",
+  ],
 };
 
 // Fallback if Cloudflare ever hands us a cron string we didn't map (e.g. after
