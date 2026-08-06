@@ -383,7 +383,10 @@ products:
     # is zero anyway, so skipping f00 everywhere keeps the shared entry
     # consistent across models.
     fh_min: 1
-    wgrib2_match: ":LTNG:entire atmosphere:"
+    # Level text differs by model: HRRR/RRFS say "entire atmosphere",
+    # NAM writes ":LTNG:surface:" (found 2026-08-05 when NAM rendered 0
+    # ltng frames while its whole hazards group succeeded).
+    wgrib2_match: ":LTNG:(entire atmosphere|surface):"
     units_in: "flashes/km^2"
     units_out: "fl/km²"
     convert: ""
