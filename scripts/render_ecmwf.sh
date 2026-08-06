@@ -27,6 +27,20 @@ CYCLES_BACK=2
 FH_START=$(yq -r ".models.${MODEL}.forecast_hours_default.start" "$CONFIG")
 FH_END=$(yq -r ".models.${MODEL}.forecast_hours_default.end" "$CONFIG")
 FH_STEP=$(yq -r ".models.${MODEL}.forecast_hours_default.step" "$CONFIG")
+# Forecast-hour list: segments-aware (GFS/ECMWF render a 3-hourly near
+# term + 6-hourly tail; see forecast_hours_segments in products.yml).
+FH_LIST=$(python3 - "$MODEL" "$CONFIG" <<'PY'
+import sys, yaml
+mc = yaml.safe_load(open(sys.argv[2]))["models"][sys.argv[1]]
+segs = mc.get("forecast_hours_segments")
+if segs:
+    hours = sorted({h for s in segs for h in range(s["start"], s["end"] + 1, s.get("step", 1))})
+else:
+    d = mc["forecast_hours_default"]
+    hours = list(range(d["start"], d["end"] + 1, d.get("step", 1)))
+print(" ".join(map(str, hours)))
+PY
+)
 PRODUCTS=$(yq -r ".models.${MODEL}.products[]" "$CONFIG")
 RETAIN=$(yq -r ".models.${MODEL}.retain_runs" "$CONFIG")
 
@@ -61,7 +75,7 @@ for offset in $(seq 0 "${CYCLES_BACK}"); do
   echo "==> ECMWF sweep: run=${RUN_DATE}${RUN_HOUR}Z (offset -$((offset * 12))h)"
 
   for product in $PRODUCTS; do
-    for fh in $(seq "${FH_START}" "${FH_STEP}" "${FH_END}"); do
+    for fh in ${FH_LIST}; do
       if [ -z "${FORCE_RERENDER:-}" ]; then
         rel_key="${product}/${RUN_DATE}${RUN_HOUR}/F$(printf '%03d' "$fh").png"
         if grep -qxF "${rel_key}" "${EXISTING_KEYS_FILE}"; then

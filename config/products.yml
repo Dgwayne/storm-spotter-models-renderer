@@ -2993,8 +2993,8 @@ models:
     # with MUCAPE instead.
     # Publish latency is long (~7-9 h after init; 00z today was still 404
     # at 07Z) — the newest-cycle sweep just idx-404s until it lands.
-    # Steps continue 6-hourly past f144 (to f240+); the manifest models
-    # expected hours as one uniform range, so we cap at f144 / 3-hourly.
+    # Steps are 3-hourly to f144 then 6-hourly to f240 (f147 404, f150
+    # 200 — verified 2026-08-06); segments carry the full 10-day range.
     products:
       - capeMU
       - t2m
@@ -3033,6 +3033,9 @@ models:
     image_size: [1024, 1024]
     point_grid: [128, 128]
     forecast_hours_default: { start: 0, end: 144, step: 3 }
+    forecast_hours_segments:
+      - { start: 0, end: 144, step: 3 }
+      - { start: 150, end: 240, step: 6 }
     # oper stream = 00z and 12z only (06/18z live in the separate scda
     # stream with a 90 h range — not worth a second key template in v1).
     base_url: "https://data.ecmwf.int/forecasts"
@@ -3200,7 +3203,16 @@ models:
     # GFS is 0.25° native, so 128 samples across 74° stays honest (no
     # sub-native oversampling worth worrying about).
     point_grid: [128, 128]
+    # Native GFS output is 3-hourly ALL the way to f384 (verified
+    # 2026-08-06: f243/f252/f384 exist, f390 404). Segments render the
+    # familiar 3-hourly cadence through f120, then 6-hourly to f384 —
+    # the full 16-day range with no near-term regression and half the
+    # frames a uniform 3-hourly extension would cost. _default stays as
+    # the fallback for anything not segment-aware.
     forecast_hours_default: { start: 0, end: 120, step: 3 }
+    forecast_hours_segments:
+      - { start: 0, end: 120, step: 3 }
+      - { start: 126, end: 384, step: 6 }
     s3_bucket: "noaa-gfs-bdp-pds"
     s3_key_template: "gfs.{date}/{run:02d}/atmos/gfs.t{run:02d}z.pgrb2.0p25.f{fh:03d}"
     runs_per_day: 4

@@ -46,6 +46,14 @@ def expected_fhs(model: str, run_hour: int) -> list[int]:
     Reproduces the old hardcoded HRRR (48h synoptic / 18h) and GFS (default
     only) behavior, and covers RRFS (84h synoptic / 18h) with no new branch.
     """
+    # Segmented ranges (GFS/ECMWF: 3-hourly near term, 6-hourly tail)
+    # take precedence — the segments ARE the full expected set.
+    segs = model_cfg.get("forecast_hours_segments")
+    if segs:
+        hours: set[int] = set()
+        for s in segs:
+            hours.update(range(s["start"], s["end"] + 1, s.get("step", 1)))
+        return sorted(hours)
     syn = model_cfg.get("forecast_hours_synoptic")
     if syn and run_hour in syn.get("runs", []):
         return list(range(syn["start"], syn["end"] + 1, syn.get("step", 1)))
