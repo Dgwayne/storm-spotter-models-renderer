@@ -32,6 +32,7 @@ WGRIB2_MATCH=$(yq -r ".products.${PRODUCT}.wgrib2_match" "$CONFIG")
 WGRIB2_MATCH="${WGRIB2_MATCH//\{fh\}/${FH}}"
 WGRIB2_MATCH="${WGRIB2_MATCH//\{fh_minus_1\}/$((FH - 1))}"
 WGRIB2_MATCH="${WGRIB2_MATCH//\{fh_minus_3\}/$((FH - 3))}"
+WGRIB2_MATCH="${WGRIB2_MATCH//\{fh_minus_6\}/$((FH - 6))}"
 COMPOSITE_UV=$(yq -r ".products.${PRODUCT}.composite_uv // false" "$CONFIG")
 CONVERT_EXPR=$(yq -r ".products.${PRODUCT}.convert // \"\"" "$CONFIG")
 # When true, gdaldem interpolates RGBA linearly between color stops

@@ -36,6 +36,34 @@ FH_STEP=$(yq -r ".models.${MODEL}.forecast_hours_default.step" "$CONFIG")
 PRODUCTS=$(yq -r ".models.${MODEL}.products[]" "$CONFIG")
 RETAIN=$(yq -r ".models.${MODEL}.retain_runs" "$CONFIG")
 
+# PRODUCT_FILTER: optional space-separated subset of the product list —
+# set by the workflow's matrix jobs so render groups run in parallel
+# (see render_groups in products.yml). Unset = render everything.
+if [ -n "${PRODUCT_FILTER:-}" ]; then
+  FILTERED=""
+  for p in ${PRODUCT_FILTER}; do
+    if ! printf '%s\n' ${PRODUCTS} | grep -qxF "${p}"; then
+      echo "ERROR: PRODUCT_FILTER contains '${p}', not in models.${MODEL}.products" >&2
+      exit 1
+    fi
+    FILTERED="${FILTERED}${p}"$'\n'
+  done
+  PRODUCTS="${FILTERED}"
+  echo "==> Product filter active: $(echo ${PRODUCTS} | tr '\n' ' ')"
+fi
+
+# Per-product forecast-hour floors/caps/steps (fh_min products like
+# ptype/precip6h have no f00 message; precip6h renders 6-hour multiples
+# only). Skipping here avoids decode-spawn overhead per tuple.
+declare -A FH_CAPS
+declare -A FH_MINS
+declare -A FH_STEPS
+for product in $PRODUCTS; do
+  FH_CAPS[$product]=$(yq -r ".products.${product}.fh_cap // \"\"" "$CONFIG")
+  FH_MINS[$product]=$(yq -r ".products.${product}.fh_min // \"\"" "$CONFIG")
+  FH_STEPS[$product]=$(yq -r ".products.${product}.fh_step // \"\"" "$CONFIG")
+done
+
 # ── Pre-fetch R2 listing for fast idempotent skips ────────────────
 EXISTING_KEYS_FILE=$(mktemp)
 export EXISTING_KEYS_FILE
@@ -68,6 +96,16 @@ for offset in $(seq 0 "${CYCLES_BACK}"); do
 
   for product in $PRODUCTS; do
     for fh in $(seq "${FH_START}" "${FH_STEP}" "${FH_END}"); do
+      # ── Per-product fh cap/floor/step ─────────────────────────────
+      if [ -n "${FH_CAPS[$product]}" ] && [ "${fh}" -gt "${FH_CAPS[$product]}" ]; then
+        continue
+      fi
+      if [ -n "${FH_MINS[$product]}" ] && [ "${fh}" -lt "${FH_MINS[$product]}" ]; then
+        continue
+      fi
+      if [ -n "${FH_STEPS[$product]}" ] && [ $((fh % FH_STEPS[$product])) -ne 0 ]; then
+        continue
+      fi
       if [ -z "${FORCE_RERENDER:-}" ]; then
         rel_key="${product}/${RUN_DATE}${RUN_HOUR}/F$(printf '%03d' "$fh").png"
         if grep -qxF "${rel_key}" "${EXISTING_KEYS_FILE}"; then
@@ -91,6 +129,15 @@ for offset in $(seq 0 "${CYCLES_BACK}"); do
       || echo "  (early manifest build failed; will retry at end of tick)"
   fi
 done
+
+# ── Prune + final manifest (single finalize job when fanned out) ───
+if [ -n "${SKIP_FINALIZE:-}" ]; then
+  echo ""
+  echo "==> SKIP_FINALIZE set — prune + final manifest left to the finalize job"
+  echo ""
+  echo "==> GFS render complete (attempted runs: ${ATTEMPTED_RUNS[*]})"
+  exit 0
+fi
 
 # ── Prune R2 to the most recent N runs ─────────────────────────────
 echo ""
