@@ -1,22 +1,22 @@
-# Simulated IR brightness temperature (degC) — classic enhanced-IR look:
+# Simulated IR brightness temperature (KELVIN) — classic enhanced-IR look:
 # warm ground in grayscale (dark = hot), cold convective tops through the
 # cyan/green/yellow/red/magenta/white ladder. Fully opaque like real
 # satellite imagery.
 #
-# ⚠ Keyed in CELSIUS because GDAL's GRIB driver normalizes temperature-
-# typed fields K -> C on read (same behavior as t2m — see its note). If
-# the first render's raw.tif stats sit near 200-320 the driver did NOT
-# normalize this field and these stops need rekeying to Kelvin.
-nv     0   0   0   0
--100   130 60  160 255
--85    250 250 250 255
--75    190 0   190 255
--65    235 55  40  255
--55    248 240 0   255
--45    0   195 70  255
--35    0   160 205 255
--30    224 224 230 255
--10    168 168 176 255
-10     112 112 120 255
-30     62  62  70  255
-45     22  22  28  255
+# ⚠ Keyed in KELVIN, verified empirically 2026-08-05: the first render
+# with Celsius stops came out single-color (every pixel clamped to the
+# hottest stop) — GDAL's K->C normalization applies to TMP fields like
+# t2m but NOT to SBT brightness temperatures, which arrive raw in K.
+nv      0   0   0   0
+173.15  130 60  160 255
+188.15  250 250 250 255
+198.15  190 0   190 255
+208.15  235 55  40  255
+218.15  248 240 0   255
+228.15  0   195 70  255
+238.15  0   160 205 255
+243.15  224 224 230 255
+263.15  168 168 176 255
+283.15  112 112 120 255
+303.15  62  62  70  255
+318.15  22  22  28  255

@@ -1,0 +1,58 @@
+name: Purge bucket prefix
+
+# Manual utility: delete every object under one v1/ prefix so the next
+# render tick re-creates those frames from scratch. This is the surgical
+# alternative to force_rerender when ONE product's palette or convert was
+# wrong (first use: the Celsius-keyed irsat palette, 2026-08-05) — the
+# idempotent sweeps skip frames that exist, so a bad batch must be
+# deleted to be re-rendered.
+#
+# NOT cron-dispatched — no stp-models-cron CRON_TO_WORKFLOW entry needed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      prefix:
+        description: 'Bucket prefix to delete, e.g. v1/HRRR/irsat/ (must start with v1/ and name at least model+product)'
+        type: string
+        required: true
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate prefix
+        run: |
+          set -e
+          case "${{ inputs.prefix }}" in
+            v1/*/*/) echo "prefix OK: ${{ inputs.prefix }}" ;;
+            *) echo "::error::prefix must look like v1/<MODEL>/<product>/ — refusing broad or malformed deletes"; exit 1 ;;
+          esac
+
+      - name: Install rclone
+        run: |
+          curl -sSfL https://rclone.org/install.sh | sudo bash >/dev/null 2>&1 || sudo apt-get install -y rclone
+          rclone --version | head -1
+
+      - name: Configure rclone
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Delete prefix
+        run: |
+          set -e
+          COUNT=$(rclone lsf --recursive "r2:${{ secrets.B2_BUCKET }}/${{ inputs.prefix }}" --files-only | wc -l)
+          echo "deleting ${COUNT} objects under ${{ inputs.prefix }}"
+          rclone delete "r2:${{ secrets.B2_BUCKET }}/${{ inputs.prefix }}" --rmdirs || true
+          echo "done"

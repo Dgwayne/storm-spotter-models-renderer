@@ -338,11 +338,11 @@ products:
     # (SBT123 in the same file is the water-vapor channel — a possible
     # future product, don't loosen this match.)
     wgrib2_match: ":SBT124:top of atmosphere:"
-    # GDAL normalizes temperature-typed GRIB K -> C on read (same as t2m);
-    # irsat.clr is keyed in Celsius accordingly — see the warning in that
-    # file before touching this.
-    units_in: "C"
-    units_out: "°C"
+    # ⚠ Unlike t2m, GDAL does NOT K->C normalize SBT brightness temps —
+    # verified 2026-08-05 when the Celsius-keyed first attempt rendered
+    # single-color. irsat.clr is keyed in raw KELVIN.
+    units_in: "K"
+    units_out: "K"
     convert: ""
     clr: "irsat.clr"
     pal: ""
