@@ -250,6 +250,15 @@ def _size_for(acres: float) -> float:
 
     The output is a multiplier on the layer's base size, NOT a pixel value,
     so the user's size slider and the per-platform base still compose on top.
+
+    NOTE: this is the RAW ramp — where a fire sits on the size spectrum,
+    which is a property of the data. It is NOT the final drawn size. The
+    app remaps this band onto a tighter display band (kWildfireMinIconScale
+    .. kWildfireMaxIconScale in lib/data/models/wildfire.dart) so the
+    visual cap can be retuned without re-baking every incident. Shipping
+    this range straight through put a megafire at ~46x64 logical px, which
+    was far too large at regional zoom. Do not "fix" apparent oversizing
+    here; change the cap in the app.
     """
     a = max(float(acres or 0.0), 0.1)
     # log10: 0.1ac -> -1, 10ac -> 1, 1k -> 3, 100k -> 5, 1M -> 6
