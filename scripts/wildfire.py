@@ -539,6 +539,12 @@ def main() -> int:
         n = _write(tmp, "current.json", {
             "schemaVersion": SCHEMA_VERSION,
             "generated": stamp,
+            # ISO duplicate of `generated`. The app reads the epoch int;
+            # this exists for the freshness monitor's dead-man check, which
+            # parses `generatedAt` as a date string across every manifest
+            # in the pipeline. Cheap to carry both rather than teach the
+            # monitor a second schema.
+            "generatedAt": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "count": len(fires),
             "fires": fires,
         }, CACHE_INCIDENTS)

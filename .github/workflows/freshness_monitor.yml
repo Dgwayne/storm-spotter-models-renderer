@@ -60,4 +60,16 @@ jobs:
           # or failing extracts — not a late NOAA run. 180 = one missed hour
           # + a full ~25-min extract + slack.
           check SOUNDINGS "https://models.dgwaynes.com/v1/soundings/manifest.json" 180
+          # Wildfire rides the :00/:15/:30/:45 Worker slot with an hourly
+          # GitHub-native backstop, so a healthy feed is never over ~60 min
+          # old even with the Worker down. 120 = one missed hourly backstop
+          # plus slack, which is what distinguishes "both schedulers are
+          # dead" from "one tick was skipped".
+          #
+          # Worth monitoring despite being a small feed: unlike the model
+          # renders, this one has an upstream that actively throttles us
+          # (NIFC's ArcGIS enforces an org-wide request-unit quota and
+          # answers 429 inside an HTTP 200 body), so it can fail in ways
+          # the render workflows cannot.
+          check WILDFIRE "https://models.dgwaynes.com/wildfire/v1/current.json" 120
           exit $fail
