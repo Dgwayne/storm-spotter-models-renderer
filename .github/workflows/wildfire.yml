@@ -1,0 +1,77 @@
+name: Wildfire (NIFC WFIGS + NASA FIRMS)
+
+# Active wildfire feed bake for Spotter Tools Pro.
+#
+# Produces (on the shared B2 bucket / models.dgwaynes.com):
+#   wildfire/v1/current.json      active incidents + tap-card fields (~190 KB)
+#   wildfire/v1/perimeters.json   burn-area polygons, simplified (~680 KB)
+#   wildfire/v1/hotspots.json     VIIRS/MODIS detections, last 24 h (~590 KB)
+#
+# Dispatched by the cron-trigger Worker on the :00/:15/:30/:45 slot it
+# already fires for NAM, so this adds ZERO new Worker invocations — see
+# cron-trigger/src/worker.js. WFIGS refreshes every 5 min upstream, so 15 min
+# is comfortably inside the useful resolution of the data.
+#
+# The hourly native cron below is a BACKSTOP, not the primary schedule.
+# GitHub throttles sub-hourly `on: schedule:` badly (the whole reason the
+# Worker exists), but on 2026-07-13 the Worker itself silently stopped
+# firing its triggers for ~3 h after unrelated Cloudflare account changes.
+# An hourly native tick means that failure mode degrades the layer to hourly
+# instead of stalling it outright.
+#
+# Public repo => free Actions minutes; B2 uploads + CDN egress are free. $0.
+
+on:
+  schedule:
+    - cron: '25 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: wildfire
+  cancel-in-progress: false
+
+jobs:
+  wildfire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # No gdal here, unlike the model renders — this bake is pure Python
+      # stdlib plus rclone for the upload.
+      - name: Set up micromamba (rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: wildfire
+          create-args: >-
+            python=3.11
+            rclone
+          cache-environment: true
+          init-shell: bash
+
+      - name: Configure rclone for Cloudflare R2 (Backblaze B2)
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Bake wildfire incidents + perimeters + hotspots
+        run: python scripts/wildfire.py

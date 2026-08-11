@@ -44,7 +44,13 @@ const CRON_TO_WORKFLOW = {
     "render_goes.yml",
     "render_goes_geocolor.yml",
   ],
-  "0,15,30,45 * * * *": ["render_nam.yml"],
+  // Wildfire rides the NAM slot — the least loaded of the five, and this
+  // bake is short (three HTTP fetches + three small uploads, no gdal). WFIGS
+  // refreshes every 5 min upstream, so 15-min dispatches keep the layer
+  // within one refresh of the authoritative record. wildfire.yml also keeps
+  // an hourly GitHub-native cron as a backstop for the 2026-07-13 failure
+  // mode where this Worker's triggers silently stopped firing.
+  "0,15,30,45 * * * *": ["render_nam.yml", "wildfire.yml"],
   // GFS rides the ECMWF slot: GitHub-native cron for render_gfs.yml was
   // firing with gaps up to 4 h, compounding the old single-target render
   // strategy into ~5-9 h of app-visible staleness. 30-min dispatches +
