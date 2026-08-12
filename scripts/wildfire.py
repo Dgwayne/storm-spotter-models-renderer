@@ -425,16 +425,38 @@ def fetch_perimeters() -> dict:
 
 # ── FIRMS hotspots ────────────────────────────────────────────────────
 
+# CSV `satellite` values -> the compact code the app maps back to a name.
+# Both the short and long spellings appear across FIRMS instances.
+SAT_CODES = {
+    "N": 0, "NPP": 0, "SUOMI NPP": 0,      # Suomi NPP  (VIIRS)
+    "N20": 1, "NOAA-20": 1,                # NOAA-20/JPSS-1 (VIIRS)
+    "N21": 2, "NOAA-21": 2,                # NOAA-21/JPSS-2 (VIIRS)
+    "A": 3, "AQUA": 3,                     # Aqua (MODIS)
+    "T": 4, "TERRA": 4,                    # Terra (MODIS)
+}
+
+
 def fetch_hotspots(now: dt.datetime) -> list[list]:
     """Thermal detections from the last 24 h, as compact rows.
 
-    Returns [lat, lon, frp, ageMinutes, highConfidence] per detection. A
-    compact array rather than GeoJSON because this is the one payload that
-    can run to tens of thousands of records — the app builds the feature
-    collection client-side, same as the AirNow dots.
+    Returns [lat, lon, frp, ageMinutes, highConfidence, brightnessK,
+    satCode, isDay, footprintKm] per detection. A compact array rather than
+    GeoJSON because this is the one payload that can run to tens of
+    thousands of records — the app builds the feature collection
+    client-side, same as the AirNow dots.
+
+    APPEND-ONLY format: shipped clients index positions 0-4, so new fields
+    may only ever be added to the END of the row. brightnessK is 0 when the
+    CSV had none (real values are always 200+ K), footprintKm 0 when scan/
+    track were unparsable, satCode -1 when the satellite is unrecognised.
     """
-    rows: list[list] = []
-    seen: set[tuple] = set()
+    # Keyed by the dedupe cell; values are complete rows. A dict rather
+    # than a seen-set so a collision can KEEP THE STRONGER detection —
+    # first-wins silently preferred whichever satellite file happened to
+    # be fetched first. Rows are replaced whole, never field-merged: a
+    # max-FRP from one overpass stapled to the timestamp of another would
+    # describe a detection that never happened.
+    cells: dict[tuple, list] = {}
     ok_feeds = 0
     deadline = time.monotonic() + HOTSPOT_BUDGET_S
     for i, (sat_dir, fname) in enumerate(FIRMS_FEEDS):
@@ -485,6 +507,34 @@ def fetch_hotspots(now: dt.datetime) -> list[list]:
             except ValueError:
                 frp = 0.0
 
+            # Fire-channel brightness temperature, Kelvin. VIIRS calls it
+            # bright_ti4 (I-4 band), MODIS just `brightness` (ch 21/22) —
+            # both are the ~4 µm fire channel, comparable enough to ship
+            # as one field.
+            bt = 0
+            for kbt in ("bright_ti4", "brightness"):
+                v = r.get(kbt)
+                if v:
+                    try:
+                        bt = int(round(float(v)))
+                        break
+                    except ValueError:
+                        pass
+
+            sat = SAT_CODES.get((r.get("satellite") or "").strip().upper(), -1)
+            day = 1 if (r.get("daynight") or "").strip().upper() == "D" else 0
+
+            # True pixel footprint, km. The nominal "375 m" is nadir-only:
+            # at the swath edge a VIIRS pixel grows to ~0.8 km and a MODIS
+            # one to ~4.5 km, and drawing both as equally precise dots is
+            # an accuracy claim the instrument never made. Ship the worst
+            # dimension so the card can be honest about it.
+            try:
+                fp = round(max(float(r.get("scan") or 0),
+                               float(r.get("track") or 0)), 1)
+            except (TypeError, ValueError):
+                fp = 0.0
+
             # acq_date=YYYY-MM-DD, acq_time=HHMM (UTC). A row whose stamp
             # will not parse is dropped rather than defaulted to "now" —
             # dating an unknown detection to the present would paint it as
@@ -503,14 +553,16 @@ def fetch_hotspots(now: dt.datetime) -> list[list]:
             # Round to ~11 m. The detections are 375 m pixels, so more
             # precision than this is noise that costs payload.
             key = (round(lat, 4), round(lon, 4), age_min // 30)
-            if key in seen:
+            cur = cells.get(key)
+            if cur is not None and cur[2] >= frp:
                 continue
-            seen.add(key)
-            rows.append([round(lat, 4), round(lon, 4),
-                         round(frp, 1), age_min, 1 if high else 0])
-            kept += 1
+            cells[key] = [round(lat, 4), round(lon, 4), round(frp, 1),
+                          age_min, 1 if high else 0, bt, sat, day, fp]
+            if cur is None:
+                kept += 1
         ok_feeds += 1
         print(f"  FIRMS {fname}: {kept} kept")
+    rows = list(cells.values())
 
     # Never publish an empty hotspot feed over a good one, the same rule
     # [main] already applies to incidents. Losing every feed is an outage on
@@ -536,6 +588,87 @@ def fetch_hotspots(now: dt.datetime) -> list[list]:
               f"(kept highest FRP)")
         rows = rows[:HOTSPOT_CAP]
     return rows
+
+
+# ── Incident ⇄ hotspot join ───────────────────────────────────────────
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    rlat1, rlat2 = math.radians(lat1), math.radians(lat2)
+    dlat = rlat2 - rlat1
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(rlat1) * math.cos(rlat2) * math.sin(dlon / 2) ** 2)
+    return 6371.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def attach_activity(fires: list[dict], pts: list[list]) -> None:
+    """Stamp each fire with a summary of ITS OWN satellite detections.
+
+    WFIGS and FIRMS are fetched in the same run and answer different
+    questions — WFIGS says what the incident WAS at last human report,
+    FIRMS says where heat is RIGHT NOW — so relating them here is free and
+    is the one thing neither source offers on its own. The summary rides
+    on current.json (`hs` per fire), which the app fetches even when the
+    user never turns the ~900 KB hotspot payload on: the fire card gets
+    live-activity rows at zero extra download.
+
+    Each hotspot is assigned to the nearest incident whose radius covers
+    it. The radius scales with acreage (a megafire's active edge can burn
+    30+ km from the incident's point coordinate; a spot fire's cannot),
+    floored at 3 km for point fires and capped at 60 km so a complex never
+    absorbs a neighbouring incident's detections wholesale.
+
+    Every fire gets an `hs` when this runs — {"n": 0} is a REAL statement
+    ("satellites see no heat here, likely smoldering or out"), which is
+    exactly what a user watching a 90%-contained fire wants to know. When
+    the FIRMS stage failed entirely, main() never calls this and the key
+    is absent, so the app can tell "no heat" from "no data".
+    """
+    tagged = [
+        (f,
+         min(60.0, max(3.0, 1.2 * math.sqrt(max(f["acres"], 0.0) * 0.00404686))),
+         f["lat"], f["lon"])
+        for f in fires
+    ]
+    stats: dict[int, dict] = {}
+    for p in pts:
+        plat, plon = p[0], p[1]
+        clat = math.cos(math.radians(plat)) * 111.0
+        best_i = -1
+        best_km = 1e9
+        for i, (_f, r, flat, flon) in enumerate(tagged):
+            # Cheap rejects first: 20k pts x ~500 fires only stays fast if
+            # the common case is two float compares, not a haversine.
+            if abs(plat - flat) * 111.0 > r:
+                continue
+            if abs(plon - flon) * clat > r:
+                continue
+            km = _haversine_km(plat, plon, flat, flon)
+            if km <= r and km < best_km:
+                best_km = km
+                best_i = i
+        if best_i < 0:
+            continue
+        s = stats.setdefault(best_i, {"n": 0, "n6": 0, "pf": 0.0,
+                                      "la": 10 ** 9, "sats": set()})
+        s["n"] += 1
+        if p[3] <= 360:
+            s["n6"] += 1
+        if p[2] > s["pf"]:
+            s["pf"] = p[2]
+        if p[3] < s["la"]:
+            s["la"] = p[3]
+        s["sats"].add(p[6])
+    n_hot = 0
+    for i, (f, _r, _lat, _lon) in enumerate(tagged):
+        s = stats.get(i)
+        if s is None:
+            f["hs"] = {"n": 0}
+        else:
+            f["hs"] = {"n": s["n"], "n6": s["n6"], "pf": round(s["pf"], 1),
+                       "la": s["la"], "ns": len(s["sats"])}
+            n_hot += 1
+    print(f"  {n_hot}/{len(fires)} incidents show satellite heat")
 
 
 # ── Upload ────────────────────────────────────────────────────────────
@@ -590,6 +723,10 @@ def main() -> int:
         print(f"  hotspots failed: {exc}", file=sys.stderr)
         pts = None
 
+    if pts is not None:
+        # Join AFTER the cap so the summary describes what actually ships.
+        attach_activity(fires, pts)
+
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         n = _write(tmp, "current.json", {
@@ -617,7 +754,9 @@ def main() -> int:
                 "schemaVersion": SCHEMA_VERSION,
                 "generated": stamp,
                 "count": len(pts),
-                # [lat, lon, frp, ageMinutes, highConfidence]
+                # [lat, lon, frp, ageMinutes, highConfidence,
+                #  brightnessK, satCode, isDay, footprintKm]
+                # Append-only: shipped clients index 0-4 positionally.
                 "pts": pts,
             }, CACHE_HOTSPOTS)
             print(f"  hotspots.json {n / 1024:.1f} KB")
