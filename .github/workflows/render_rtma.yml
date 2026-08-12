@@ -45,6 +45,13 @@ jobs:
 
       # No wgrib2 — the script publishes wind SPEED only (rotation-
       # invariant), and GDAL's GRIB driver reads the Lambert grid directly.
+      - name: Restore micromamba binary (cache)
+        id: mmbin
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
       - name: Set up micromamba (gdal + numpy + rclone)
         uses: mamba-org/setup-micromamba@v2
         with:
@@ -59,16 +66,44 @@ jobs:
             curl
           cache-environment: true
           init-shell: bash
+          download-micromamba: ${{ steps.mmbin.outputs.cache-hit != 'true' }}
+          micromamba-binary-path: ~/micromamba-bin/micromamba
+
+      - name: Save micromamba binary (cache)
+        if: steps.mmbin.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Restore yq (cache)
+        id: yqcache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.tools/yq
+          key: yq-v4.53.3-linux-amd64
 
       - name: Install yq (Go binary)
         run: |
           set -e
-          sudo curl -sSfL -o /usr/local/bin/yq \
-            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
+          if [ ! -x "$HOME/.tools/yq" ]; then
+            mkdir -p "$HOME/.tools"
+            curl -sSfL --retry 6 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 40 \
+              -o "$HOME/.tools/yq" \
+              https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64
+            chmod +x "$HOME/.tools/yq"
+          fi
+          sudo install -m 0755 "$HOME/.tools/yq" /usr/local/bin/yq
           yq --version
           gdalinfo --version
           rclone --version | head -1
+
+      - name: Save yq (cache)
+        if: steps.yqcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.tools/yq
+          key: yq-v4.53.3-linux-amd64
 
       - name: Configure rclone for Cloudflare R2
         run: |

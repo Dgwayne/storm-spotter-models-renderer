@@ -56,6 +56,13 @@ jobs:
 
       # No gdal here, unlike the model renders — this bake is pure Python
       # stdlib plus rclone for the upload.
+      - name: Restore micromamba binary (cache)
+        id: mmbin
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
       - name: Set up micromamba (rclone)
         uses: mamba-org/setup-micromamba@v2
         with:
@@ -65,6 +72,15 @@ jobs:
             rclone
           cache-environment: true
           init-shell: bash
+          download-micromamba: ${{ steps.mmbin.outputs.cache-hit != 'true' }}
+          micromamba-binary-path: ~/micromamba-bin/micromamba
+
+      - name: Save micromamba binary (cache)
+        if: steps.mmbin.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
 
       - name: Configure rclone for Cloudflare R2 (Backblaze B2)
         run: |
