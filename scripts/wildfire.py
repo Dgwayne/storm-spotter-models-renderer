@@ -116,6 +116,22 @@ FIRMS_FEEDS = [
 # when it bites, so a silent truncation never reads as "that was everything".
 HOTSPOT_CAP = 30000
 
+# Wall-clock ceiling on the whole FIRMS stage.
+#
+# [main] already treats hotspots as optional and publishes incidents +
+# perimeters without them, but on 2026-08-11 that path proved unreachable:
+# FIRMS went unroutable (Errno 101) and every attempt hung for its full
+# timeout instead of failing fast, so six feeds x (3 tries x 120 s) came to
+# ~36 min against the workflow's 15 min `timeout-minutes`. The job was killed
+# two feeds in, before reaching a single upload, and the layer went stale for
+# 75 min when only the thermal dots were actually unavailable.
+#
+# A budget rather than smaller per-feed numbers because the feed list has
+# grown before (the two Alaska files came later) and any fixed tries/timeout
+# pair silently stops fitting when it grows again. Healthy pulls take 1-3 s
+# per feed, so this never binds on a good run.
+HOTSPOT_BUDGET_S = 300
+
 # Detections older than this are dropped. The FIRMS files are NAMED "24h"
 # but are a rolling window of the last 24 hours of *available* data, and
 # processing lag means they routinely carry detections 30-40 h old
@@ -411,10 +427,22 @@ def fetch_hotspots(now: dt.datetime) -> list[list]:
     """
     rows: list[list] = []
     seen: set[tuple] = set()
-    for sat_dir, fname in FIRMS_FEEDS:
+    deadline = time.monotonic() + HOTSPOT_BUDGET_S
+    for i, (sat_dir, fname) in enumerate(FIRMS_FEEDS):
+        left = deadline - time.monotonic()
+        if left <= 1:
+            print(f"  FIRMS budget of {HOTSPOT_BUDGET_S}s spent, skipping "
+                  f"{len(FIRMS_FEEDS) - i} remaining feed(s)", file=sys.stderr)
+            break
         url = f"{FIRMS_BASE}/{sat_dir}/csv/{fname}"
         try:
-            raw = _get(url, tries=3, timeout=120)
+            # Spend at most what is left, so one hung feed cannot starve the
+            # rest: two tries plus the 1 s backoff between them lands exactly
+            # on the deadline. The 90 s cap is the per-attempt allowance a
+            # healthy pull gets while budget remains; the 20 s floor keeps the
+            # last feed a real attempt rather than a token one.
+            per_try = max(20, min(90, int((left - 1) / 2)))
+            raw = _get(url, tries=2, timeout=per_try)
         except RuntimeError as exc:
             # One satellite being unavailable is not worth failing the bake —
             # the others still carry the picture.
