@@ -412,6 +412,14 @@ def fetch_perimeters() -> dict:
                 if isinstance(acres, (int, float)) else 0.0,
             },
         })
+    # The hotspots twin of this guard, and for the same reason: main() skips
+    # the write only on None, so an empty FeatureCollection would publish
+    # over the last good ~640 KB file. A query that succeeds and returns
+    # nothing is an upstream glitch, not an empty fire season, since the
+    # point layer is what says whether anything is burning.
+    if not out:
+        raise RuntimeError("zero perimeters returned, refusing to publish "
+                           "an empty perimeter feed")
     return {"type": "FeatureCollection", "features": out}
 
 
