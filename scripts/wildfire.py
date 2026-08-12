@@ -427,6 +427,7 @@ def fetch_hotspots(now: dt.datetime) -> list[list]:
     """
     rows: list[list] = []
     seen: set[tuple] = set()
+    ok_feeds = 0
     deadline = time.monotonic() + HOTSPOT_BUDGET_S
     for i, (sat_dir, fname) in enumerate(FIRMS_FEEDS):
         left = deadline - time.monotonic()
@@ -500,7 +501,26 @@ def fetch_hotspots(now: dt.datetime) -> list[list]:
             rows.append([round(lat, 4), round(lon, 4),
                          round(frp, 1), age_min, 1 if high else 0])
             kept += 1
+        ok_feeds += 1
         print(f"  FIRMS {fname}: {kept} kept")
+
+    # Never publish an empty hotspot feed over a good one, the same rule
+    # [main] already applies to incidents. Losing every feed is an outage on
+    # our side of the wire, not a report that nothing is burning: there are
+    # always thousands of detections nationwide. Raising here routes into
+    # main()'s existing `pts = None` branch, which skips the write entirely
+    # and leaves the last good file on B2 to age out under its own cache.
+    #
+    # This is the specific way the 2026-08-11 fix drew blood. Returning []
+    # on a total FIRMS outage was always wrong, but unreachable while the
+    # job was being SIGKILLed first; bounding the stage made the write block
+    # reachable and published a 61-byte hotspots.json over a 577 KB one.
+    # A partial result is still published on purpose, since one satellite
+    # being down genuinely does mean fewer detections.
+    if not ok_feeds or not rows:
+        raise RuntimeError(
+            f"no usable FIRMS feed ({ok_feeds}/{len(FIRMS_FEEDS)} answered, "
+            f"{len(rows)} rows), refusing to publish an empty hotspot feed")
 
     if len(rows) > HOTSPOT_CAP:
         rows.sort(key=lambda x: -x[2])  # highest fire radiative power first
