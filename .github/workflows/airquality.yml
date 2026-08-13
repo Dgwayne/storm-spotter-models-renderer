@@ -86,3 +86,12 @@ jobs:
 
       - name: Bake AirNow AQI feed + contours
         run: python scripts/airquality.py
+
+      - name: Bake HMS smoke plumes
+        # Companion product on the same cadence. Runs even when the AQI
+        # bake failed, and its own failure (e.g. HMS publish gap) must
+        # never turn the run red — a failed fetch simply leaves the last
+        # good smoke.json in place.
+        if: always()
+        continue-on-error: true
+        run: python scripts/hms_smoke.py
