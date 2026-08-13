@@ -52,11 +52,11 @@ AIRNOW_PARAMS = "OZONE,PM25,PM10"
 WINDOW_HOURS = 26  # request a little extra history so all 24 buckets fill
 FRAMES = 24
 
-# The three pollutant views the app's chip switches between. "combined" is
-# the worst pollutant at each monitor (how AQI is normally reported).
-VIEWS = ["combined", "pm25", "ozone"]
+# The pollutant views the app's chip switches between. "combined" is the
+# worst pollutant at each monitor (how AQI is normally reported).
+VIEWS = ["combined", "pm25", "ozone", "pm10"]
 # AirNow Parameter strings that map to each single-pollutant view.
-VIEW_PARAM = {"pm25": "PM2.5", "ozone": "OZONE"}
+VIEW_PARAM = {"pm25": "PM2.5", "ozone": "OZONE", "pm10": "PM10"}
 
 # gdal_grid IDW: inverse-distance-to-nearest-neighbours. `radius` (degrees)
 # bounds how far a monitor's influence reaches, so remote areas with no
@@ -444,7 +444,101 @@ def main() -> int:
     }, separators=(",", ":")))
     _rclone_upload(manifest, f"{OUT_PREFIX}/loop_manifest.json", 900)
     print("  uploaded loop_manifest.json")
+
+    # ── forecast.json — AirNow reporting-area forecasts (tap sheet) ───────
+    # Last and non-fatal: everything above must ship even when the bulk
+    # forecast file has an outage.
+    try:
+        _bake_forecast(tmp)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  forecast bake failed (non-fatal): {exc}", file=sys.stderr)
     return 0
+
+
+# AirNow's bulk reporting-area file: one pipe-delimited row per area ×
+# valid-date × pollutant. No API key. Fields (0-based): 0 issue date,
+# 1 valid date MM/DD/YY, 2 valid time, 3 tz, 4 sequence (-1 = yesterday,
+# 0 = today, 1.. = forecast days), 5 type (Y/O/F), 6 primary, 7 area,
+# 8 state, 9 lat, 10 lon, 11 parameter, 12 AQI (EMPTY on category-only
+# forecasts), 13 category name, 14 action day, 15 discussion, 16 source.
+FORECAST_URL = "https://files.airnowtech.org/airnow/today/reportingarea.dat"
+FORECAST_MAX_SEQ = 2  # today / tomorrow / day-after — the sheet shows 3 rows
+
+_CATEGORY_NUM = {
+    "good": 1, "moderate": 2,
+    "unhealthy for sensitive groups": 3, "usg": 3,
+    "unhealthy": 4, "very unhealthy": 5, "hazardous": 6,
+}
+
+
+def _bake_forecast(tmp: Path) -> None:
+    req = urllib.request.Request(
+        FORECAST_URL, headers={"User-Agent": "spotter-airquality-renderer/1.0"})
+    with urllib.request.urlopen(req, timeout=90) as resp:
+        text = resp.read().decode("utf-8", "replace")
+
+    areas: dict[str, dict] = {}
+    kept = 0
+    for line in text.splitlines():
+        f = line.split("|")
+        if len(f) < 15 or f[5] != "F":
+            continue
+        try:
+            seq = int(f[4])
+        except ValueError:
+            continue
+        if seq < 0 or seq > FORECAST_MAX_SEQ:
+            continue
+        cat = _CATEGORY_NUM.get(f[13].strip().lower())
+        aqi = None
+        if f[12].strip():
+            try:
+                aqi = int(round(float(f[12])))
+            except ValueError:
+                aqi = None
+        if aqi is not None and aqi < 0:
+            aqi = None
+        # A row with neither a number nor a recognised category says nothing.
+        if aqi is None and cat is None:
+            continue
+        if cat is None:
+            cat = _category(aqi)
+        try:
+            lat = round(float(f[9]), 4)
+            lon = round(float(f[10]), 4)
+            date = dt.datetime.strptime(f[1].strip(), "%m/%d/%y").date()
+        except ValueError:
+            continue
+        name = f[7].strip()
+        if not name:
+            continue
+        key = f"{name}|{f[8].strip()}"
+        area = areas.get(key)
+        if area is None:
+            area = {"n": name, "st": f[8].strip() or None,
+                    "lat": lat, "lon": lon, "f": []}
+            areas[key] = area
+        area["f"].append({
+            "d": date.isoformat(),
+            "p": f[11].strip(),
+            "aqi": aqi,
+            "c": cat,
+            "a": f[14].strip().lower() == "yes",
+        })
+        kept += 1
+
+    if not areas:
+        raise RuntimeError("reportingarea.dat yielded no forecast rows")
+
+    out = tmp / "forecast.json"
+    out.write_text(json.dumps({
+        "schemaVersion": SCHEMA_VERSION,
+        "generated": int(dt.datetime.now(dt.timezone.utc).timestamp()),
+        "count": len(areas),
+        "areas": list(areas.values()),
+    }, separators=(",", ":")))
+    _rclone_upload(out, f"{OUT_PREFIX}/forecast.json", 900)
+    print(f"  uploaded forecast.json ({len(areas)} areas, {kept} rows)")
 
 
 if __name__ == "__main__":
