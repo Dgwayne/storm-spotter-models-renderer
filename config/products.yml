@@ -1161,7 +1161,11 @@ products:
   echoTops:
     display: "Echo Tops"
     group: "Severe Weather/Composites"
-    wgrib2_match: ":RETOP:cloud top:"
+    # Level descriptor differs per model (HRRR ":RETOP:cloud top:", RRFS
+    # ":RETOP:entire atmosphere (considered as a single layer):" — found
+    # 2026-08-13; RRFS echoTops had silently never rendered). Both files
+    # carry exactly one RETOP message, so the bare var match is safe.
+    wgrib2_match: ":RETOP:"
     units_in: "m"
     units_out: "kft"
     convert: "A * 0.00328084"
@@ -2742,12 +2746,22 @@ models:
     # rrfs_a bucket, July 2026).
     forecast_hours_default: { start: 0, end: 18, step: 1 }
     forecast_hours_synoptic: { start: 0, end: 84, step: 1, runs: [0, 6, 12, 18] }
-    # AWS public bucket (no auth needed). ⚠ The rrfs_a/ prefix is the
-    # pre-operational feed — expect this template to need a path bump when
-    # RRFS goes operational (2026-08-31); the idx-HEAD-404 guard just makes
-    # frames go stale rather than erroring if NOAA moves it.
-    s3_bucket: "noaa-rrfs-pds"
-    s3_key_template: "rrfs_a/rrfs.{date}/{run:02d}/rrfs.t{run:02d}z.2dfld.3km.f{fh:03d}.conus.grib2"
+    # ── NOMADS BRIDGE (2026-08-13 → cutover 2026-10-06) ────────────────
+    # NOAA froze the rrfs_a/rrfs_public prototype feeds at 2026-08-12 11z
+    # (SCN 26-48 pre-implementation parallel). The live source is NOMADS,
+    # which serves no .idx — so mirror_rrfs.sh downloads each whole file,
+    # extracts only our products' messages, and publishes slim grib+idx
+    # pairs under v1/RRFS/_src/ on our own bucket. This template points
+    # the (unchanged) byte-range pipeline at that mirror via the CDN.
+    # Synoptic-only during the bridge: render_rrfs.sh skips other cycles
+    # (NOMADS publishes them as sub-hourly files only — see mirror_rrfs.sh).
+    base_url: "https://models.dgwaynes.com"
+    s3_key_template: "v1/RRFS/_src/{date}{run:02d}/F{fh:03d}.grib2"
+    # ⚠ RESTORE AT CUTOVER (2026-10-06 12z): delete base_url + the mirror
+    # job, re-enable hourly cycles in render_rrfs.sh, and swap back to the
+    # operational bucket path (verify the prefix NCO actually ships):
+    #   s3_bucket: "noaa-rrfs-pds"
+    #   s3_key_template: "rrfs.{date}/{run:02d}/rrfs.t{run:02d}z.2dfld.3km.f{fh:03d}.conus.grib2"
     runs_per_day: 24
     retain_runs: 5
 

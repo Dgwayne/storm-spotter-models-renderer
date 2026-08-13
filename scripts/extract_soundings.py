@@ -69,8 +69,25 @@ BUCKET = os.environ["R2_BUCKET"]
 # the isobaric levels (prslev.3km) from the surface fields (2dfld.3km).
 # `prefix` is the output subdirectory under v1/soundings/ ("" keeps HRRR at
 # the root for back-compat with the dealiaser and released apps).
-# ⚠ RRFS: the rrfs_a/ path is the pre-operational feed — needs a bump when
-# RRFS goes operational 2026-08-31 (same caveat as config/products.yml).
+# ⚠ RRFS DISABLED DURING THE NOMADS BRIDGE (2026-08-13 → 2026-10-06):
+# the rrfs_a feed froze at 2026-08-12 11z (SCN 26-48). The live NOMADS
+# source serves no .idx, and soundings need the 591 MB prslev file — a
+# whole-file bridge would add ~45 GB/day of NOMADS pulls for a secondary
+# feature, so RRFS soundings stay frozen at their last extracted run and
+# HRRR (the default) carries the sounding deck. RESTORE the entry below
+# at cutover with the operational path (drop the rrfs_a/ prefix; verify
+# against the bucket):
+#     {
+#         "key": "rrfs",
+#         "name": "RRFS",
+#         "prefix": "rrfs/",
+#         "files": [
+#             "https://noaa-rrfs-pds.s3.amazonaws.com/"
+#             "rrfs.{d}/{h}/rrfs.t{h}z.prslev.3km.f{fh:03d}.conus.grib2",
+#             "https://noaa-rrfs-pds.s3.amazonaws.com/"
+#             "rrfs.{d}/{h}/rrfs.t{h}z.2dfld.3km.f{fh:03d}.conus.grib2",
+#         ],
+#     },
 MODELS = [
     {
         "key": "hrrr",
@@ -79,17 +96,6 @@ MODELS = [
         "files": [
             "https://noaa-hrrr-bdp-pds.s3.amazonaws.com/"
             "hrrr.{d}/conus/hrrr.t{h}z.wrfprsf{fh:02d}.grib2",
-        ],
-    },
-    {
-        "key": "rrfs",
-        "name": "RRFS",
-        "prefix": "rrfs/",
-        "files": [
-            "https://noaa-rrfs-pds.s3.amazonaws.com/"
-            "rrfs_a/rrfs.{d}/{h}/rrfs.t{h}z.prslev.3km.f{fh:03d}.conus.grib2",
-            "https://noaa-rrfs-pds.s3.amazonaws.com/"
-            "rrfs_a/rrfs.{d}/{h}/rrfs.t{h}z.2dfld.3km.f{fh:03d}.conus.grib2",
         ],
     },
 ]

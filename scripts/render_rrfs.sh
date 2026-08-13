@@ -11,8 +11,13 @@
 # The only model-specific bits are MODEL and the forecast-hour window:
 # hourly runs go to f18, synoptic runs (00/06/12/18z) to f84.
 #
-# ⚠ Source is the pre-operational rrfs_a feed until RRFS goes operational
-# (2026-08-31) — see the s3_key_template note in config/products.yml.
+# ⚠ NOMADS BRIDGE (2026-08-13 → cutover 2026-10-06): the rrfs_a feed froze
+# at 2026-08-12 11z; frames now come from the slim mirror that
+# mirror_rrfs.sh publishes under v1/RRFS/_src/ (see products.yml). Two
+# bridge-only changes in this script, both to revert at cutover:
+#   1. Non-synoptic cycles are SKIPPED — NOMADS publishes them as
+#      sub-hourly files only, which the mirror doesn't ingest.
+#   2. HOURS_BACK is widened for the 6-hourly cadence (see below).
 
 set -euo pipefail
 
@@ -21,10 +26,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG="${REPO_ROOT}/config/products.yml"
 
-# Number of recent run-hours to sweep on every tick. retain_runs=5, so
-# offsets 0..4 cover exactly the runs that survive the prune — anything
-# older just gets deleted at the end, so rendering it is wasted work.
-HOURS_BACK=4
+# Number of recent run-hours to sweep on every tick.
+#
+# BRIDGE VALUE (revert to 4 at cutover): with only synoptic cycles
+# rendering, offsets 0..9 contain at most two 00/06/12/18z runs — the
+# newest (still trailing f84 in over ~4 h of publish + one mirror tick)
+# and the previous one. The July-25 render/prune-thrash trap (window
+# wider than retention) can't bite here: retain_runs=5 synoptic runs
+# span 30 h, three times this window.
+HOURS_BACK=9
 
 PRODUCTS=$(yq -r ".models.${MODEL}.products[]" "$CONFIG")
 RETAIN=$(yq -r ".models.${MODEL}.retain_runs" "$CONFIG")
@@ -80,6 +90,13 @@ for offset in $(seq 0 "${HOURS_BACK}"); do
   TARGET_EPOCH=$(( NOW_EPOCH - offset * 3600 ))
   RUN_DATE=$(date -u -d "@${TARGET_EPOCH}" +%Y%m%d)
   RUN_HOUR=$(date -u -d "@${TARGET_EPOCH}" +%H)
+  # BRIDGE: only synoptic cycles exist on the mirror (see header).
+  # Delete this skip at cutover to restore hourly runs.
+  case "${RUN_HOUR}" in
+    00|06|12|18) ;;
+    *) continue ;;
+  esac
+
   echo ""
   echo "==> RRFS sweep: run=${RUN_DATE}${RUN_HOUR}Z (offset -${offset}h)"
 
@@ -117,7 +134,9 @@ for offset in $(seq 0 "${HOURS_BACK}"); do
 
   # Publish the manifest as soon as the newest run is rendered so the app
   # sees it 10-20 min earlier than waiting for the full sweep + prune.
-  if [ "${offset}" -eq 0 ]; then
+  # (Gated on the first ATTEMPTED run, not offset 0 — during the bridge
+  # offset 0 is usually a skipped non-synoptic hour.)
+  if [ "${#ATTEMPTED_RUNS[@]}" -eq 1 ]; then
     echo "==> Publishing manifest early (newest run rendered)"
     python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}" \
       || echo "  (early manifest build failed; will retry at end of tick)"

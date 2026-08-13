@@ -30,7 +30,106 @@ concurrency:
 #              authoritative manifest rebuild. Runs even when a group fails
 #              (a red group just leaves its frames missing; the manifest
 #              must still move forward for the app).
+#   mirror   — NOMADS BRIDGE (2026-08-13 → cutover 2026-10-06, see
+#              mirror_rrfs.sh): publishes slim idx'd GRIBs from NOMADS to
+#              v1/RRFS/_src/ for the render jobs to consume. Deliberately
+#              has NO needs edges: render jobs read whatever the PREVIOUS
+#              tick mirrored, so renders trail the mirror by one tick and
+#              neither job ever waits on the other. DELETE at cutover.
 jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    # Backfill ticks are download-bound (MIRROR_MAX_NEW × ~366 MB);
+    # steady-state ticks finish in ~10 min.
+    timeout-minutes: 80
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore micromamba binary (cache)
+        id: mmbin
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Set up micromamba (wgrib2 + gdal + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: renderer
+          create-args: >-
+            python=3.11
+            wgrib2
+            gdal
+            libgdal-netcdf
+            libgdal-grib
+            rclone
+            pyyaml
+            curl
+          cache-environment: true
+          init-shell: bash
+          download-micromamba: ${{ steps.mmbin.outputs.cache-hit != 'true' }}
+          micromamba-binary-path: ~/micromamba-bin/micromamba
+
+      - name: Save micromamba binary (cache)
+        if: steps.mmbin.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Restore yq (cache)
+        id: yqcache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.tools/yq
+          key: yq-v4.53.3-linux-amd64
+
+      - name: Install yq (Go binary)
+        run: |
+          set -e
+          if [ ! -x "$HOME/.tools/yq" ]; then
+            mkdir -p "$HOME/.tools"
+            curl -sSfL --retry 6 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 40 \
+              -o "$HOME/.tools/yq" \
+              https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64
+            chmod +x "$HOME/.tools/yq"
+          fi
+          sudo install -m 0755 "$HOME/.tools/yq" /usr/local/bin/yq
+
+      - name: Save yq (cache)
+        if: steps.yqcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.tools/yq
+          key: yq-v4.53.3-linux-amd64
+
+      - name: Configure rclone for Cloudflare R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Mirror RRFS from NOMADS
+        run: bash scripts/mirror_rrfs.sh
+
   plan:
     runs-on: ubuntu-latest
     timeout-minutes: 5
