@@ -25,6 +25,7 @@ Env:  R2_BUCKET        (rclone "r2:" remote is configured by the workflow -> B2)
 
 from __future__ import annotations
 
+import concurrent.futures
 import datetime as dt
 import json
 import os
@@ -155,16 +156,33 @@ def _rclone_upload(local: Path, key: str, cache_seconds: int) -> None:
     )
 
 
+def _rclone_upload_dir(local_dir: Path, key_prefix: str,
+                       cache_seconds: int) -> None:
+    """Upload a whole tree in one rclone process with parallel transfers.
+    A copyto per contour frame was minutes of serial process spawns; one
+    batched copy is seconds."""
+    bucket = os.environ["R2_BUCKET"]
+    subprocess.check_call(
+        [
+            "rclone", "copy", str(local_dir), f"r2:{bucket}/{key_prefix}",
+            "--s3-no-check-bucket", "--no-traverse", "--transfers", "8",
+            "--header-upload", f"Cache-Control: public, max-age={cache_seconds}",
+        ]
+    )
+
+
 def _run(cmd: list) -> None:
     subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
 
-def _render_contour(points: list[tuple[float, float, int]], out_png: Path) -> bool:
-    """points -> IDW grid -> EPSG:3857 CONUS -> AQI colour-relief -> PNG.
-    Returns False (non-fatal) if the frame has too few points to interpolate."""
+def _render_contour(points: list[tuple[float, float, int]], work: Path,
+                    out_png: Path) -> bool:
+    """points -> IDW grid -> EPSG:3857 CONUS -> AQI colour-relief -> land
+    clip -> PNG. Returns False (non-fatal) if the frame has too few points
+    to interpolate. [work] must be private to this call — the gdal
+    intermediates share names, and frames render concurrently."""
     if len(points) < 3:
         return False
-    work = out_png.parent
     csv = work / "pts.csv"
     vrt = work / "pts.vrt"
     with csv.open("w") as f:
@@ -218,9 +236,11 @@ def _render_contour(points: list[tuple[float, float, int]], out_png: Path) -> bo
         "-ts", str(IMG_W), str(IMG_H),
         str(rgba_tif), str(clip_tif),
     ])
-    # 5. PNG.
+    # 5. PNG. ZLEVEL 6, not 9 — the gradient surface compresses slowly at
+    #    max effort for a few percent of size, and encode time is a real
+    #    share of the bake now that frames are 2048².
     _run([
-        "gdal_translate", "-q", "-of", "PNG", "-co", "ZLEVEL=9",
+        "gdal_translate", "-q", "-of", "PNG", "-co", "ZLEVEL=6",
         str(clip_tif), str(out_png),
     ])
     return out_png.exists() and out_png.stat().st_size > 0
@@ -362,28 +382,48 @@ def main() -> int:
         arr = s["series"].get(VIEW_PARAM[view])
         return arr[i] if arr else None
 
-    manifest_views: dict[str, list] = {v: [None] * FRAMES for v in VIEWS}
+    # Render the 72 frames concurrently: each job's real work happens in
+    # child gdal processes, so a thread pool keeps every runner core busy
+    # without multiprocessing overhead. At 2048² the serial loop plus a
+    # copyto per frame pushed the bake to ~18 min — past the cron cadence.
+    # Finished PNGs land in a staging tree and upload as one batch below.
+    stage = tmp / "stage"
+    jobs: list[tuple[str, int, list]] = []
     for view in VIEWS:
-        made = 0
         for i in range(FRAMES):
             pts = []
             for s in st_list:
                 v = view_value(s, view, i)
                 if v is not None:
                     pts.append((s["lon"], s["lat"], v))
-            out_png = tmp / f"F{i:02d}.png"
-            try:
-                if _render_contour(pts, out_png):
-                    key_rel = f"{OUT_PREFIX}/contours/{view}/F{i:02d}.png"
-                    _rclone_upload(out_png, key_rel, 900)
-                    manifest_views[view][i] = f"/{key_rel}"
-                    made += 1
-            except subprocess.CalledProcessError as exc:
-                print(f"  contour {view} F{i:02d} failed (non-fatal): {exc}",
-                      file=sys.stderr)
-            finally:
-                out_png.unlink(missing_ok=True)
+            jobs.append((view, i, pts))
+
+    def _bake_frame(job: tuple[str, int, list]) -> tuple[str, int, bool]:
+        view, i, pts = job
+        work = tmp / f"work_{view}_{i:02d}"
+        work.mkdir(exist_ok=True)
+        out_png = stage / "contours" / view / f"F{i:02d}.png"
+        out_png.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            return (view, i, _render_contour(pts, work, out_png))
+        except subprocess.CalledProcessError as exc:
+            print(f"  contour {view} F{i:02d} failed (non-fatal): {exc}",
+                  file=sys.stderr)
+            return (view, i, False)
+
+    manifest_views: dict[str, list] = {v: [None] * FRAMES for v in VIEWS}
+    workers = os.cpu_count() or 4
+    with concurrent.futures.ThreadPoolExecutor(workers) as ex:
+        for view, i, ok in ex.map(_bake_frame, jobs):
+            if ok:
+                manifest_views[view][i] = \
+                    f"/{OUT_PREFIX}/contours/{view}/F{i:02d}.png"
+    for view in VIEWS:
+        made = sum(1 for u in manifest_views[view] if u)
         print(f"  contours[{view}]: {made}/{FRAMES} frames")
+
+    _rclone_upload_dir(stage, OUT_PREFIX, 900)
+    print("  uploaded contour frames (batched)")
 
     # ── loop_manifest.json — everything the app animation needs ───────────
     base = "https://models.dgwaynes.com"
