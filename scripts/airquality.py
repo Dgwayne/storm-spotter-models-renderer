@@ -38,10 +38,11 @@ from pathlib import Path
 # ── Config ────────────────────────────────────────────────────────────
 # CONUS bbox + image size match the model frames (see config/products.yml
 # HRRR), so the app reuses its existing model-frame corner drape for the
-# contour PNGs. Contours are smooth low-frequency surfaces, so 1024² is
-# plenty and keeps each PNG tiny + the gdal sweep fast.
+# contour PNGs. 2048² is the same resolution the HRRR frames render at —
+# proven within the app's loop-scrub budget (4096 was reverted there) —
+# and keeps the surface crisp at state-level zoom where 1024 went blurry.
 BBOX = [-134.0, 21.0, -60.0, 53.0]  # W, S, E, N
-IMG_W, IMG_H = 1024, 1024
+IMG_W, IMG_H = 2048, 2048
 
 # AirNow query bbox — a touch tighter than the render bbox (AirNow only has
 # monitors over land in/near CONUS anyway). W,S,E,N.
@@ -59,13 +60,30 @@ VIEW_PARAM = {"pm25": "PM2.5", "ozone": "OZONE"}
 # gdal_grid IDW: inverse-distance-to-nearest-neighbours. `radius` (degrees)
 # bounds how far a monitor's influence reaches, so remote areas with no
 # nearby monitor stay nodata (transparent) instead of smearing — the AirNow
-# contour behaviour.
-GRID_ALG = "invdistnn:power=2.0:radius=4.0:max_points=20:min_points=1:nodata=-9999"
+# contour behaviour. `smoothing` softens the classic IDW bullseye (a lone
+# clean monitor punching a donut hole in a smoky region) without flattening
+# real regional gradients; keep it well under typical monitor spacing.
+GRID_ALG = (
+    "invdistnn:power=2.0:smoothing=0.3:radius=4.0"
+    ":max_points=20:min_points=1:nodata=-9999"
+)
 
 OUT_PREFIX = "airquality/v1"
 SCHEMA_VERSION = 1
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLR_PATH = REPO_ROOT / "config" / "color_tables" / "aqi.clr"
+
+# US land boundary (Natural Earth 50m, CONUS parts only) used as a gdalwarp
+# cutline on the coloured RGBA — NOT on the data grid. Clipping the data and
+# letting the colour ramp decay across the blend would rainbow-fringe every
+# coastline; masking the finished RGBA only feathers the ALPHA, so the hue
+# at the edge stays whatever the field really was. Without this clip the
+# painted footprint was a union of `radius`-degree discs around monitors —
+# scalloped bubbles spilling into the ocean / Canada / Mexico.
+CUTLINE_PATH = REPO_ROOT / "config" / "boundaries" / "us_conus_50m.geojson"
+# Feather width for the cutline edge, in output pixels (~3.5 km/px at
+# 2048² CONUS, so ≈20 km of soft edge instead of a hard vector line).
+CUTLINE_BLEND_PX = 6
 
 
 def _category(aqi: int) -> int:
@@ -167,6 +185,7 @@ def _render_contour(points: list[tuple[float, float, int]], out_png: Path) -> bo
     grid_tif = work / "grid.tif"
     merc_tif = work / "merc.tif"
     rgba_tif = work / "rgba.tif"
+    clip_tif = work / "clip.tif"
     w, s, e, n = BBOX
     # 1. IDW interpolate the points to a 4326 raster over the CONUS extent.
     _run([
@@ -188,10 +207,21 @@ def _render_contour(points: list[tuple[float, float, int]], out_png: Path) -> bo
         "gdaldem", "color-relief", "-q", "-alpha",
         str(merc_tif), str(CLR_PATH), str(rgba_tif),
     ])
-    # 4. PNG.
+    # 4. Clip the RGBA to US land with a feathered edge. Same -te/-ts as
+    #    step 2, so the pixel grid is untouched and the drape corners still
+    #    line up; only the alpha outside (and blended near) the boundary
+    #    changes. The 4326 cutline is reprojected by gdalwarp automatically.
+    _run([
+        "gdalwarp", "-q", "-overwrite",
+        "-cutline", str(CUTLINE_PATH), "-cblend", str(CUTLINE_BLEND_PX),
+        "-te_srs", "EPSG:4326", "-te", str(w), str(s), str(e), str(n),
+        "-ts", str(IMG_W), str(IMG_H),
+        str(rgba_tif), str(clip_tif),
+    ])
+    # 5. PNG.
     _run([
         "gdal_translate", "-q", "-of", "PNG", "-co", "ZLEVEL=9",
-        str(rgba_tif), str(out_png),
+        str(clip_tif), str(out_png),
     ])
     return out_png.exists() and out_png.stat().st_size > 0
 
@@ -265,31 +295,12 @@ def main() -> int:
     st_list = [s for s in stations.values() if s["series"]]
     print(f"  {len(st_list)} monitors")
 
-    # Carry each monitor's reading forward up to CARRY_HOURS when it misses an
-    # update, so the newest frames — and the live/static contour, which is the
-    # last frame — stay full instead of collapsing to a few blobs when a
-    # slow-reporting pollutant (ozone especially) hasn't published the current
-    # hour yet. Bounded so a monitor that genuinely went offline doesn't
-    # linger a stale value all day.
-    CARRY_HOURS = 3
-    for s in st_list:
-        for arr in s["series"].values():
-            last = None
-            carried = 0
-            for i in range(FRAMES):
-                if arr[i] is not None:
-                    last = arr[i]
-                    carried = 0
-                elif last is not None and carried < CARRY_HOURS:
-                    arr[i] = last
-                    carried += 1
-                else:
-                    last = None
-                    carried = 0
-
     tmp = Path(tempfile.mkdtemp(prefix="aqi_"))
 
     # ── conus.json — latest AQI per monitor+pollutant (live layer) ────────
+    # Built BEFORE the carry-forward below, so each row's `t` is the hour
+    # the monitor really reported — the app's tap sheet shows observation
+    # age, and a carried copy would claim up to CARRY_HOURS fresher.
     obs = []
     for s in st_list:
         for param, arr in s["series"].items():
@@ -309,6 +320,29 @@ def main() -> int:
         separators=(",", ":")))
     _rclone_upload(conus, f"{OUT_PREFIX}/conus.json", 900)
     print(f"  uploaded conus.json ({len(obs)} obs)")
+
+    # Carry each monitor's reading forward up to CARRY_HOURS when it misses an
+    # update, so the newest frames — and the live/static contour, which is the
+    # last frame — stay full instead of collapsing to a few blobs when a
+    # slow-reporting pollutant (ozone especially) hasn't published the current
+    # hour yet. Bounded so a monitor that genuinely went offline doesn't
+    # linger a stale value all day. Applies to the loop + contours only;
+    # conus.json above deliberately pre-dates it.
+    CARRY_HOURS = 3
+    for s in st_list:
+        for arr in s["series"].values():
+            last = None
+            carried = 0
+            for i in range(FRAMES):
+                if arr[i] is not None:
+                    last = arr[i]
+                    carried = 0
+                elif last is not None and carried < CARRY_HOURS:
+                    arr[i] = last
+                    carried += 1
+                else:
+                    last = None
+                    carried = 0
 
     # ── loop24.json — per-monitor 24 h series (animated dots) ─────────────
     loop = tmp / "loop24.json"
