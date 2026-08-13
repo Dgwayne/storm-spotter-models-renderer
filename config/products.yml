@@ -2727,13 +2727,21 @@ models:
     # Parallel render groups — same contract as HRRR's (plan job enforces
     # exact coverage of the products list). RRFS synoptic runs reach f84,
     # the longest sweep of the three CONUS models — keep groups small.
+    #
+    # Rebalanced 2026-08-13: `core` carried 8 products and set the pace for
+    # every tick (47 min measured on a full f84 backfill, so most 15-min
+    # cron ticks were superseded in the concurrency queue before starting).
+    # Split into core+surface and trimmed the two 7-product severe groups,
+    # so the longest job is now 6 products (~35 min worst case). Group
+    # NAMES are labels only — nothing outside this file reads them.
     render_groups:
-      core:     [refc, t2m, td2m, wind10m, gust10m, mslp, sfccape, precip1h]
+      core:     [refc, t2m, td2m, wind10m]
+      surface:  [gust10m, mslp, sfccape, precip1h]
       sky:      [tcc, lcc, mcc, hcc, refd1km]
-      severe-a: [srh1, srh3, ehi1, ehi3, shear1, shear6, stormMotion]
-      severe-b: [mlcape, mucape, mlcin, cape3km, sbcin, liftedIdx, lclHgt]
-      hazards:  [stp, scp, ltng, uh25, ptype]
-      enviro:   [pwat, echoTops, frzLvl, rh2m, vis]
+      severe-a: [srh1, srh3, ehi1, ehi3, shear1, shear6]
+      severe-b: [mlcape, mucape, mlcin, cape3km, sbcin, liftedIdx]
+      hazards:  [stp, scp, ltng, uh25, ptype, stormMotion]
+      enviro:   [pwat, echoTops, frzLvl, rh2m, vis, lclHgt]
       winter:   [snod, asnow, frzr, precipTotal]
     # Same CONUS render box + raster size as HRRR (both 3 km native; see the
     # HRRR image_size note for the 2048-vs-4096 scrub-smoothness tradeoff).

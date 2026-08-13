@@ -105,8 +105,17 @@ for offset in $(seq 0 "${HOURS_BACK}"); do
     *)           FH_END=18 ;;
   esac
 
-  for product in $PRODUCTS; do
-    for fh in $(seq 0 "${FH_END}"); do
+  # FORECAST-HOUR-MAJOR (inverted 2026-08-13; render_hrrr.sh is still
+  # product-major). Product-major finished one product's whole f0-f84
+  # sweep before starting the next, so a mid-sweep run showed wildly
+  # uneven depth across products (measured on the 18z backfill: t2m=85
+  # while wind10m=22 and mcc=1) and the user just saw "some products
+  # lag". Walking fh on the OUTSIDE advances every product together, so
+  # partial coverage is always "all products out to f_n" — which also
+  # matches how the app scrubs (near hours first). Same total work and
+  # same number of idx fetches; purely an ordering change.
+  for fh in $(seq 0 "${FH_END}"); do
+    for product in $PRODUCTS; do
       # ── Per-product fh cap/floor ──────────────────────────────────
       if [ -n "${FH_CAPS[$product]}" ] && [ "${fh}" -gt "${FH_CAPS[$product]}" ]; then
         continue
