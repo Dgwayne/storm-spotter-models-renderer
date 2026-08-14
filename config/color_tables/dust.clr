@@ -1,0 +1,8 @@
+# Mineral dust (ug/m3) — tan/brown ramp, Saharan-plume friendly.
+nv    0   0   0   0
+0     0   0   0   0
+10    210 190 140 90
+50    200 160 90  150
+150   180 120 50  200
+400   140 80  30  240
+1000  100 50  20  255

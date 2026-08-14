@@ -1,0 +1,10 @@
+# PM2.5 (ug/m3) keyed to the US AQI breakpoints — green through maroon.
+# Transparent below 2 so clean air doesn't tint the map.
+nv    0   0   0   0
+0     0   0   0   0
+2     90  200 90  110
+12    230 230 60  170
+35    255 160 0   210
+55    240 60  50  240
+150   150 50  160 255
+250   126 0   35  255

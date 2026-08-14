@@ -67,7 +67,8 @@ jobs:
           # jobs vs the 20-runner cap), so one queued-out tick already
           # means a 2 h generatedAt gap. 180 absorbs exactly one missed
           # tick and still catches a dead scheduler.
-          for m in ICON ICONEU AROMEFR ARPEGE ARPEGEEU ICON2I AROMEAT JMAMSM JMAGSM CMA GFSWAVE ECMWFWAM GWAM; do
+          for m in ICON ICONEU AROMEFR ARPEGE ARPEGEEU ICON2I AROMEAT JMAMSM JMAGSM CMA GFSWAVE ECMWFWAM GWAM \
+                   HRDPS RDPS KNMIHAR DMIHAR UKV ALADIN ICONCH1 ICONCH2 METNO AROMEHD CAMSEU CAMSGL; do
             check "$m" "https://models.dgwaynes.com/v1/$m/manifest.json" 180
           done
           # GeoColor writes its OWN manifest, so a SAT/manifest.json check

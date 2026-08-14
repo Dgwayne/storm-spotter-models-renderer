@@ -122,6 +122,73 @@ products:
     point_values: true
     also_meso: true
 
+  # ── CAMS air-quality products (om-sourced, batch 5) ──────────────────
+  # All ug/m3 surface concentrations; group "Air Quality" makes its own
+  # picker section server-side. Distinct from the AirNow-based AQ map
+  # LAYER — these are scrubbable FORECAST fields in the models tab.
+  pm25:
+    display: "PM2.5"
+    group: "Air Quality"
+    wgrib2_match: ""
+    om_var: "pm2_5"
+    units_in: "ug/m3"
+    units_out: "µg/m³"
+    convert: ""
+    clr: "pm25.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+    point_decimals: 1
+  pm10c:
+    display: "PM10"
+    group: "Air Quality"
+    wgrib2_match: ""
+    om_var: "pm10"
+    units_in: "ug/m3"
+    units_out: "µg/m³"
+    convert: ""
+    clr: "pm10.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+    point_decimals: 1
+  ozoneC:
+    display: "Ozone"
+    group: "Air Quality"
+    wgrib2_match: ""
+    om_var: "ozone"
+    units_in: "ug/m3"
+    units_out: "µg/m³"
+    convert: ""
+    clr: "ozone.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+  no2C:
+    display: "Nitrogen Dioxide"
+    group: "Air Quality"
+    wgrib2_match: ""
+    om_var: "nitrogen_dioxide"
+    units_in: "ug/m3"
+    units_out: "µg/m³"
+    convert: ""
+    clr: "no2.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+  dustC:
+    display: "Dust"
+    group: "Air Quality"
+    wgrib2_match: ""
+    om_var: "dust"
+    units_in: "ug/m3"
+    units_out: "µg/m³"
+    convert: ""
+    clr: "dust.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+
   # ── NBM probabilistic products (om-sourced, batch 4) ─────────────────
   popPrecip:
     display: "Precip Probability"
@@ -3633,6 +3700,352 @@ models:
       - { start: 39, end: 189, step: 3 }
       - { start: 195, end: 261, step: 6 }
     retain_runs: 4
+
+  # ── Batch 5 om models (2026-08-14): the projected-grid crowd (rotated
+  # lat-lon + Lambert, unlocked by the meta.json-driven georef) + CAMS.
+  # HRDPS rotated spacing validated 0.02250 deg vs the ECCC 2.5 km spec.
+
+  HRDPS:
+    # Environment Canada HRDPS (2.5 km continental rotated grid), 4
+    # cycles/day, hourly f00-f48. Northern-tier + Canada coverage the
+    # CONUS CAMs stop short of. Speed-scalar 10m wind, tcc only.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10mS
+      - gust10m
+      - mslp
+      - precip1h
+      - tcc
+      - sfccape
+      - snod
+    source_type: "openmeteo_spatial"
+    om_model_path: "cmc_gem_hrdps"
+    om_cycle_hours: 6
+    display: "HRDPS 2.5km"
+    picker_group: "CONUS"
+    picker_order: 14
+    bbox_lonlat: [-141.0, 38.0, -52.0, 70.0]
+    image_size: [2048, 1341]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 48, step: 1 }
+    retain_runs: 4
+
+  RDPS:
+    # Environment Canada RDPS (10 km North-American rotated grid), 4
+    # cycles/day, hourly all the way to f84.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10mS
+      - gust10m
+      - mslp
+      - precip1h
+      - tcc
+      - sfccape
+      - snod
+    source_type: "openmeteo_spatial"
+    om_model_path: "cmc_gem_rdps_10km"
+    om_cycle_hours: 6
+    display: "RDPS 10km"
+    picker_group: "CONUS"
+    picker_order: 15
+    bbox_lonlat: [-140.0, 18.0, -50.0, 62.0]
+    image_size: [1536, 1046]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 84, step: 1 }
+    retain_runs: 4
+
+  KNMIHAR:
+    # KNMI HARMONIE-AROME Europe (~2 km rotated grid), HOURLY cycles,
+    # hourly f00-f60. Western/Central-Europe warp target.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10mS
+      - gust10m
+      - mslp
+      - vis
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+    source_type: "openmeteo_spatial"
+    om_model_path: "knmi_harmonie_arome_europe"
+    om_cycle_hours: 1
+    om_cycles_back: 3
+    display: "HARMONIE 2km"
+    picker_group: "Europe"
+    picker_order: 56
+    bbox_lonlat: [-15.0, 42.0, 25.0, 62.0]
+    image_size: [1280, 1063]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 60, step: 1 }
+    retain_runs: 4
+
+  DMIHAR:
+    # DMI HARMONIE-AROME (~2 km Lambert grid, Denmark/North Sea focus),
+    # richer surface set than KNMI's (CAPE/CIN/freezing level).
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10mS
+      - gust10m
+      - mslp
+      - vis
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - sfccape
+      - sbcin
+      - frzLvl
+    source_type: "openmeteo_spatial"
+    om_model_path: "dmi_harmonie_arome_europe"
+    om_cycle_hours: 3
+    om_cycles_back: 3
+    display: "HARMONIE-DK 2km"
+    picker_group: "Europe"
+    picker_order: 57
+    bbox_lonlat: [-15.0, 42.0, 25.0, 62.0]
+    image_size: [1280, 1063]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 59, step: 1 }
+    retain_runs: 4
+
+  UKV:
+    # UK Met Office UKV (2 km Lambert grid), HOURLY cycles but a short
+    # f00-f12 range — effectively a nowcast companion to UKMO global.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10mS
+      - gust10m
+      - mslp
+      - vis
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - sfccape
+      - frzLvl
+    source_type: "openmeteo_spatial"
+    om_model_path: "ukmo_uk_deterministic_2km"
+    om_cycle_hours: 1
+    om_cycles_back: 3
+    display: "UKV 2km"
+    picker_group: "Europe"
+    picker_order: 58
+    bbox_lonlat: [-11.0, 48.0, 5.0, 61.0]
+    image_size: [1024, 1448]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 12, step: 1 }
+    retain_runs: 4
+
+  ALADIN:
+    # CHMI ALADIN Central Europe (2 km Lambert), 4 cycles/day, hourly
+    # f00-f72. The only nest in the batch with a full UV wind ladder.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10mS
+      - gust10m
+      - mslp
+      - vis
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - sfccape
+      - wind850
+      - wind700
+      - wind500
+      - wind300
+      - wind250
+      - wind200
+    source_type: "openmeteo_spatial"
+    om_model_path: "chmi_aladin_central_europe_2km"
+    om_cycle_hours: 6
+    display: "ALADIN 2km"
+    picker_group: "Europe"
+    picker_order: 59
+    bbox_lonlat: [2.0, 40.0, 33.0, 56.0]
+    image_size: [1280, 998]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 72, step: 1 }
+    retain_runs: 4
+
+  ICONCH1:
+    # MeteoSwiss ICON-CH1 (1 km rotated Alpine grid!), 8 cycles/day,
+    # hourly f00-f33. TRUE u/v 10m wind (unlike its bigger siblings).
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10m
+      - gust10m
+      - mslp
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - capeML
+      - cinML
+      - snod
+      - frzLvl
+    source_type: "openmeteo_spatial"
+    om_model_path: "meteoswiss_icon_ch1"
+    om_cycle_hours: 3
+    om_cycles_back: 3
+    display: "ICON-CH1 1km"
+    picker_group: "Europe"
+    picker_order: 62
+    bbox_lonlat: [1.23, 42.58, 16.85, 49.79]
+    image_size: [1024, 638]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 33, step: 1 }
+    retain_runs: 4
+
+  ICONCH2:
+    # MeteoSwiss ICON-CH2 (2.1 km, same rotated domain), 2 cycles/day
+    # (00/12z? finer observed occasionally — gates absorb), hourly to
+    # f120: the Alpine medium-range companion to CH1.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10m
+      - gust10m
+      - mslp
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - capeML
+      - cinML
+      - snod
+      - frzLvl
+    source_type: "openmeteo_spatial"
+    om_model_path: "meteoswiss_icon_ch2"
+    om_cycle_hours: 6
+    om_cycles_back: 3
+    display: "ICON-CH2 2km"
+    picker_group: "Europe"
+    picker_order: 63
+    bbox_lonlat: [1.23, 42.58, 16.85, 49.79]
+    image_size: [1024, 638]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 120, step: 1 }
+    retain_runs: 3
+
+  METNO:
+    # MET Norway Nordic post-processed (1 km Lambert), HOURLY cycles,
+    # hourly f00-f57. Tiny variable set, huge resolution.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10mS
+      - gust10m
+      - mslp
+      - precip1h
+      - tcc
+    source_type: "openmeteo_spatial"
+    om_model_path: "metno_nordic_pp"
+    om_cycle_hours: 1
+    om_cycles_back: 3
+    display: "MetNo 1km"
+    picker_group: "Europe"
+    picker_order: 64
+    bbox_lonlat: [2.0, 53.0, 40.0, 72.0]
+    image_size: [1024, 1155]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 57, step: 1 }
+    retain_runs: 4
+
+  AROMEHD:
+    # Météo-France AROME HD (1.3 km) — the higher-res sibling of
+    # AROMEFR with a thin surface set (no mslp/tcc/vis in spatial).
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10m
+      - gust10m
+      - precip1h
+      - lcc
+      - mcc
+      - hcc
+      - sfccape
+    source_type: "openmeteo_spatial"
+    om_model_path: "meteofrance_arome_france_hd"
+    om_cycle_hours: 3
+    om_cycles_back: 3
+    display: "AROME HD 1.3km"
+    picker_group: "Europe"
+    picker_order: 65
+    bbox_lonlat: [-12.0, 37.5, 16.0, 55.4]
+    image_size: [1280, 1200]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 51, step: 1 }
+    retain_runs: 4
+
+  CAMSEU:
+    # Copernicus CAMS Europe (~10 km), 1 cycle/day with ~1-day publish
+    # latency, HOURLY f00-f96 pollution fields. NORTH-FIRST row order
+    # (om_extract detects it from the BBOX orientation).
+    products:
+      - pm25
+      - pm10c
+      - ozoneC
+      - no2C
+      - dustC
+    source_type: "openmeteo_spatial"
+    om_model_path: "cams_europe"
+    om_cycle_hours: 24
+    om_cycles_back: 2
+    display: "CAMS-EU 10km"
+    picker_group: "Air Quality"
+    picker_order: 80
+    bbox_lonlat: [-25.0, 30.0, 45.0, 72.0]
+    image_size: [1280, 1355]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 96, step: 1 }
+    retain_runs: 2
+
+  CAMSGL:
+    # CAMS global (~40 km), 2 cycles/day (~17 h latency), hourly
+    # f00-f120, rendered over CONUS — the wildfire-smoke/dust view.
+    products:
+      - pm25
+      - pm10c
+      - ozoneC
+      - no2C
+      - dustC
+    source_type: "openmeteo_spatial"
+    om_model_path: "cams_global"
+    om_cycle_hours: 12
+    om_cycles_back: 3
+    display: "CAMS 40km"
+    picker_group: "Air Quality"
+    picker_order: 81
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [1024, 1024]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 120, step: 1 }
+    retain_runs: 2
 
   # ── Batch 3 om models (2026-08-14): Europe fill-out + Asia + Marine.
   # All regular-lat-lon grids verified against latest.json crs_wkt; per-

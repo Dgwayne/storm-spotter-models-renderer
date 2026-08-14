@@ -71,6 +71,9 @@ const CRON_TO_WORKFLOW = {
     // models cycle every 3-12 h, and halving the dispatch rate halves
     // the queue pressure 13 parallel jobs put on the 20-runner cap.
     { wf: "render_om_models2.yml", minutes: [37] },
+    // Batch 5 (12-model matrix: projected grids + CAMS) takes the :07
+    // tick so the two hourly matrices alternate half-hours.
+    { wf: "render_om_models3.yml", minutes: [7] },
   ],
 };
 

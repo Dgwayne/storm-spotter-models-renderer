@@ -62,13 +62,19 @@ def read_var(reader, name: str) -> np.ndarray:
 
 
 def grid_frame(meta_path: str, rows: int, cols: int):
-    """(wkt, geotransform) for a south-first rows x cols array."""
+    """(wkt, geotransform, needs_flip) for a rows x cols array.
+
+    The BBOX lat/lons are the FIRST and LAST grid points in storage
+    order, so the sign of the derived row spacing tells us the row
+    order: positive = south-first (most models, flip to north-up),
+    negative = north-first (CAMS Europe stores 71.95N..30.05N, keep).
+    """
     meta = json.load(open(meta_path))
     wkt = meta["crs_wkt"]
     m = re.search(r"BBOX\[([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)\]", wkt)
     if not m:
         raise SystemExit(f"om_extract: no BBOX in {meta_path} crs_wkt")
-    south, west, north, east = (float(v) for v in m.groups())
+    lat_first, lon_first, lat_last, lon_last = (float(v) for v in m.groups())
 
     srs = osr.SpatialReference()
     srs.ImportFromWkt(wkt)
@@ -77,15 +83,21 @@ def grid_frame(meta_path: str, rows: int, cols: int):
     wgs.ImportFromEPSG(4326)
     wgs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
     ct = osr.CoordinateTransformation(wgs, srs)
-    x0, y0, _ = ct.TransformPoint(west, south)
-    x1, y1, _ = ct.TransformPoint(east, north)
+    x0, y0, _ = ct.TransformPoint(lon_first, lat_first)
+    x1, y1, _ = ct.TransformPoint(lon_last, lat_last)
 
     dx = (x1 - x0) / (cols - 1)
     dy = (y1 - y0) / (rows - 1)
     # Corner points are grid-point CENTERS; the geotransform describes
     # pixel edges, hence the half-cell outward shift.
-    gt = (x0 - dx / 2, dx, 0, y1 + dy / 2, 0, -dy)
-    return srs.ExportToWkt(), gt
+    if dy >= 0:
+        # south-first storage: flip to north-up; top edge above y1.
+        gt = (x0 - dx / 2, dx, 0, y1 + dy / 2, 0, -dy)
+        return srs.ExportToWkt(), gt, True
+    # north-first storage: rows already run north -> south; dy is the
+    # (negative) pixel height and the top edge sits above y0.
+    gt = (x0 - dx / 2, dx, 0, y0 - dy / 2, 0, dy)
+    return srs.ExportToWkt(), gt, False
 
 
 def main() -> None:
@@ -104,14 +116,14 @@ def main() -> None:
         if band.shape != (rows, cols):
             raise SystemExit(f"om_extract: {name} shape {band.shape} != {(rows, cols)}")
 
-    wkt, gt = grid_frame(meta_path, rows, cols)
+    wkt, gt, needs_flip = grid_frame(meta_path, rows, cols)
 
     drv = gdal.GetDriverByName("GTiff")
     ds = drv.Create(out_tif, cols, rows, len(bands), gdal.GDT_Float32)
     ds.SetGeoTransform(gt)
     ds.SetProjection(wkt)
     for i, band in enumerate(bands, start=1):
-        data = np.flipud(band).astype(np.float32)  # south-first -> north-up
+        data = (np.flipud(band) if needs_flip else band).astype(np.float32)
         data = np.where(np.isnan(data), NODATA, data)
         out_band = ds.GetRasterBand(i)
         out_band.SetNoDataValue(NODATA)

@@ -1,0 +1,8 @@
+# Nitrogen dioxide (ug/m3). WHO 1h guideline 200; urban plumes past it.
+nv    0   0   0   0
+0     0   0   0   0
+10    90  200 90  110
+40    230 230 60  170
+90    255 160 0   210
+120   240 60  50  240
+230   150 50  160 255
