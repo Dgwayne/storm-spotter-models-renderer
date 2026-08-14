@@ -75,6 +75,11 @@ python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}" \
 NOW_EPOCH=$(date -u +%s)
 BASE_EPOCH=$(( (NOW_EPOCH / CYCLE_SECONDS) * CYCLE_SECONDS ))
 ATTEMPTED_RUNS=()
+# Interim/early manifest publishes belong to the NEWEST cycle that is
+# actually rendering, not literally offset 0 — when the newest cycle
+# hasn't published upstream yet (gate-skips), pinning to offset 0 means
+# a cold start renders a full older cycle with zero manifest updates.
+PUBLISHING_OFFSET=-1
 
 for offset in $(seq 0 "${CYCLES_BACK}"); do
   TARGET_EPOCH=$(( BASE_EPOCH - offset * CYCLE_SECONDS ))
@@ -91,6 +96,9 @@ for offset in $(seq 0 "${CYCLES_BACK}"); do
   if ! curl -sfI "${RUN_DIR_URL}/${FIRST_STAMP}.om" > /dev/null; then
     echo "  run not yet publishing; skip cycle"
     continue
+  fi
+  if [ "${PUBLISHING_OFFSET}" -lt 0 ]; then
+    PUBLISHING_OFFSET=${offset}
   fi
 
   FH_COUNT=0
@@ -114,7 +122,7 @@ for offset in $(seq 0 "${CYCLES_BACK}"); do
     # (counter-based, NOT fh%N — a 6-hourly model would otherwise publish
     # on every single step). See the cold-start rationale in the header.
     FH_COUNT=$(( FH_COUNT + 1 ))
-    if [ "${offset}" -eq 0 ] && [ $(( FH_COUNT % 12 )) -eq 0 ]; then
+    if [ "${offset}" -eq "${PUBLISHING_OFFSET}" ] && [ $(( FH_COUNT % 12 )) -eq 0 ]; then
       echo "==> Interim manifest publish (through f${fh})"
       python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}" \
         || echo "  (interim manifest build failed; continuing)"
@@ -125,7 +133,7 @@ for offset in $(seq 0 "${CYCLES_BACK}"); do
 
   # Publish the manifest as soon as the newest cycle is rendered so the app
   # sees it 10-20 min earlier than waiting for the full sweep + prune.
-  if [ "${offset}" -eq 0 ]; then
+  if [ "${offset}" -eq "${PUBLISHING_OFFSET}" ]; then
     echo "==> Publishing manifest early (newest cycle rendered)"
     python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}" \
       || echo "  (early manifest build failed; will retry at end of tick)"
