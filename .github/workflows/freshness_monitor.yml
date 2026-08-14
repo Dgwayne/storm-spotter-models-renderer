@@ -54,6 +54,14 @@ jobs:
           # healthy sweep touches generatedAt every ~30 min regardless of
           # whether Open-Meteo has a new run. 120 = the standard limit.
           check ICOND2 "https://models.dgwaynes.com/v1/ICOND2/manifest.json" 120
+          # Batch-2 om models (render_om_models.yml matrix, same slot).
+          # Every sweep's bootstrap manifest touches generatedAt, so 120
+          # holds even for the 12-h-cycle GDPS.
+          check AIGFS  "https://models.dgwaynes.com/v1/AIGFS/manifest.json"  120
+          check GFS013 "https://models.dgwaynes.com/v1/GFS013/manifest.json" 120
+          check UKMO   "https://models.dgwaynes.com/v1/UKMO/manifest.json"   120
+          check GDPS   "https://models.dgwaynes.com/v1/GDPS/manifest.json"   120
+          check HGEFS  "https://models.dgwaynes.com/v1/HGEFS/manifest.json"  120
           # GeoColor writes its OWN manifest, so a SAT/manifest.json check
           # says nothing about it. That gap let render_goes_geocolor.yml sit
           # on throttled GitHub-native cron until a user noticed night

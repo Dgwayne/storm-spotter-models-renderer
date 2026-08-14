@@ -58,12 +58,15 @@ const CRON_TO_WORKFLOW = {
   // one tick of NOAA publishing.
   // ICON-D2 (Open-Meteo om-source pilot) rides the same slot: 3-hourly
   // cycles publishing ~46-80 min after init make 30-min dispatches ample.
+  // render_om_models.yml is the batch-2 om matrix (AIGFS/GFS013/UKMO/
+  // GDPS/HGEFS) — all 6-12 h cycle models, same cadence logic.
   "7,37 * * * *": [
     "render_ecmwf.yml",
     "render_gfs.yml",
     "render_aifs.yml",
     "render_gefs.yml",
     "render_icond2.yml",
+    "render_om_models.yml",
   ],
 };
 

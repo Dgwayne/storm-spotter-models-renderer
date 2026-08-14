@@ -1,35 +1,49 @@
 #!/usr/bin/env bash
-# render_icond2.sh — sweep the recent ICON-D2 cycles from the Open-Meteo
-# data_spatial bucket (see the ICOND2 model notes in config/products.yml).
+# render_om.sh <MODEL> — sweep the recent cycles of ANY openmeteo_spatial
+# model (see the ICOND2/AIGFS/GFS013/UKMO/GDPS/HGEFS blocks in
+# config/products.yml). Generalization of the original render_icond2.sh.
 #
-# Structural copy of render_ecmwf.sh with two om-source twists:
-#   * cycles are 3-hourly (8 runs/day) with ~46-80 min publish latency,
-#     so a 3-cycle window always covers the freshest published run;
-#   * the sweep walks FORECAST-HOUR-MAJOR (the render_rrfs.sh lesson —
-#     partial coverage is always "all products out to f_n") AND one .om
-#     file carries every variable for a valid time, so OM_CACHE_DIR lets
-#     the first product's download feed all 27 (decode_pipeline.sh reuses
-#     the cached file); the file is deleted after each fh completes.
+# Design notes carried over (learned the hard way on ICON-D2's first day):
+#   * FORECAST-HOUR-MAJOR sweep + OM_CACHE_DIR: one .om file per valid
+#     time carries every variable, so the first product's download feeds
+#     all the others; partial coverage is always "all products out to f_n".
+#   * Bootstrap manifest at tick start: a cold start must never 404 the
+#     manifest (freshness monitor + app both read it).
+#   * INTERIM manifest publishes during the newest cycle: a cold-start
+#     backfill outlives the 30-min dispatch interval and GitHub supersedes
+#     the older queued run, so publish-only-at-the-end never publishes.
+#   * Per-cycle existence gate = HEAD on the run's FIRST valid-time file
+#     (not f000 — AIGFS/HGEFS start at f006).
 #
 # Data: Open-Meteo AWS Open Data (CC-BY-4.0 — "Weather data by
-# Open-Meteo.com"); underlying model (c) DWD, also CC-BY-4.0.
+# Open-Meteo.com"); underlying models (c) their agencies (DWD, NOAA,
+# UKMO, ECCC), each CC-BY-4.0 or public domain.
 
 set -euo pipefail
 
-MODEL="ICOND2"
+MODEL="${1:?usage: render_om.sh <MODEL>}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG="${REPO_ROOT}/config/products.yml"
 
-# 3 cycles (9 h window): ICON-D2 publishes ~46-80 min after init, so the
-# newest cycle is usually mid-upload on some tick and complete on the
-# next; older cycles are immutable backfill.
-CYCLES_BACK=2
-CYCLE_SECONDS=10800
+CYCLE_HOURS=$(yq -r ".models.${MODEL}.om_cycle_hours" "$CONFIG")
+CYCLE_SECONDS=$(( CYCLE_HOURS * 3600 ))
+CYCLES_BACK=$(yq -r ".models.${MODEL}.om_cycles_back // 2" "$CONFIG")
 
-FH_START=$(yq -r ".models.${MODEL}.forecast_hours_default.start" "$CONFIG")
-FH_END=$(yq -r ".models.${MODEL}.forecast_hours_default.end" "$CONFIG")
-FH_STEP=$(yq -r ".models.${MODEL}.forecast_hours_default.step" "$CONFIG")
+# Forecast-hour list: segments-aware (GFS013/UKMO/GDPS mix hourly + 3-hourly).
+FH_LIST=$(python3 - "$MODEL" "$CONFIG" <<'PY'
+import sys, yaml
+mc = yaml.safe_load(open(sys.argv[2]))["models"][sys.argv[1]]
+segs = mc.get("forecast_hours_segments")
+if segs:
+    hours = sorted({h for s in segs for h in range(s["start"], s["end"] + 1, s.get("step", 1))})
+else:
+    d = mc["forecast_hours_default"]
+    hours = list(range(d["start"], d["end"] + 1, d.get("step", 1)))
+print(" ".join(map(str, hours)))
+PY
+)
+FIRST_FH=$(echo "${FH_LIST}" | cut -d' ' -f1)
 PRODUCTS=$(yq -r ".models.${MODEL}.products[]" "$CONFIG")
 RETAIN=$(yq -r ".models.${MODEL}.retain_runs" "$CONFIG")
 OM_MODEL_PATH=$(yq -r ".models.${MODEL}.om_model_path" "$CONFIG")
@@ -53,8 +67,7 @@ else
 fi
 
 # Publish a manifest immediately (zero runs on a cold start is fine) so
-# the freshness monitor's ICOND2 check and the app never see a 404 while
-# the first sweep is still rendering its ~1300-frame backfill.
+# the freshness monitor and the app never see a 404 mid-backfill.
 python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}" \
   || echo "  (bootstrap manifest build failed; sweep continues)"
 
@@ -69,18 +82,19 @@ for offset in $(seq 0 "${CYCLES_BACK}"); do
   RUN_HOUR=$(date -u -d "@${TARGET_EPOCH}" +%H)
   RUN_DIR_URL="${OM_BASE_URL}/${OM_MODEL_PATH}/${RUN_DATE:0:4}/${RUN_DATE:4:2}/${RUN_DATE:6:2}/${RUN_HOUR}00Z"
   echo ""
-  echo "==> ICOND2 sweep: run=${RUN_DATE}${RUN_HOUR}Z (offset -$((offset * 3))h)"
+  echo "==> ${MODEL} sweep: run=${RUN_DATE}${RUN_HOUR}Z (offset -$((offset * CYCLE_HOURS))h)"
 
-  # One cheap gate per cycle: the run's f00 file (valid time == run time)
-  # is the first thing Open-Meteo uploads. Absent → run not started →
-  # skip 27x49 per-frame HEADs for a cycle that doesn't exist yet.
-  F00_STAMP=$(date -u -d "@${TARGET_EPOCH}" +%Y-%m-%dT%H%M)
-  if ! curl -sfI "${RUN_DIR_URL}/${F00_STAMP}.om" > /dev/null; then
+  # One cheap gate per cycle: the run's FIRST valid-time file is the
+  # first thing Open-Meteo uploads. Absent → run not started → skip the
+  # per-frame HEAD fan-out for a cycle that doesn't exist yet.
+  FIRST_STAMP=$(date -u -d "@$(( TARGET_EPOCH + FIRST_FH * 3600 ))" +%Y-%m-%dT%H%M)
+  if ! curl -sfI "${RUN_DIR_URL}/${FIRST_STAMP}.om" > /dev/null; then
     echo "  run not yet publishing; skip cycle"
     continue
   fi
 
-  for fh in $(seq "${FH_START}" "${FH_STEP}" "${FH_END}"); do
+  FH_COUNT=0
+  for fh in ${FH_LIST}; do
     for product in $PRODUCTS; do
       if [ -z "${FORCE_RERENDER:-}" ]; then
         rel_key="${product}/${RUN_DATE}${RUN_HOUR}/F$(printf '%03d' "$fh").png"
@@ -96,14 +110,11 @@ for offset in $(seq 0 "${CYCLES_BACK}"); do
     # Every product for this valid time is done — drop the shared om file.
     rm -f "${OM_CACHE_DIR}/${MODEL}_${RUN_DATE}${RUN_HOUR}_F$(printf '%03d' "$fh").om"
 
-    # Publish the manifest MID-SWEEP every 6 forecast hours on the newest
-    # cycle. A cold start renders ~1300 frames — longer than the 30-min
-    # dispatch interval — and GitHub supersedes the older queued run, so a
-    # publish-only-at-the-end design leaves the manifest with ZERO runs
-    # (app shows "No data") through the entire first day. build_manifest.py
-    # takes a fresh bucket listing and is race-tolerant by design, so
-    # publishing often is safe; it just costs one listing.
-    if [ "${offset}" -eq 0 ] && [ $(( fh % 6 )) -eq 0 ] && [ "${fh}" -gt 0 ]; then
+    # Interim manifest publish every 12 swept hours on the newest cycle
+    # (counter-based, NOT fh%N — a 6-hourly model would otherwise publish
+    # on every single step). See the cold-start rationale in the header.
+    FH_COUNT=$(( FH_COUNT + 1 ))
+    if [ "${offset}" -eq 0 ] && [ $(( FH_COUNT % 12 )) -eq 0 ]; then
       echo "==> Interim manifest publish (through f${fh})"
       python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}" \
         || echo "  (interim manifest build failed; continuing)"
@@ -123,12 +134,12 @@ done
 
 # ── Prune R2 to the most recent N runs ─────────────────────────────
 echo ""
-echo "==> Pruning ICOND2 to last ${RETAIN} runs"
+echo "==> Pruning ${MODEL} to last ${RETAIN} runs"
 python3 "${SCRIPT_DIR}/prune_old_runs.py" "${MODEL}" "${RETAIN}"
 
 # ── Rebuild manifest (final, post-backfill + post-prune) ──────────
-echo "==> Rebuilding ICOND2 manifest"
+echo "==> Rebuilding ${MODEL} manifest"
 python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}"
 
 echo ""
-echo "==> ICOND2 render complete (attempted runs: ${ATTEMPTED_RUNS[*]})"
+echo "==> ${MODEL} render complete (attempted runs: ${ATTEMPTED_RUNS[*]})"

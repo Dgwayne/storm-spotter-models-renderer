@@ -122,6 +122,22 @@ products:
     point_values: true
     also_meso: true
 
+  wind10mS:
+    display: "10m Wind Speed"
+    group: "Surface & Precipitation/Surface"
+    wgrib2_match: ""
+    # Some om models (UKMO, GDPS) publish 10m wind as a SPEED scalar
+    # rather than U/V components — same display/ramp as wind10m, distinct
+    # code because product keys are global and wind10m is composite_uv.
+    om_var: "wind_speed_10m"
+    units_in: "m/s"
+    units_out: "kt"
+    convert: "A * 1.94384"
+    clr: "wind.clr"
+    pal: ""
+    gpu_data: { min: 0.0, max: 120.0 }
+    point_values: true
+
   gust10m:
     display: "10m Wind Gust"
     group: "Surface & Precipitation/Surface"
@@ -162,6 +178,7 @@ products:
     display: "Surface CAPE"
     group: "Severe Weather/Instability"
     wgrib2_match: ":CAPE:surface:"
+    om_var: "cape"
     units_in: "J/kg"
     units_out: "J/kg"
     convert: ""
@@ -312,6 +329,8 @@ products:
     # Same pattern as NAM's precip3h; {fh_minus_6} substitution lives in
     # decode_pipeline.sh alongside _1 and _3.
     wgrib2_match: ":APCP:surface:{fh_minus_6}-{fh} hour acc"
+    # Open-Meteo `precipitation` on a 6-hourly-step model IS the 6-h sum.
+    om_var: "precipitation"
     fh_min: 6
     fh_step: 6
     units_in: "kg/m^2"
@@ -748,6 +767,10 @@ products:
     # File carries CIN at surface, 180-0, 90-0 (mlcin) and 255-0 mb —
     # ":CIN:surface:" is unique.
     wgrib2_match: ":CIN:surface:"
+    # Open-Meteo publishes CIN positive-magnitude — flip to the negative
+    # NOAA convention cin.clr keys on (same gotcha as cinML).
+    om_var: "convective_inhibition"
+    om_convert: "A * -1.0"
     units_in: "J/kg"
     units_out: "J/kg"
     convert: ""
@@ -2763,6 +2786,12 @@ models:
     # AWS public bucket (no auth needed)
     s3_bucket: "noaa-hrrr-bdp-pds"
     s3_key_template: "hrrr.{date}/conus/hrrr.t{run:02d}z.wrfsfcf{fh:02d}.grib2"
+    # Picker metadata -> v1/models.json (build_models_index.py). Only
+    # models carrying picker_group appear in the app's model picker;
+    # display strings override the app's built-in fallback names.
+    display: "HRRR 3km"
+    picker_group: "CONUS"
+    picker_order: 10
     runs_per_day: 24
     retain_runs: 5
 
@@ -2865,6 +2894,9 @@ models:
     # (NOMADS publishes them as sub-hourly files only — see mirror_rrfs.sh).
     base_url: "https://models.dgwaynes.com"
     s3_key_template: "v1/RRFS/_src/{date}{run:02d}/F{fh:03d}.grib2"
+    display: "RRFS 3km"
+    picker_group: "CONUS"
+    picker_order: 12
     # ⚠ RESTORE AT CUTOVER (2026-10-06 12z): delete base_url + the mirror
     # job, re-enable hourly cycles in render_rrfs.sh, and swap back to the
     # operational bucket path (verify the prefix NCO actually ships):
@@ -3103,6 +3135,9 @@ models:
     forecast_hours_default: { start: 0, end: 60, step: 1 }
     s3_bucket: "noaa-nam-pds"
     s3_key_template: "nam.{date}/nam.t{run:02d}z.conusnest.hiresf{fh:02d}.tm00.grib2"
+    display: "NAM 3km"
+    picker_group: "CONUS"
+    picker_order: 11
     runs_per_day: 4
     runs: [0, 6, 12, 18]
     retain_runs: 5
@@ -3164,6 +3199,9 @@ models:
     base_url: "https://data.ecmwf.int/forecasts"
     index_format: "ecmwf"
     s3_key_template: "{date}/{run:02d}z/ifs/0p25/oper/{date}{run:02d}0000-{fh}h-oper-fc.grib2"
+    display: "ECMWF 25km"
+    picker_group: "Global"
+    picker_order: 22
     runs_per_day: 2
     runs: [0, 12]
     retain_runs: 4
@@ -3205,6 +3243,9 @@ models:
     base_url: "https://data.ecmwf.int/forecasts"
     index_format: "ecmwf"
     s3_key_template: "{date}/{run:02d}z/aifs-single/0p25/oper/{date}{run:02d}0000-{fh}h-oper-fc.grib2"
+    display: "AIFS 25km"
+    picker_group: "Global"
+    picker_order: 23
     runs_per_day: 4
     runs: [0, 6, 12, 18]
     retain_runs: 4
@@ -3250,6 +3291,9 @@ models:
     forecast_hours_default: { start: 0, end: 384, step: 6 }
     s3_bucket: "noaa-gefs-pds"
     s3_key_template: "gefs.{date}/{run:02d}/atmos/pgrb2ap5/geavg.t{run:02d}z.pgrb2a.0p50.f{fh:03d}"
+    display: "GEFS Mean 50km"
+    picker_group: "Ensembles"
+    picker_order: 30
     runs_per_day: 4
     runs: [0, 6, 12, 18]
     retain_runs: 4
@@ -3298,6 +3342,10 @@ models:
       - frzLvl
     source_type: "openmeteo_spatial"
     om_model_path: "dwd_icon_d2"
+    om_cycle_hours: 3
+    display: "ICON-D2 2km"
+    picker_group: "Europe"
+    picker_order: 50
     # Grid-point-center extent from the bucket's meta.json crs_wkt BBOX
     # (43.18..58.08N, -3.94..20.34E, 1215x746 @ 0.02 deg regular WGS84).
     bbox_lonlat: [-3.94, 43.18, 20.34, 58.08]
@@ -3308,6 +3356,178 @@ models:
     point_grid: [128, 128]
     forecast_hours_default: { start: 0, end: 48, step: 1 }
     retain_runs: 5
+
+  # ── Batch 2 om models (2026-08-14): regular-lat-lon global grids from
+  # the Open-Meteo bucket, rendered to the standard CONUS bbox like GFS.
+  # Per-model variable sets verified against latest.json the same day —
+  # each products list contains ONLY fields that exist in that model's
+  # spatial files (om_extract exit-3 skips guard against drift anyway).
+  # NBM / HRRR-15min / HRDPS / RDPS are NOT here: their grids are
+  # Lambert/rotated and need om_extract projection support first.
+
+  AIGFS:
+    # NOAA GraphCast-GFS ("AI GFS"), 0.25° global, 4 cycles/day.
+    # 6-hourly f006-f384 — the model emits NO f000 step. Thin surface
+    # set (no RH/gust/CAPE/vis) but a full pressure ladder.
+    products:
+      - t2m
+      - mslp
+      - wind10m
+      - precip6h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - wind850
+      - wind700
+      - wind500
+      - wind300
+      - wind250
+      - wind200
+      - rh850
+      - rh700
+      - rh500
+    source_type: "openmeteo_spatial"
+    om_model_path: "ncep_aigfs025"
+    om_cycle_hours: 6
+    display: "AI GFS 25km"
+    picker_group: "Global"
+    picker_order: 24
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [1024, 1024]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 6, end: 384, step: 6 }
+    retain_runs: 4
+
+  GFS013:
+    # GFS at 0.13° ("GFS 13km") — the hourly GFS: f000-f120 hourly then
+    # 3-hourly to f384. Surface-only variable set (no pressure levels,
+    # no MSLP — surface pressure only in the source, so mslp is absent).
+    # precip1h on the 3-hourly tail is a 3-h bucket (precip since the
+    # previous frame) — same semantics the scrub bar already shows for
+    # mixed-cadence models.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10m
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - snod
+    source_type: "openmeteo_spatial"
+    om_model_path: "ncep_gfs013"
+    om_cycle_hours: 6
+    display: "GFS 13km"
+    picker_group: "Global"
+    picker_order: 21
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [1536, 1536]
+    point_grid: [128, 128]
+    forecast_hours_segments:
+      - { start: 0, end: 120, step: 1 }
+      - { start: 123, end: 384, step: 3 }
+    retain_runs: 4
+
+  UKMO:
+    # UK Met Office global deterministic, 10 km, 4 cycles/day, hourly
+    # f000-f054 then 3-hourly to f060. Richest surface set of the batch
+    # (CAPE/CIN/gust/vis) but 10m wind is a SPEED scalar (wind10mS) and
+    # pressure-level wind is speed-only too (skipped for now).
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10mS
+      - gust10m
+      - mslp
+      - vis
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - sfccape
+      - sbcin
+      - rh850
+      - rh700
+      - rh500
+    source_type: "openmeteo_spatial"
+    om_model_path: "ukmo_global_deterministic_10km"
+    om_cycle_hours: 6
+    display: "UKMO 10km"
+    picker_group: "Global"
+    picker_order: 25
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [1024, 1024]
+    point_grid: [128, 128]
+    forecast_hours_segments:
+      - { start: 0, end: 54, step: 1 }
+      - { start: 57, end: 60, step: 3 }
+    retain_runs: 4
+
+  GDPS:
+    # Environment Canada GEM global (GDPS), 15 km, 2 cycles/day (00/12z),
+    # hourly f000-f084 then 3-hourly to f240. Total cloud only; 10m wind
+    # is a speed scalar (wind10mS).
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10mS
+      - gust10m
+      - mslp
+      - precip1h
+      - tcc
+      - snod
+    source_type: "openmeteo_spatial"
+    om_model_path: "cmc_gem_gdps_15km"
+    om_cycle_hours: 12
+    display: "GDPS 15km"
+    picker_group: "Global"
+    picker_order: 26
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [1024, 1024]
+    point_grid: [128, 128]
+    forecast_hours_segments:
+      - { start: 0, end: 84, step: 1 }
+      - { start: 87, end: 240, step: 3 }
+    retain_runs: 4
+
+  HGEFS:
+    # NCEP Hurricane GEFS ensemble MEAN, 0.25°, 4 cycles/day, 6-hourly
+    # f006-f240 (no f000, like AIGFS). The tropical-season trend view.
+    products:
+      - t2m
+      - mslp
+      - wind10m
+      - precip6h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - wind850
+      - wind700
+      - wind500
+      - wind300
+      - wind250
+      - wind200
+      - rh850
+      - rh700
+      - rh500
+    source_type: "openmeteo_spatial"
+    om_model_path: "ncep_hgefs025_ensemble_mean"
+    om_cycle_hours: 6
+    display: "HGEFS Mean 25km"
+    picker_group: "Tropical"
+    picker_order: 40
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [1024, 1024]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 6, end: 240, step: 6 }
+    retain_runs: 4
 
   GFS:
     # 2026-08-06 expansion (Pivotal parity) — verified against the 12z
@@ -3393,6 +3613,9 @@ models:
       - { start: 126, end: 384, step: 6 }
     s3_bucket: "noaa-gfs-bdp-pds"
     s3_key_template: "gfs.{date}/{run:02d}/atmos/gfs.t{run:02d}z.pgrb2.0p25.f{fh:03d}"
+    display: "GFS 25km"
+    picker_group: "Global"
+    picker_order: 20
     runs_per_day: 4
     runs: [0, 6, 12, 18]
     retain_runs: 5

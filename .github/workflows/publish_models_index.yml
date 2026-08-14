@@ -1,0 +1,46 @@
+name: Publish models index
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - config/products.yml
+      - scripts/build_models_index.py
+  workflow_dispatch:
+
+concurrency:
+  group: publish-models-index
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps (pyyaml + rclone from Ubuntu repos)
+        run: |
+          set -e
+          python3 -m pip install --no-input pyyaml
+          sudo apt-get update -qq && sudo apt-get install -y -qq rclone
+
+      - name: Configure rclone for B2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Build + upload models.json
+        run: python3 scripts/build_models_index.py

@@ -1,28 +1,31 @@
-name: Render ICON-D2
+name: Render OM models
 
 on:
   schedule:
-    # Twice hourly backstop — the Cloudflare cron-trigger Worker is the
-    # reliable dispatcher (see cron-trigger/; this workflow rides the
-    # :7/:37 slot with ECMWF/GFS/AIFS/GEFS). ICON-D2 runs every 3 h and
-    # publishes ~46-80 min after init, so 30-min dispatches catch each
-    # run within one tick.
+    # Backstop only — the Cloudflare cron-trigger Worker (:7/:37 slot) is
+    # the reliable dispatcher. All five are 6-12 h cycle models, so
+    # 30-min dispatches catch each run within one tick of Open-Meteo
+    # publishing it.
     - cron: '7,37 * * * *'
   workflow_dispatch:
     inputs:
       force_rerender:
-        description: 'Re-render frames even when already on R2 (bypass idempotency check). Used to recover from a pipeline-bug-produced corrupt batch.'
+        description: 'Re-render frames even when already on R2 (bypass idempotency check).'
         type: boolean
         default: false
 
 concurrency:
-  group: render-icond2
+  group: render-om-models
   cancel-in-progress: false
 
 jobs:
   render:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [AIGFS, GFS013, UKMO, GDPS, HGEFS]
     env:
       R2_BUCKET: ${{ secrets.B2_BUCKET }}
       R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
@@ -99,9 +102,6 @@ jobs:
           key: yq-v4.53.3-linux-amd64
 
       - name: Install omfiles (Open-Meteo .om reader)
-        # PyPI-only package (not on conda-forge). Pinned; retried because a
-        # transient PyPI hiccup should not kill a render tick (the
-        # 2026-08-12 GitHub-CDN outage lesson generalized).
         run: |
           set -e
           for i in 1 2 3; do
@@ -123,5 +123,5 @@ jobs:
           endpoint = ${{ secrets.B2_S3_ENDPOINT }}
           EOF
 
-      - name: Render ICON-D2
-        run: bash scripts/render_om.sh ICOND2
+      - name: Render ${{ matrix.model }}
+        run: bash scripts/render_om.sh ${{ matrix.model }}
