@@ -189,7 +189,11 @@ if [ -z "${FORCE_RERENDER:-}" ]; then
 fi
 
 # --- 2. Fetch idx once; helper computes byte ranges for any match regex --------
-curl -sf "${IDX_URL}" -o "${WORK}/file.idx"
+# (om sources have no idx — IDX_URL is empty and the whole-file fetch
+# happens in step 4om instead.)
+if [ "${SOURCE_TYPE}" != "openmeteo_spatial" ]; then
+  curl -sf "${IDX_URL}" -o "${WORK}/file.idx"
+fi
 
 # Echo "start-end" byte ranges (one per line) for idx lines matching $1.
 # .idx lines: msgnum:offset:d=yyyymmddhh:VAR:level:fcsthour:
