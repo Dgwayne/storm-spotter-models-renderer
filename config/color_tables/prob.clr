@@ -1,0 +1,13 @@
+# Probability (%) for NBM's probabilistic products. Transparent below
+# 5%; cool blues for slight chances warming through green/yellow to
+# saturated red at near-certainty.
+nv    0   0   0   0
+0     0   0   0   0
+5     110 150 240 100
+15    70  170 245 150
+30    30  190 200 190
+45    60  210 110 215
+60    230 220 0   230
+75    250 160 0   245
+90    240 80  30  255
+100   220 20  60  255

@@ -57,6 +57,7 @@ jobs:
           # Batch-2 om models (render_om_models.yml matrix, same slot).
           # Every sweep's bootstrap manifest touches generatedAt, so 120
           # holds even for the 12-h-cycle GDPS.
+          check NBM    "https://models.dgwaynes.com/v1/NBM/manifest.json"    120
           check AIGFS  "https://models.dgwaynes.com/v1/AIGFS/manifest.json"  120
           check GFS013 "https://models.dgwaynes.com/v1/GFS013/manifest.json" 120
           check UKMO   "https://models.dgwaynes.com/v1/UKMO/manifest.json"   120

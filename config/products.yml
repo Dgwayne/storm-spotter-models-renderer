@@ -122,6 +122,32 @@ products:
     point_values: true
     also_meso: true
 
+  # ── NBM probabilistic products (om-sourced, batch 4) ─────────────────
+  popPrecip:
+    display: "Precip Probability"
+    group: "Surface & Precipitation/Precipitation"
+    wgrib2_match: ""
+    om_var: "precipitation_probability"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "prob.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+  popSnow:
+    display: "Snow Probability"
+    group: "Winter Weather"
+    wgrib2_match: ""
+    om_var: "snowfall_probability"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "prob.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+
   # ── Marine / wave products (om-sourced, batch 3) ─────────────────────
   waveHgt:
     display: "Wave Height"
@@ -3570,6 +3596,42 @@ models:
     image_size: [1024, 1024]
     point_grid: [128, 128]
     forecast_hours_default: { start: 6, end: 240, step: 6 }
+    retain_runs: 4
+
+  NBM:
+    # National Blend of Models (2.5 km NDFD grid) — the first PROJECTED
+    # om grid (Lambert Conformal; om_extract derives the geotransform
+    # from latest.json's crs_wkt corners, validated dx 2539.700 m vs the
+    # NDFD spec's 2539.703). HOURLY cycles, f001-f036 hourly then
+    # 3-hourly to f189 and 6-hourly to f261; no f000 (blend of forecasts,
+    # not an analysis). The probability products are the point of NBM.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10mS
+      - gust10m
+      - precip1h
+      - popPrecip
+      - popSnow
+      - tcc
+      - sfccape
+    source_type: "openmeteo_spatial"
+    om_model_path: "ncep_nbm_conus"
+    om_cycle_hours: 1
+    om_cycles_back: 3
+    display: "NBM 2.5km"
+    picker_group: "CONUS"
+    picker_order: 13
+    # Warp target = the NBM grid's own footprint (it stops at ~126.3°W,
+    # so the shared CONUS box would waste an 8° transparent margin).
+    bbox_lonlat: [-126.28, 19.23, -59.04, 54.37]
+    image_size: [2048, 1386]
+    point_grid: [128, 128]
+    forecast_hours_segments:
+      - { start: 1, end: 36, step: 1 }
+      - { start: 39, end: 189, step: 3 }
+      - { start: 195, end: 261, step: 6 }
     retain_runs: 4
 
   # ── Batch 3 om models (2026-08-14): Europe fill-out + Asia + Marine.

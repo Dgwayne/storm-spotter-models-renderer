@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        model: [AIGFS, GFS013, UKMO, GDPS, HGEFS]
+        model: [NBM, AIGFS, GFS013, UKMO, GDPS, HGEFS]
     env:
       R2_BUCKET: ${{ secrets.B2_BUCKET }}
       R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}

@@ -304,7 +304,6 @@ if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
   # One .om file carries EVERY variable for a valid time, so the sweep
   # (render_icond2.sh) walks fh-major with OM_CACHE_DIR set — the first
   # product downloads the file (~25 MB) and the other 20+ reuse it.
-  BBOX_ARGS=(${BBOX})   # west south east north (bbox_lonlat order)
   if [ -n "${OM_CACHE_DIR:-}" ]; then
     mkdir -p "${OM_CACHE_DIR}"
     OM_LOCAL="${OM_CACHE_DIR}/${MODEL}_${RUN_DATE}${RUN_HOUR}_F$(printf '%03d' "$FH").om"
@@ -317,6 +316,23 @@ if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
       exit 0
     }
     echo "  fetched $(stat -c%s "${OM_LOCAL}" 2>/dev/null || stat -f%z "${OM_LOCAL}") bytes (om)"
+  fi
+
+  # Source-grid geometry (crs_wkt + corner bbox) comes from the model's
+  # latest.json — static per model, so one cached fetch per sweep tick.
+  # NOT products.yml bbox_lonlat, which is the WARP TARGET (see the
+  # om_extract.py header for the global-models bug this separation fixed).
+  if [ -n "${OM_CACHE_DIR:-}" ]; then
+    OM_META="${OM_CACHE_DIR}/${MODEL}_grid_meta.json"
+  else
+    OM_META="${WORK}/grid_meta.json"
+  fi
+  if [ ! -s "${OM_META}" ]; then
+    curl -sf "${OM_BASE_URL}/${OM_MODEL_PATH}/latest.json" -o "${OM_META}.part.$$" \
+      && mv "${OM_META}.part.$$" "${OM_META}" || {
+      echo "  om grid meta unavailable; exit 0"
+      exit 0
+    }
   fi
 
   OM_VAR=$(yq -r ".products.${PRODUCT}.om_var // \"\"" "$CONFIG")
@@ -347,7 +363,7 @@ if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
     GDAL_INPUT_ARGS=()
     while IFS=$'\t' read -r letter om_name; do
       om_extract_or_skip "${OM_LOCAL}" \
-        "${WORK}/om_${letter}.tif" "${BBOX_ARGS[@]}" "${om_name}"
+        "${WORK}/om_${letter}.tif" "${OM_META}" "${om_name}"
       GDAL_INPUT_ARGS+=("-${letter}" "${WORK}/om_${letter}.tif")
     done < <(yq -r ".products.${PRODUCT}.om_inputs | to_entries[] | [.key, .value] | @tsv" "$CONFIG")
     gdal_calc.py --quiet "${GDAL_INPUT_ARGS[@]}" --outfile="${RAW_TIF}" \
@@ -355,7 +371,7 @@ if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
   elif [ "${COMPOSITE_UV}" = "true" ]; then
     # om_uv: [u_variable, v_variable] -> band 1 = U, band 2 = V.
     om_extract_or_skip "${OM_LOCAL}" \
-      "${WORK}/om_uv.tif" "${BBOX_ARGS[@]}" ${OM_UV}
+      "${WORK}/om_uv.tif" "${OM_META}" ${OM_UV}
     gdal_calc.py --quiet -A "${WORK}/om_uv.tif" --A_band=1 -B "${WORK}/om_uv.tif" --B_band=2 \
       --outfile="${WORK}/mag.tif" --calc="sqrt(A*A + B*B)" \
       --NoDataValue=-9999 --type=Float32 --overwrite
@@ -371,7 +387,7 @@ if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
       exit 0
     fi
     om_extract_or_skip "${OM_LOCAL}" \
-      "${WORK}/native.tif" "${BBOX_ARGS[@]}" "${OM_VAR}"
+      "${WORK}/native.tif" "${OM_META}" "${OM_VAR}"
     if [ -n "${OM_CONVERT}" ]; then
       gdal_calc.py --quiet -A "${WORK}/native.tif" --outfile="${RAW_TIF}" \
         --calc="${OM_CONVERT}" --NoDataValue=-9999 --type=Float32 --overwrite

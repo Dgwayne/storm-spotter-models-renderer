@@ -2,27 +2,43 @@
 """Extract variables from an Open-Meteo .om spatial file into a GeoTIFF.
 
 Usage:
-    om_extract.py <file.om> <out.tif> <west> <south> <east> <north> <var> [<var2> ...]
+    om_extract.py <file.om> <out.tif> <meta.json> <var> [<var2> ...]
 
-Writes a Float32 GTiff in EPSG:4326 with one band per requested variable,
-in argument order (U before V for composite_uv products — decode_pipeline.sh
-reads band 1 as U and band 2 as V, mirroring the GRIB path's idx ordering).
+Writes a Float32 GTiff with one band per requested variable, in argument
+order (U before V for composite_uv products — decode_pipeline.sh reads
+band 1 as U and band 2 as V, mirroring the GRIB path's idx ordering).
 
-Open-Meteo data_spatial conventions handled here (see the ICOND2 model notes
-in config/products.yml):
-  * rows are SOUTH-first — flipped to the north-up order GeoTIFF expects;
-  * the bbox in the bucket's meta.json describes grid-point CENTERS, so the
-    geotransform shifts outward by half a cell to describe pixel edges;
-  * NaN (outside the model's native nest inside the rectangular grid) maps
-    to the pipeline's standard -9999 nodata.
+Georeferencing comes from <meta.json> (the model's latest.json — grid
+geometry is static per model): its `crs_wkt` carries both the CRS and a
+USAGE BBOX holding the LAT/Lon of the corner GRID POINTS. The corners
+are transformed from WGS84 into the grid's own CRS and the pixel size
+derived from the array dims. One code path covers all three grid kinds
+in the bucket:
 
-The values arrive already unit-normalized by Open-Meteo (degC, m/s, hPa, mm),
-so products.yml `om_convert`/`convert` expressions run in the same unit space
-as the GRIB path's post-GDAL-normalization values.
+  * regular lat-lon (ICON-D2, the globals): the transform is identity;
+  * Lambert Conformal (NBM, HRRR-15min): corners land in projected
+    metres — validated against NBM's documented NDFD grid: derived
+    dx = 2539.700 m vs the spec's 2539.703 m;
+  * rotated lat-lon (HRDPS, KNMI/DMI HARMONIE): the transform rotates
+    into the oblique frame where the grid is regular.
+
+The grid must be axis-aligned and regular in its own CRS (true for
+every data_spatial model — that is what a grid IS), and the om array is
+south-first — flipped to north-up here. NaN (outside a nest's native
+domain) maps to the pipeline's standard -9999 nodata.
+
+⚠ THE BUG THIS DESIGN REPLACED: v1 georeferenced the source array with
+the model's products.yml `bbox_lonlat` — which is the WARP TARGET box.
+Correct only when the grid extent and target happen to coincide
+(ICON-D2, the European regionals); for every global-source model it
+squashed the whole planet into the CONUS box. Source georeferencing and
+output framing are different facts and now come from different places.
 """
 
 from __future__ import annotations
 
+import json
+import re
 import sys
 
 import numpy as np
@@ -45,12 +61,38 @@ def read_var(reader, name: str) -> np.ndarray:
     sys.exit(3)
 
 
+def grid_frame(meta_path: str, rows: int, cols: int):
+    """(wkt, geotransform) for a south-first rows x cols array."""
+    meta = json.load(open(meta_path))
+    wkt = meta["crs_wkt"]
+    m = re.search(r"BBOX\[([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+)\]", wkt)
+    if not m:
+        raise SystemExit(f"om_extract: no BBOX in {meta_path} crs_wkt")
+    south, west, north, east = (float(v) for v in m.groups())
+
+    srs = osr.SpatialReference()
+    srs.ImportFromWkt(wkt)
+    srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    wgs = osr.SpatialReference()
+    wgs.ImportFromEPSG(4326)
+    wgs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    ct = osr.CoordinateTransformation(wgs, srs)
+    x0, y0, _ = ct.TransformPoint(west, south)
+    x1, y1, _ = ct.TransformPoint(east, north)
+
+    dx = (x1 - x0) / (cols - 1)
+    dy = (y1 - y0) / (rows - 1)
+    # Corner points are grid-point CENTERS; the geotransform describes
+    # pixel edges, hence the half-cell outward shift.
+    gt = (x0 - dx / 2, dx, 0, y1 + dy / 2, 0, -dy)
+    return srs.ExportToWkt(), gt
+
+
 def main() -> None:
-    if len(sys.argv) < 8:
+    if len(sys.argv) < 5:
         raise SystemExit(__doc__)
-    om_path, out_tif = sys.argv[1], sys.argv[2]
-    west, south, east, north = (float(v) for v in sys.argv[3:7])
-    var_names = sys.argv[7:]
+    om_path, out_tif, meta_path = sys.argv[1], sys.argv[2], sys.argv[3]
+    var_names = sys.argv[4:]
 
     import omfiles
 
@@ -62,16 +104,12 @@ def main() -> None:
         if band.shape != (rows, cols):
             raise SystemExit(f"om_extract: {name} shape {band.shape} != {(rows, cols)}")
 
-    # meta.json bbox = grid-point centers; geotransform wants pixel edges.
-    xres = (east - west) / (cols - 1)
-    yres = (north - south) / (rows - 1)
+    wkt, gt = grid_frame(meta_path, rows, cols)
 
     drv = gdal.GetDriverByName("GTiff")
     ds = drv.Create(out_tif, cols, rows, len(bands), gdal.GDT_Float32)
-    ds.SetGeoTransform((west - xres / 2, xres, 0, north + yres / 2, 0, -yres))
-    srs = osr.SpatialReference()
-    srs.ImportFromEPSG(4326)
-    ds.SetProjection(srs.ExportToWkt())
+    ds.SetGeoTransform(gt)
+    ds.SetProjection(wkt)
     for i, band in enumerate(bands, start=1):
         data = np.flipud(band).astype(np.float32)  # south-first -> north-up
         data = np.where(np.isnan(data), NODATA, data)
