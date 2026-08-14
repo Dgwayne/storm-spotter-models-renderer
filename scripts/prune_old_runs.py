@@ -19,7 +19,7 @@ MODEL = sys.argv[1]
 RETAIN = int(sys.argv[2])
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-with (REPO_ROOT / "config" / "products.yml").open() as f:
+with (REPO_ROOT / "config" / "products.yml").open(encoding="utf-8") as f:
     cfg = yaml.safe_load(f)
 
 products = cfg["models"][MODEL]["products"]

@@ -74,6 +74,11 @@ const CRON_TO_WORKFLOW = {
     // Batch 5 (12-model matrix: projected grids + CAMS) takes the :07
     // tick so the two hourly matrices alternate half-hours.
     { wf: "render_om_models3.yml", minutes: [7] },
+    // Sub-hourly models (HRRR15 + AROMEFR15, minute-stamped frames):
+    // hourly cycles with ~35-85 min upstream latency, so BOTH ticks —
+    // a 30-min cadence catches each new run within one tick. The
+    // matrix is max-parallel 2, so runner-cap pressure stays nil.
+    "render_om_15min.yml",
   ],
 };
 

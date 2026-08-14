@@ -25,7 +25,9 @@ MODEL = sys.argv[1]
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONFIG = REPO_ROOT / "config" / "products.yml"
 
-with CONFIG.open() as f:
+# Explicit UTF-8: products.yml carries non-ASCII (°, é) and the default
+# locale encoding is not UTF-8 everywhere (Windows dev boxes = cp1252).
+with CONFIG.open(encoding="utf-8") as f:
     cfg = yaml.safe_load(f)
 
 model_cfg = cfg["models"][MODEL]
@@ -34,6 +36,12 @@ products = model_cfg["products"]
 bbox = model_cfg["bbox_lonlat"]
 img_size = model_cfg["image_size"]
 retain = model_cfg.get("retain_runs", 5)
+# Sub-hourly om models (om_step_minutes): the frame unit everywhere in
+# this script becomes MINUTES since run init (forecast_minutes_default,
+# product fh knobs, the M#####.png numbers r2_listing parses) and the
+# manifest gains stepMinutes + schemaVersion 2. None absent → hourly
+# manifests stay byte-identical to the pre-sub-hourly output.
+step_minutes = model_cfg.get("om_step_minutes")
 
 bucket = os.environ["R2_BUCKET"]
 
@@ -46,6 +54,11 @@ def expected_fhs(model: str, run_hour: int) -> list[int]:
     Reproduces the old hardcoded HRRR (48h synoptic / 18h) and GFS (default
     only) behavior, and covers RRFS (84h synoptic / 18h) with no new branch.
     """
+    # Sub-hourly models express their whole range in minutes; run_hour
+    # never matters (they cycle hourly with one fixed range).
+    if step_minutes:
+        d = model_cfg["forecast_minutes_default"]
+        return list(range(d["start"], d["end"] + 1, d.get("step", step_minutes)))
     # Segmented ranges (GFS/ECMWF: 3-hourly near term, 6-hourly tail)
     # take precedence — the segments ARE the full expected set.
     segs = model_cfg.get("forecast_hours_segments")
@@ -189,6 +202,13 @@ manifest = {
     "mesoCatalog": meso_catalog,
     "runs": runs_payload,
 }
+if step_minutes:
+    # Schema 2 = minute-frame manifests. Old app builds never fetch
+    # these: models.json gates the model behind minSchema (see
+    # build_models_index.py), and the first dynamic-picker release
+    # already filters on it.
+    manifest["schemaVersion"] = 2
+    manifest["stepMinutes"] = step_minutes
 
 out_path = Path("/tmp") / f"manifest_{MODEL}.json"
 out_path.write_text(json.dumps(manifest, indent=2))

@@ -24,6 +24,12 @@ import subprocess
 # because a product's stamps are always one width.
 RUN_RE = re.compile(r"\d{10}(?:\d{2})?")
 PNG_RE = re.compile(r"F(\d{3})\.png")
+# Sub-hourly models (products.yml om_step_minutes) publish M#####.png
+# frames — the number is MINUTES since run init (M00915 = +15h15m), so
+# hourly F-frame names stay untouched and the two schemes can never
+# collide. A product only ever uses one scheme, so both feed the same
+# int set in parse_tree.
+MPNG_RE = re.compile(r"M(\d{5})\.png")
 
 
 def rclone_lsf_recursive(bucket: str, model: str) -> str | None:
@@ -63,7 +69,7 @@ def parse_tree(listing: str, products) -> dict:
         if product not in product_set or not RUN_RE.fullmatch(run):
             continue
         hours = tree.setdefault(product, {}).setdefault(run, set())
-        m = PNG_RE.fullmatch(fname)
+        m = PNG_RE.fullmatch(fname) or MPNG_RE.fullmatch(fname)
         if m:
             hours.add(int(m.group(1)))
     return tree

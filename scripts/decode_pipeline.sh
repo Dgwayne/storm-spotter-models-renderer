@@ -84,6 +84,20 @@ SOURCE_TYPE=$(yq -r ".models.${MODEL}.source_type // \"grib\"" "$CONFIG")
 OM_MODEL_PATH=$(yq -r ".models.${MODEL}.om_model_path // \"\"" "$CONFIG")
 OM_BASE_URL=$(yq -r ".models.${MODEL}.om_base_url // \"https://openmeteo.s3.amazonaws.com/data_spatial\"" "$CONFIG")
 
+# om_step_minutes: sub-hourly om models (HRRR15/AROMEFR15). When set, the
+# FH argument — and every product fh knob evaluated above/below — is
+# MINUTES since run init, and frames publish as M#####.png (M00915 =
+# +15h15m). Absent (every hourly model) leaves the classic F###.png
+# naming and hour math byte-identical.
+OM_STEP_MINUTES=$(yq -r ".models.${MODEL}.om_step_minutes // \"\"" "$CONFIG")
+if [ -n "${OM_STEP_MINUTES}" ]; then
+  FRAME_BASE="M$(printf '%05d' "$FH")"
+  FH_SECONDS=$(( FH * 60 ))
+else
+  FRAME_BASE="F$(printf '%03d' "$FH")"
+  FH_SECONDS=$(( FH * 3600 ))
+fi
+
 # om-source products can gate hours independently of the GRIB models that
 # share the product code (e.g. precip1h: Open-Meteo's `precipitation` is a
 # preceding-hour sum that has no meaning at f00, while the GRIB models
@@ -109,7 +123,7 @@ fi
 if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
   # Valid-time keyed .om file: data_spatial/<model>/<Y>/<M>/<D>/<HH00>Z/<valid>.om
   RUN_EPOCH=$(date -u -d "${RUN_DATE:0:4}-${RUN_DATE:4:2}-${RUN_DATE:6:2} ${RUN_HOUR}:00:00" +%s)
-  VALID_STAMP=$(date -u -d "@$(( RUN_EPOCH + FH * 3600 ))" +%Y-%m-%dT%H%M)
+  VALID_STAMP=$(date -u -d "@$(( RUN_EPOCH + FH_SECONDS ))" +%Y-%m-%dT%H%M)
   OM_URL="${OM_BASE_URL}/${OM_MODEL_PATH}/${RUN_DATE:0:4}/${RUN_DATE:4:2}/${RUN_DATE:6:2}/${RUN_HOUR}00Z/${VALID_STAMP}.om"
   GRIB_URL="${OM_URL}"   # for the log line below
   IDX_URL=""
@@ -140,7 +154,7 @@ fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-OUT_REL="v1/${MODEL}/${PRODUCT}/${RUN_DATE}${RUN_HOUR}/F$(printf '%03d' "$FH").png"
+OUT_REL="v1/${MODEL}/${PRODUCT}/${RUN_DATE}${RUN_HOUR}/${FRAME_BASE}.png"
 echo "[${MODEL}/${PRODUCT}] run=${RUN_DATE}${RUN_HOUR} fh=${FH}"
 echo "  source: ${GRIB_URL}"
 echo "  target: ${OUT_REL}"
@@ -150,7 +164,7 @@ if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
   # Reuse a sweep-cached download when present (render_icond2.sh walks
   # fh-major so every product shares one om fetch per valid time) — a
   # cached file IS the publish check.
-  OM_CACHED="${OM_CACHE_DIR:+${OM_CACHE_DIR}/${MODEL}_${RUN_DATE}${RUN_HOUR}_F$(printf '%03d' "$FH").om}"
+  OM_CACHED="${OM_CACHE_DIR:+${OM_CACHE_DIR}/${MODEL}_${RUN_DATE}${RUN_HOUR}_${FRAME_BASE}.om}"
   if [ -z "${OM_CACHED}" ] || [ ! -s "${OM_CACHED}" ]; then
     if ! curl -sfI "${OM_URL}" > /dev/null; then
       echo "  om file not yet published; exit 0"
@@ -306,7 +320,7 @@ if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
   # product downloads the file (~25 MB) and the other 20+ reuse it.
   if [ -n "${OM_CACHE_DIR:-}" ]; then
     mkdir -p "${OM_CACHE_DIR}"
-    OM_LOCAL="${OM_CACHE_DIR}/${MODEL}_${RUN_DATE}${RUN_HOUR}_F$(printf '%03d' "$FH").om"
+    OM_LOCAL="${OM_CACHE_DIR}/${MODEL}_${RUN_DATE}${RUN_HOUR}_${FRAME_BASE}.om"
   else
     OM_LOCAL="${WORK}/src.om"
   fi
@@ -501,7 +515,7 @@ if [ "${POINT_VALUES}" = "true" ]; then
   # grid for the cell-picker readout), falling back to the model's.
   GRID_W=$(yq -r ".products.${PRODUCT}.point_grid[0] // .models.${MODEL}.point_grid[0] // 128" "$CONFIG")
   GRID_H=$(yq -r ".products.${PRODUCT}.point_grid[1] // .models.${MODEL}.point_grid[1] // 128" "$CONFIG")
-  JSON_LOCAL="${WORK}/F$(printf '%03d' "$FH").json"
+  JSON_LOCAL="${WORK}/${FRAME_BASE}.json"
   JSON_REL="${OUT_REL%.png}.json"
   if python3 "${REPO_ROOT}/scripts/sample_point_values.py" \
        "${MERC_TIF}" "${JSON_LOCAL}" "${MODEL}" "${PRODUCT}" \
@@ -526,7 +540,7 @@ NEAREST_FLAG="-nearest_color_entry"
 gdaldem color-relief -q -alpha ${NEAREST_FLAG} \
   "${MERC_TIF}" "${CLR_PATH}" "${RGBA_TIF}"
 
-PNG_OUT="${WORK}/F$(printf '%03d' "$FH").png"
+PNG_OUT="${WORK}/${FRAME_BASE}.png"
 gdal_translate -q -of PNG -co ZLEVEL=9 "${RGBA_TIF}" "${PNG_OUT}"
 
 PNG_SIZE=$(stat -c%s "${PNG_OUT}" 2>/dev/null || stat -f%z "${PNG_OUT}")
@@ -561,7 +575,7 @@ echo "  uploaded ${OUT_REL}"
 GPU_MIN=$(yq -r ".products.${PRODUCT}.gpu_data.min // \"\"" "$CONFIG")
 GPU_MAX=$(yq -r ".products.${PRODUCT}.gpu_data.max // \"\"" "$CONFIG")
 if [ -n "${GPU_MIN}" ] && [ -n "${GPU_MAX}" ]; then
-  DATA_PNG="${WORK}/F$(printf '%03d' "$FH").data.png"
+  DATA_PNG="${WORK}/${FRAME_BASE}.data.png"
   DATA_REL="${OUT_REL%.png}.data.png"
   # ONE multi-band gdal_calc with --hideNoData (the render_mrms_obs.sh lesson:
   # masked-array handling silently zeroed a separate constant alpha calc).

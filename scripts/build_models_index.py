@@ -25,7 +25,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONFIG = REPO_ROOT / "config" / "products.yml"
 
-with CONFIG.open() as f:
+with CONFIG.open(encoding="utf-8") as f:
     cfg = yaml.safe_load(f)
 
 entries = []
@@ -33,14 +33,21 @@ for key, mc in cfg["models"].items():
     group = mc.get("picker_group")
     if not group:
         continue  # OBS/RTMA/SAT pseudo-models never reach the picker
-    entries.append(
-        {
-            "key": key,
-            "display": mc.get("display", key),
-            "group": group,
-            "order": mc.get("picker_order", 999),
-        }
-    )
+    entry = {
+        "key": key,
+        "display": mc.get("display", key),
+        "group": group,
+        "order": mc.get("picker_order", 999),
+    }
+    # min_schema gates the entry to app builds that understand the
+    # model's manifest schema (2 = sub-hourly minute frames). The app's
+    # index provider DROPS entries above its capability, so a fleet
+    # that predates a frame-scheme change never lists a model it can't
+    # scrub. Absent = schema 1 = every build.
+    ms = mc.get("min_schema")
+    if ms:
+        entry["minSchema"] = int(ms)
+    entries.append(entry)
 
 entries.sort(key=lambda e: e["order"])
 for e in entries:

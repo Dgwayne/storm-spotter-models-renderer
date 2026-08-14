@@ -30,16 +30,27 @@ CYCLE_HOURS=$(yq -r ".models.${MODEL}.om_cycle_hours" "$CONFIG")
 CYCLE_SECONDS=$(( CYCLE_HOURS * 3600 ))
 CYCLES_BACK=$(yq -r ".models.${MODEL}.om_cycles_back // 2" "$CONFIG")
 
-# Forecast-hour list: segments-aware (GFS013/UKMO/GDPS mix hourly + 3-hourly).
+# Sub-hourly models (om_step_minutes): every fh in this sweep is MINUTES
+# since run init and frames are M#####.png — see decode_pipeline.sh.
+STEP_MINUTES=$(yq -r ".models.${MODEL}.om_step_minutes // \"\"" "$CONFIG")
+FH_UNIT_SECONDS=3600
+[ -n "${STEP_MINUTES}" ] && FH_UNIT_SECONDS=60
+
+# Forecast-hour list: segments-aware (GFS013/UKMO/GDPS mix hourly + 3-hourly);
+# sub-hourly models list minutes from forecast_minutes_default instead.
 FH_LIST=$(python3 - "$MODEL" "$CONFIG" <<'PY'
 import sys, yaml
 mc = yaml.safe_load(open(sys.argv[2]))["models"][sys.argv[1]]
-segs = mc.get("forecast_hours_segments")
-if segs:
-    hours = sorted({h for s in segs for h in range(s["start"], s["end"] + 1, s.get("step", 1))})
+if mc.get("om_step_minutes"):
+    d = mc["forecast_minutes_default"]
+    hours = list(range(d["start"], d["end"] + 1, d.get("step", mc["om_step_minutes"])))
 else:
-    d = mc["forecast_hours_default"]
-    hours = list(range(d["start"], d["end"] + 1, d.get("step", 1)))
+    segs = mc.get("forecast_hours_segments")
+    if segs:
+        hours = sorted({h for s in segs for h in range(s["start"], s["end"] + 1, s.get("step", 1))})
+    else:
+        d = mc["forecast_hours_default"]
+        hours = list(range(d["start"], d["end"] + 1, d.get("step", 1)))
 print(" ".join(map(str, hours)))
 PY
 )
@@ -92,7 +103,7 @@ for offset in $(seq 0 "${CYCLES_BACK}"); do
   # One cheap gate per cycle: the run's FIRST valid-time file is the
   # first thing Open-Meteo uploads. Absent → run not started → skip the
   # per-frame HEAD fan-out for a cycle that doesn't exist yet.
-  FIRST_STAMP=$(date -u -d "@$(( TARGET_EPOCH + FIRST_FH * 3600 ))" +%Y-%m-%dT%H%M)
+  FIRST_STAMP=$(date -u -d "@$(( TARGET_EPOCH + FIRST_FH * FH_UNIT_SECONDS ))" +%Y-%m-%dT%H%M)
   if ! curl -sfI "${RUN_DIR_URL}/${FIRST_STAMP}.om" > /dev/null; then
     echo "  run not yet publishing; skip cycle"
     continue
@@ -103,9 +114,16 @@ for offset in $(seq 0 "${CYCLES_BACK}"); do
 
   FH_COUNT=0
   for fh in ${FH_LIST}; do
+    # Frame stem must match decode_pipeline.sh's FRAME_BASE exactly —
+    # the skip grep and the om-cache rm below both key on it.
+    if [ -n "${STEP_MINUTES}" ]; then
+      frame_base="M$(printf '%05d' "$fh")"
+    else
+      frame_base="F$(printf '%03d' "$fh")"
+    fi
     for product in $PRODUCTS; do
       if [ -z "${FORCE_RERENDER:-}" ]; then
-        rel_key="${product}/${RUN_DATE}${RUN_HOUR}/F$(printf '%03d' "$fh").png"
+        rel_key="${product}/${RUN_DATE}${RUN_HOUR}/${frame_base}.png"
         if grep -qxF "${rel_key}" "${EXISTING_KEYS_FILE}"; then
           continue
         fi
@@ -116,7 +134,7 @@ for offset in $(seq 0 "${CYCLES_BACK}"); do
         }
     done
     # Every product for this valid time is done — drop the shared om file.
-    rm -f "${OM_CACHE_DIR}/${MODEL}_${RUN_DATE}${RUN_HOUR}_F$(printf '%03d' "$fh").om"
+    rm -f "${OM_CACHE_DIR}/${MODEL}_${RUN_DATE}${RUN_HOUR}_${frame_base}.om"
 
     # Interim manifest publish every 12 swept hours on the newest cycle
     # (counter-based, NOT fh%N — a 6-hourly model would otherwise publish
