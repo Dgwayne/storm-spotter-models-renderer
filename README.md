@@ -22,6 +22,11 @@ zero egress fees.
 ECMWF frames come from [ECMWF IFS open data](https://www.ecmwf.int/en/forecasts/datasets/open-data)
 (CC-BY-4.0 — contains modified ECMWF IFS open data).
 
+ICON-D2 frames are rendered from the [Open-Meteo database on AWS Open Data](https://github.com/open-meteo/open-data)
+(CC-BY-4.0 — weather data by Open-Meteo.com; underlying model © DWD, CC-BY-4.0).
+This is the `openmeteo_spatial` source type: whole `.om` files per valid time
+decoded locally via `scripts/om_extract.py` instead of GRIB idx byte-ranges.
+
 Last 5 runs per model are retained on R2. Storage envelope ≈ 360 MB.
 
 ## URL shape on R2

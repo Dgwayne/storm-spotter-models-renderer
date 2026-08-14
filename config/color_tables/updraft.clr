@@ -1,0 +1,16 @@
+# Max column updraft velocity (m/s) — ICON's `updraft` field. Severe
+# convection lives roughly 10-40 m/s (36.75 max observed on the
+# 2026-08-13 ICON-D2 sample). Transparent below 1 m/s so synoptic lift
+# doesn't paint the whole map.
+nv    0   0   0   0
+0     0   0   0   0
+1     140 180 250 80
+3     90  150 250 130
+5     40  170 220 170
+8     40  200 120 200
+12    220 220 0   220
+16    250 170 0   235
+20    250 110 0   245
+25    240 50  30  255
+30    220 0   90  255
+40    255 0   200 255

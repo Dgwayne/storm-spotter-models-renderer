@@ -137,6 +137,13 @@ def expected_for(code: str, run_expected: list[int]) -> list[int]:
     """Clamp a run's expected hours to the product's fh_cap/fh_min/fh_step."""
     cap = products_cfg[code].get("fh_cap")
     floor = products_cfg[code].get("fh_min")
+    # om-sourced models gate hours via om_fh_min so shared product codes
+    # keep their GRIB-model behavior (see decode_pipeline.sh); mirror it
+    # here or the scrub bar paints the gated hours as permanently missing.
+    if model_cfg.get("source_type") == "openmeteo_spatial":
+        om_floor = products_cfg[code].get("om_fh_min")
+        if om_floor is not None and (floor is None or om_floor > floor):
+            floor = om_floor
     # fh_step: product renders only every Nth hour (NAM's 3-hour APCP
     # buckets on an hourly-output model). Must mirror decode_pipeline.sh's
     # skip or the scrub bar paints the skipped hours as missing.

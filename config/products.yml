@@ -72,6 +72,9 @@ products:
     pal: "hrrr_t2m.pal"
     gpu_data: { min: -60.0, max: 130.0 }
     ecmwf_match: "^2t:sfc:"
+    # Open-Meteo data_spatial values are already degC, so the same C -> F
+    # convert applies (see the ICOND2 model notes).
+    om_var: "temperature_2m"
     point_values: true
     # also_meso: publish in the manifest's mesoCatalog too — the app's
     # Mesoanalysis layer lists this product (its f00 frame already
@@ -90,6 +93,13 @@ products:
     pal: "hrrr_td2m.pal"
     gpu_data: { min: -60.0, max: 90.0 }
     ecmwf_match: "^2d:sfc:"
+    # Open-Meteo ships no 2m dewpoint — derive via Magnus from T (degC) +
+    # RH (%). om_calc runs INSTEAD of convert and must emit final display
+    # units (degF). RH clamped >= 0.1 so log() never sees zero.
+    om_inputs:
+      A: "temperature_2m"
+      B: "relative_humidity_2m"
+    om_calc: "(243.04*(log(maximum(B,0.1)/100.0)+17.625*A/(243.04+A))/(17.625-(log(maximum(B,0.1)/100.0)+17.625*A/(243.04+A))))*1.8+32"
     point_values: true
     also_meso: true
 
@@ -108,6 +118,7 @@ products:
     gpu_data: { min: 0.0, max: 120.0 }
     # Colon anchors the param so "100u:sfc:" can never match.
     ecmwf_match: "^(10u|10v):sfc:"
+    om_uv: ["wind_u_component_10m", "wind_v_component_10m"]
     point_values: true
     also_meso: true
 
@@ -123,6 +134,7 @@ products:
     gpu_data: { min: 0.0, max: 140.0 }
     # ECMWF 10fg = max gust since the previous 3 h step (not instantaneous).
     ecmwf_match: "^10fg:sfc:"
+    om_var: "wind_gusts_10m"
     point_values: true
     also_meso: true
 
@@ -134,6 +146,10 @@ products:
     # message order, so NAM renders PRMSL (the standard reduction).
     wgrib2_match: ":(MSLMA|MSLET|PRMSL):mean sea level:"
     ecmwf_match: "^msl:sfc:"
+    # Open-Meteo pressure_msl is ALREADY hPa (GRIB sources are Pa) — the
+    # explicit empty om_convert suppresses the /100 for om models.
+    om_var: "pressure_msl"
+    om_convert: ""
     units_in: "Pa"
     units_out: "hPa"
     convert: "A / 100.0"
@@ -161,6 +177,11 @@ products:
     # 1-hour bucket ending at the current fh: "(fh-1)-fh hour acc".
     # decode_pipeline.sh substitutes {fh} and {fh_minus_1} before matching.
     wgrib2_match: ":APCP:surface:{fh_minus_1}-{fh} hour acc"
+    # Open-Meteo `precipitation` = preceding-hour sum (mm), meaningless at
+    # f00 (om_fh_min gates om sources only; GRIB models self-gate via the
+    # {fh_minus_1} idx match failing at f00).
+    om_var: "precipitation"
+    om_fh_min: 1
     units_in: "kg/m^2"
     units_out: "in"
     convert: "A / 25.4"
@@ -326,6 +347,7 @@ products:
     group: "Upper Air/Wind"
     wgrib2_match: ":(UGRD|VGRD):850 mb:"
     ecmwf_match: "^(u|v):pl:850$"
+    om_uv: ["wind_u_component_850hPa", "wind_v_component_850hPa"]
     composite_uv: true
     units_in: "m/s"
     units_out: "kt"
@@ -340,6 +362,7 @@ products:
     group: "Upper Air/Wind"
     wgrib2_match: ":(UGRD|VGRD):700 mb:"
     ecmwf_match: "^(u|v):pl:700$"
+    om_uv: ["wind_u_component_700hPa", "wind_v_component_700hPa"]
     composite_uv: true
     units_in: "m/s"
     units_out: "kt"
@@ -354,6 +377,7 @@ products:
     group: "Upper Air/Wind"
     wgrib2_match: ":(UGRD|VGRD):300 mb:"
     ecmwf_match: "^(u|v):pl:300$"
+    om_uv: ["wind_u_component_300hPa", "wind_v_component_300hPa"]
     composite_uv: true
     units_in: "m/s"
     units_out: "kt"
@@ -368,6 +392,7 @@ products:
     group: "Upper Air/Wind"
     wgrib2_match: ":(UGRD|VGRD):250 mb:"
     ecmwf_match: "^(u|v):pl:250$"
+    om_uv: ["wind_u_component_250hPa", "wind_v_component_250hPa"]
     composite_uv: true
     units_in: "m/s"
     units_out: "kt"
@@ -382,6 +407,7 @@ products:
     group: "Upper Air/Wind"
     wgrib2_match: ":(UGRD|VGRD):200 mb:"
     ecmwf_match: "^(u|v):pl:200$"
+    om_uv: ["wind_u_component_200hPa", "wind_v_component_200hPa"]
     composite_uv: true
     units_in: "m/s"
     units_out: "kt"
@@ -411,6 +437,7 @@ products:
     group: "Upper Air/Moisture"
     wgrib2_match: ":RH:850 mb:"
     ecmwf_match: "^r:pl:850$"
+    om_var: "relative_humidity_850hPa"
     units_in: "%"
     units_out: "%"
     convert: ""
@@ -424,6 +451,7 @@ products:
     group: "Upper Air/Moisture"
     wgrib2_match: ":RH:700 mb:"
     ecmwf_match: "^r:pl:700$"
+    om_var: "relative_humidity_700hPa"
     units_in: "%"
     units_out: "%"
     convert: ""
@@ -437,6 +465,7 @@ products:
     group: "Upper Air/Moisture"
     wgrib2_match: ":RH:500 mb:"
     ecmwf_match: "^r:pl:500$"
+    om_var: "relative_humidity_500hPa"
     units_in: "%"
     units_out: "%"
     convert: ""
@@ -541,6 +570,7 @@ products:
     group: "Upper Air/Wind"
     wgrib2_match: ":(UGRD|VGRD):500 mb:"
     ecmwf_match: "^(u|v):pl:500$"
+    om_uv: ["wind_u_component_500hPa", "wind_v_component_500hPa"]
     composite_uv: true
     units_in: "m/s"
     units_out: "kt"
@@ -581,6 +611,7 @@ products:
     display: "Cloud Cover"
     group: "Clouds & Satellite"
     wgrib2_match: ":TCDC:entire atmosphere"
+    om_var: "cloud_cover"
     units_in: "%"
     units_out: "%"
     convert: ""
@@ -593,6 +624,7 @@ products:
     display: "Cloud Cover (Low)"
     group: "Clouds & Satellite"
     wgrib2_match: ":LCDC:low cloud layer:"
+    om_var: "cloud_cover_low"
     units_in: "%"
     units_out: "%"
     convert: ""
@@ -605,6 +637,7 @@ products:
     display: "Cloud Cover (Mid)"
     group: "Clouds & Satellite"
     wgrib2_match: ":MCDC:middle cloud layer:"
+    om_var: "cloud_cover_mid"
     units_in: "%"
     units_out: "%"
     convert: ""
@@ -617,6 +650,7 @@ products:
     display: "Cloud Cover (High)"
     group: "Clouds & Satellite"
     wgrib2_match: ":HCDC:high cloud layer:"
+    om_var: "cloud_cover_high"
     units_in: "%"
     units_out: "%"
     convert: ""
@@ -721,6 +755,64 @@ products:
     pal: ""
     point_values: true
 
+  # ── Open-Meteo-sourced severe products (ICOND2 pilot) ──────────────────
+  # DWD ICON's CAPE/CIN are MIXED-LAYER parcels (CAPE_ML/CIN_ML), so they
+  # get honest codes instead of riding sfccape/sbcin's "Surface" labels.
+  capeML:
+    display: "CAPE (Mixed Layer)"
+    group: "Severe Weather/Instability"
+    wgrib2_match: ""
+    om_var: "cape"
+    units_in: "J/kg"
+    units_out: "J/kg"
+    convert: ""
+    clr: "cape.clr"
+    pal: ""
+    gpu_data: { min: 0.0, max: 6000.0 }
+    point_values: true
+  cinML:
+    display: "CIN (Mixed Layer)"
+    group: "Severe Weather/Instability"
+    wgrib2_match: ""
+    # Open-Meteo publishes CIN as a POSITIVE magnitude (verified max ~660
+    # on 2026-08-13); flip to the negative NOAA convention cin.clr keys on.
+    om_var: "convective_inhibition"
+    om_convert: "A * -1.0"
+    units_in: "J/kg"
+    units_out: "J/kg"
+    convert: ""
+    clr: "cin.clr"
+    pal: ""
+    point_values: true
+  lpi:
+    display: "Lightning Potential"
+    group: "Severe Weather/Composites"
+    wgrib2_match: ""
+    # ICON's LPI (Lightning Potential Index, J/kg) — a different quantity
+    # than HRRR's LTNG flash-rate product, so it keeps its own code/ramp.
+    om_var: "lightning_potential"
+    units_in: "J/kg"
+    units_out: "J/kg"
+    convert: ""
+    clr: "lpi.clr"
+    pal: ""
+    point_values: true
+    point_decimals: 1
+  updraft:
+    display: "Max Updraft"
+    group: "Severe Weather/Composites"
+    wgrib2_match: ""
+    # ICON max updraft velocity in the column (m/s) — the closest thing to
+    # a storm-intensity proxy the om set offers with no reflectivity field.
+    om_var: "updraft"
+    units_in: "m/s"
+    units_out: "m/s"
+    convert: ""
+    clr: "updraft.clr"
+    pal: ""
+    point_values: true
+    point_decimals: 1
+
   uh25:
     display: "Updraft Helicity (1h max)"
     group: "Severe Weather/Wind Shear"
@@ -740,6 +832,7 @@ products:
     display: "Snow Depth"
     group: "Winter Weather"
     wgrib2_match: ":SNOD:surface:"
+    om_var: "snow_depth"
     units_in: "m"
     units_out: "in"
     convert: "A * 39.3701"
@@ -1212,6 +1305,7 @@ products:
     display: "Freezing Level"
     group: "Winter Weather"
     wgrib2_match: ":HGT:0C isotherm:"
+    om_var: "freezing_level_height"
     units_in: "m"
     units_out: "m"
     convert: ""
@@ -1227,6 +1321,7 @@ products:
     display: "2m Relative Humidity"
     group: "Surface & Precipitation/Surface"
     wgrib2_match: ":RH:2 m above ground:"
+    om_var: "relative_humidity_2m"
     units_in: "%"
     units_out: "%"
     convert: ""
@@ -1242,6 +1337,7 @@ products:
     display: "Surface Visibility"
     group: "Surface & Precipitation/Surface"
     wgrib2_match: ":VIS:surface:"
+    om_var: "visibility"
     units_in: "m"
     units_out: "mi"
     convert: "A / 1609.34"
@@ -3153,6 +3249,61 @@ models:
     runs_per_day: 4
     runs: [0, 6, 12, 18]
     retain_runs: 4
+
+  ICOND2:
+    # DWD ICON-D2 (2.2 km Central-Europe CAM) — the om-reader pilot model,
+    # sourced from the Open-Meteo AWS Open Data bucket's data_spatial
+    # layout (s3://openmeteo, us-west-2, public, free egress) instead of a
+    # GRIB feed: one .om file per valid time carries all ~93 variables.
+    # Licence CC-BY-4.0 ("Weather data by Open-Meteo.com"); the underlying
+    # DWD open data is CC-BY-4.0 as well. See scripts/om_extract.py.
+    # 8 cycles/day (every 3 h), hourly f00-f48; first files land ~46 min
+    # after init, full run complete ~init+80 min (measured 2026-08-13).
+    # No simulated reflectivity — Open-Meteo doesn't ingest DWD's DBZ
+    # fields, so the catalog leads with CAPE/updraft/LPI instead.
+    # Values arrive unit-normalized (degC, m/s, hPa, mm) so most products
+    # reuse the GRIB-path convert expressions; om_convert overrides the
+    # exceptions (mslp arrives in hPa, cinML needs the sign flip).
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10m
+      - gust10m
+      - mslp
+      - vis
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - capeML
+      - cinML
+      - lpi
+      - updraft
+      - wind850
+      - wind700
+      - wind500
+      - wind300
+      - wind250
+      - wind200
+      - rh850
+      - rh700
+      - rh500
+      - snod
+      - frzLvl
+    source_type: "openmeteo_spatial"
+    om_model_path: "dwd_icon_d2"
+    # Grid-point-center extent from the bucket's meta.json crs_wkt BBOX
+    # (43.18..58.08N, -3.94..20.34E, 1215x746 @ 0.02 deg regular WGS84).
+    bbox_lonlat: [-3.94, 43.18, 20.34, 58.08]
+    # Web-Mercator aspect of that bbox is ~1.02:1 (y span 0.4143 rad vs
+    # x span 0.4238), so a near-square output; 1536 wide is a modest
+    # upsample of the 1215-col native grid.
+    image_size: [1536, 1502]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 48, step: 1 }
+    retain_runs: 5
 
   GFS:
     # 2026-08-06 expansion (Pivotal parity) — verified against the 12z

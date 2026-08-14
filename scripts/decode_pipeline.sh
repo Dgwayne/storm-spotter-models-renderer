@@ -76,6 +76,24 @@ BASE_URL=$(yq -r ".models.${MODEL}.base_url // \"\"" "$CONFIG")
 # index_format: "wgrib2" (NOAA .idx text lines, default) or "ecmwf"
 # (open-data JSON-lines .index with _offset/_length).
 INDEX_FORMAT=$(yq -r ".models.${MODEL}.index_format // \"wgrib2\"" "$CONFIG")
+# source_type: "grib" (default: idx byte-range subsetting) or
+# "openmeteo_spatial" (whole .om files from the Open-Meteo AWS Open Data
+# bucket's data_spatial layout — one file per valid time carrying every
+# variable; extraction happens locally via scripts/om_extract.py).
+SOURCE_TYPE=$(yq -r ".models.${MODEL}.source_type // \"grib\"" "$CONFIG")
+OM_MODEL_PATH=$(yq -r ".models.${MODEL}.om_model_path // \"\"" "$CONFIG")
+OM_BASE_URL=$(yq -r ".models.${MODEL}.om_base_url // \"https://openmeteo.s3.amazonaws.com/data_spatial\"" "$CONFIG")
+
+# om-source products can gate hours independently of the GRIB models that
+# share the product code (e.g. precip1h: Open-Meteo's `precipitation` is a
+# preceding-hour sum that has no meaning at f00, while the GRIB models
+# self-gate via the {fh_minus_1} idx match failing).
+if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
+  OM_FH_MIN=$(yq -r ".products.${PRODUCT}.om_fh_min // \"\"" "$CONFIG")
+  if [ -n "${OM_FH_MIN}" ] && [ "${FH}" -lt "${OM_FH_MIN}" ]; then
+    exit 0
+  fi
+fi
 
 # The match expression compute_ranges consumes depends on the index format.
 if [ "${INDEX_FORMAT}" = "ecmwf" ]; then
@@ -88,26 +106,35 @@ else
   MATCH_EXPR="${WGRIB2_MATCH}"
 fi
 
-# Expand the key template (Python so we get printf-style {fh:02d}/{fh:03d}).
-# Pass run/fh as strings then int() to avoid Python rejecting "02" as a literal.
-S3_KEY=$(python3 - <<PY
+if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
+  # Valid-time keyed .om file: data_spatial/<model>/<Y>/<M>/<D>/<HH00>Z/<valid>.om
+  RUN_EPOCH=$(date -u -d "${RUN_DATE:0:4}-${RUN_DATE:4:2}-${RUN_DATE:6:2} ${RUN_HOUR}:00:00" +%s)
+  VALID_STAMP=$(date -u -d "@$(( RUN_EPOCH + FH * 3600 ))" +%Y-%m-%dT%H%M)
+  OM_URL="${OM_BASE_URL}/${OM_MODEL_PATH}/${RUN_DATE:0:4}/${RUN_DATE:4:2}/${RUN_DATE:6:2}/${RUN_HOUR}00Z/${VALID_STAMP}.om"
+  GRIB_URL="${OM_URL}"   # for the log line below
+  IDX_URL=""
+else
+  # Expand the key template (Python so we get printf-style {fh:02d}/{fh:03d}).
+  # Pass run/fh as strings then int() to avoid Python rejecting "02" as a literal.
+  S3_KEY=$(python3 - <<PY
 date = "${RUN_DATE}"
 run = int("${RUN_HOUR}")
 fh = int("${FH}")
 tmpl = r"""${S3_KEY_TEMPLATE}"""
 print(tmpl.format(date=date, run=run, fh=fh))
 PY
-)
-if [ -n "${BASE_URL}" ]; then
-  GRIB_URL="${BASE_URL}/${S3_KEY}"
-else
-  GRIB_URL="https://${S3_BUCKET}.s3.amazonaws.com/${S3_KEY}"
-fi
-if [ "${INDEX_FORMAT}" = "ecmwf" ]; then
-  # ECMWF: ...-fc.grib2 pairs with ...-fc.index (suffix swap, not append).
-  IDX_URL="${GRIB_URL%.grib2}.index"
-else
-  IDX_URL="${GRIB_URL}.idx"
+  )
+  if [ -n "${BASE_URL}" ]; then
+    GRIB_URL="${BASE_URL}/${S3_KEY}"
+  else
+    GRIB_URL="https://${S3_BUCKET}.s3.amazonaws.com/${S3_KEY}"
+  fi
+  if [ "${INDEX_FORMAT}" = "ecmwf" ]; then
+    # ECMWF: ...-fc.grib2 pairs with ...-fc.index (suffix swap, not append).
+    IDX_URL="${GRIB_URL%.grib2}.index"
+  else
+    IDX_URL="${GRIB_URL}.idx"
+  fi
 fi
 
 WORK="$(mktemp -d)"
@@ -118,8 +145,19 @@ echo "[${MODEL}/${PRODUCT}] run=${RUN_DATE}${RUN_HOUR} fh=${FH}"
 echo "  source: ${GRIB_URL}"
 echo "  target: ${OUT_REL}"
 
-# --- 1. Confirm the GRIB file + idx are published ------------------------------
-if ! curl -sfI "${IDX_URL}" > /dev/null; then
+# --- 1. Confirm the source file is published -----------------------------------
+if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
+  # Reuse a sweep-cached download when present (render_icond2.sh walks
+  # fh-major so every product shares one om fetch per valid time) — a
+  # cached file IS the publish check.
+  OM_CACHED="${OM_CACHE_DIR:+${OM_CACHE_DIR}/${MODEL}_${RUN_DATE}${RUN_HOUR}_F$(printf '%03d' "$FH").om}"
+  if [ -z "${OM_CACHED}" ] || [ ! -s "${OM_CACHED}" ]; then
+    if ! curl -sfI "${OM_URL}" > /dev/null; then
+      echo "  om file not yet published; exit 0"
+      exit 0
+    fi
+  fi
+elif ! curl -sfI "${IDX_URL}" > /dev/null; then
   echo "  idx not yet published; exit 0"
   exit 0
 fi
@@ -217,7 +255,7 @@ for msgnum, offset, ln in parsed:
 PY
 }
 
-if [ "${DERIVED}" != "true" ]; then
+if [ "${SOURCE_TYPE}" != "openmeteo_spatial" ] && [ "${DERIVED}" != "true" ]; then
   mapfile -t MATCH_RANGES < <(compute_ranges "${MATCH_EXPR}")
 
   if [ "${#MATCH_RANGES[@]}" -eq 0 ]; then
@@ -257,7 +295,76 @@ fi
 # and dewpoint products.
 
 RAW_TIF="${WORK}/raw.tif"
-if [ "${DERIVED}" = "true" ]; then
+if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
+  # --- 4om. Open-Meteo spatial source: whole-file fetch + local extraction ----
+  # One .om file carries EVERY variable for a valid time, so the sweep
+  # (render_icond2.sh) walks fh-major with OM_CACHE_DIR set — the first
+  # product downloads the file (~25 MB) and the other 20+ reuse it.
+  BBOX_ARGS=(${BBOX})   # west south east north (bbox_lonlat order)
+  if [ -n "${OM_CACHE_DIR:-}" ]; then
+    mkdir -p "${OM_CACHE_DIR}"
+    OM_LOCAL="${OM_CACHE_DIR}/${MODEL}_${RUN_DATE}${RUN_HOUR}_F$(printf '%03d' "$FH").om"
+  else
+    OM_LOCAL="${WORK}/src.om"
+  fi
+  if [ ! -s "${OM_LOCAL}" ]; then
+    curl -sf "${OM_URL}" -o "${OM_LOCAL}.part.$$" && mv "${OM_LOCAL}.part.$$" "${OM_LOCAL}" || {
+      echo "  om download failed; exit 0"
+      exit 0
+    }
+    echo "  fetched $(stat -c%s "${OM_LOCAL}" 2>/dev/null || stat -f%z "${OM_LOCAL}") bytes (om)"
+  fi
+
+  OM_VAR=$(yq -r ".products.${PRODUCT}.om_var // \"\"" "$CONFIG")
+  OM_UV=$(yq -r "(.products.${PRODUCT}.om_uv // []) | join(\" \")" "$CONFIG")
+  OM_CALC=$(yq -r ".products.${PRODUCT}.om_calc // \"\"" "$CONFIG")
+  # om_convert overrides convert for om sources (om values arrive in
+  # Open-Meteo's units, which usually — but not always — match the GRIB
+  # path's post-normalization unit space; e.g. pressure_msl is already
+  # hPa where PRMSL is Pa). An explicit empty string means "no conversion".
+  OM_CONVERT=$(yq -r "(.products.${PRODUCT}.om_convert // .products.${PRODUCT}.convert) // \"\"" "$CONFIG")
+
+  if [ -n "${OM_CALC}" ]; then
+    # Derived om product (products.yml om_inputs letter->variable map +
+    # om_calc formula in FINAL display units — convert is not applied).
+    GDAL_INPUT_ARGS=()
+    while IFS=$'\t' read -r letter om_name; do
+      python3 "${REPO_ROOT}/scripts/om_extract.py" "${OM_LOCAL}" \
+        "${WORK}/om_${letter}.tif" "${BBOX_ARGS[@]}" "${om_name}"
+      GDAL_INPUT_ARGS+=("-${letter}" "${WORK}/om_${letter}.tif")
+    done < <(yq -r ".products.${PRODUCT}.om_inputs | to_entries[] | [.key, .value] | @tsv" "$CONFIG")
+    gdal_calc.py --quiet "${GDAL_INPUT_ARGS[@]}" --outfile="${RAW_TIF}" \
+      --calc="${OM_CALC}" --NoDataValue=-9999 --type=Float32 --overwrite
+  elif [ "${COMPOSITE_UV}" = "true" ]; then
+    # om_uv: [u_variable, v_variable] -> band 1 = U, band 2 = V.
+    python3 "${REPO_ROOT}/scripts/om_extract.py" "${OM_LOCAL}" \
+      "${WORK}/om_uv.tif" "${BBOX_ARGS[@]}" ${OM_UV}
+    gdal_calc.py --quiet -A "${WORK}/om_uv.tif" --A_band=1 -B "${WORK}/om_uv.tif" --B_band=2 \
+      --outfile="${WORK}/mag.tif" --calc="sqrt(A*A + B*B)" \
+      --NoDataValue=-9999 --type=Float32 --overwrite
+    if [ -n "${OM_CONVERT}" ]; then
+      gdal_calc.py --quiet -A "${WORK}/mag.tif" --outfile="${RAW_TIF}" \
+        --calc="${OM_CONVERT}" --NoDataValue=-9999 --type=Float32 --overwrite
+    else
+      cp "${WORK}/mag.tif" "${RAW_TIF}"
+    fi
+  else
+    if [ -z "${OM_VAR}" ]; then
+      echo "  no om_var defined for ${PRODUCT}; skip"
+      exit 0
+    fi
+    python3 "${REPO_ROOT}/scripts/om_extract.py" "${OM_LOCAL}" \
+      "${WORK}/native.tif" "${BBOX_ARGS[@]}" "${OM_VAR}"
+    if [ -n "${OM_CONVERT}" ]; then
+      gdal_calc.py --quiet -A "${WORK}/native.tif" --outfile="${RAW_TIF}" \
+        --calc="${OM_CONVERT}" --NoDataValue=-9999 --type=Float32 --overwrite
+    else
+      cp "${WORK}/native.tif" "${RAW_TIF}"
+    fi
+  fi
+  echo "  raw.tif stats:"
+  gdalinfo -stats "${RAW_TIF}" 2>/dev/null | grep -E "Min|Max|Mean|StdDev" | head -4 | sed 's/^/    /'
+elif [ "${DERIVED}" = "true" ]; then
   # --- 4b. Derived product: fetch each named input, evaluate calc formula ------
   # Each input letter maps to one GRIB message (products.yml `inputs:`).
   # Every field lives on the same native LCC grid, so after gdal_translate
