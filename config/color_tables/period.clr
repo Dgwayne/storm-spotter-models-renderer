@@ -1,0 +1,12 @@
+# Wave period (seconds). Short choppy wind seas in cool tones, long
+# powerful groundswell warm. Transparent below 1 s (no waves).
+nv    0   0   0   0
+0     0   0   0   0
+1     100 140 230 130
+4     60  180 240 170
+7     0   200 170 200
+10    80  220 90  220
+13    230 220 0   235
+16    250 150 0   245
+20    240 70  40  255
+25    255 0   200 255

@@ -1,0 +1,127 @@
+name: Render OM models 2
+
+on:
+  schedule:
+    # Backstop only — the Cloudflare cron-trigger Worker (:7/:37 slot) is
+    # the reliable dispatcher. All five are 6-12 h cycle models, so
+    # 30-min dispatches catch each run within one tick of Open-Meteo
+    # publishing it.
+    - cron: '37 * * * *'
+  workflow_dispatch:
+    inputs:
+      force_rerender:
+        description: 'Re-render frames even when already on R2 (bypass idempotency check).'
+        type: boolean
+        default: false
+
+concurrency:
+  group: render-om-models-2
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [ICON, ICONEU, AROMEFR, ARPEGE, ARPEGEEU, ICON2I, AROMEAT, JMAMSM, JMAGSM, CMA, GFSWAVE, ECMWFWAM, GWAM]
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+      FORCE_RERENDER: ${{ inputs.force_rerender && '1' || '' }}
+
+    defaults:
+      run:
+        shell: bash -el {0}    # ensures conda env is activated for every step
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore micromamba binary (cache)
+        id: mmbin
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Set up micromamba (gdal + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: renderer
+          create-args: >-
+            python=3.11
+            wgrib2
+            gdal
+            libgdal-netcdf
+            libgdal-grib
+            rclone
+            pyyaml
+            curl
+          cache-environment: true
+          init-shell: bash
+          download-micromamba: ${{ steps.mmbin.outputs.cache-hit != 'true' }}
+          micromamba-binary-path: ~/micromamba-bin/micromamba
+
+      - name: Save micromamba binary (cache)
+        if: steps.mmbin.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Restore yq (cache)
+        id: yqcache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.tools/yq
+          key: yq-v4.53.3-linux-amd64
+
+      - name: Install yq (Go binary)
+        run: |
+          set -e
+          if [ ! -x "$HOME/.tools/yq" ]; then
+            mkdir -p "$HOME/.tools"
+            curl -sSfL --retry 6 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 40 \
+              -o "$HOME/.tools/yq" \
+              https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64
+            chmod +x "$HOME/.tools/yq"
+          fi
+          sudo install -m 0755 "$HOME/.tools/yq" /usr/local/bin/yq
+          yq --version
+          gdalinfo --version
+          rclone --version | head -1
+
+      - name: Save yq (cache)
+        if: steps.yqcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.tools/yq
+          key: yq-v4.53.3-linux-amd64
+
+      - name: Install omfiles (Open-Meteo .om reader)
+        run: |
+          set -e
+          for i in 1 2 3; do
+            python -m pip install --no-input "omfiles==1.2.0" && break || sleep 15
+          done
+          python -c "import omfiles; print('omfiles OK')"
+
+      - name: Configure rclone for Cloudflare R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Render ${{ matrix.model }}
+        run: bash scripts/render_om.sh ${{ matrix.model }}

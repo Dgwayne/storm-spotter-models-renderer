@@ -62,6 +62,13 @@ jobs:
           check UKMO   "https://models.dgwaynes.com/v1/UKMO/manifest.json"   120
           check GDPS   "https://models.dgwaynes.com/v1/GDPS/manifest.json"   120
           check HGEFS  "https://models.dgwaynes.com/v1/HGEFS/manifest.json"  120
+          # Batch-3 om models dispatch HOURLY (:37 only — 13 parallel
+          # jobs vs the 20-runner cap), so one queued-out tick already
+          # means a 2 h generatedAt gap. 180 absorbs exactly one missed
+          # tick and still catches a dead scheduler.
+          for m in ICON ICONEU AROMEFR ARPEGE ARPEGEEU ICON2I AROMEAT JMAMSM JMAGSM CMA GFSWAVE ECMWFWAM GWAM; do
+            check "$m" "https://models.dgwaynes.com/v1/$m/manifest.json" 180
+          done
           # GeoColor writes its OWN manifest, so a SAT/manifest.json check
           # says nothing about it. That gap let render_goes_geocolor.yml sit
           # on throttled GitHub-native cron until a user noticed night

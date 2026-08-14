@@ -1,0 +1,14 @@
+# Significant wave height (FEET, converted from the model's metres).
+# Transparent below 1 ft; marine-blue ramp through green/yellow into
+# violent reds/magenta for hurricane seas. Shared by waveHgt + swellHgt.
+nv    0   0   0   0
+0     0   0   0   0
+1     70  130 220 120
+3     40  160 240 170
+6     0   190 190 200
+9     60  210 110 220
+12    230 220 0   235
+18    250 160 0   245
+25    240 80  30  255
+35    220 20  70  255
+50    255 0   200 255

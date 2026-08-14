@@ -122,6 +122,47 @@ products:
     point_values: true
     also_meso: true
 
+  # ── Marine / wave products (om-sourced, batch 3) ─────────────────────
+  waveHgt:
+    display: "Wave Height"
+    group: "Marine"
+    wgrib2_match: ""
+    om_var: "wave_height"
+    units_in: "m"
+    units_out: "ft"
+    convert: "A * 3.28084"
+    clr: "wave.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+    point_decimals: 1
+  swellHgt:
+    display: "Swell Height"
+    group: "Marine"
+    wgrib2_match: ""
+    om_var: "swell_wave_height"
+    units_in: "m"
+    units_out: "ft"
+    convert: "A * 3.28084"
+    clr: "wave.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+    point_decimals: 1
+  wavePeriod:
+    display: "Wave Period"
+    group: "Marine"
+    wgrib2_match: ""
+    om_var: "wave_period"
+    units_in: "s"
+    units_out: "s"
+    convert: ""
+    clr: "period.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+    point_decimals: 1
+
   wind10mS:
     display: "10m Wind Speed"
     group: "Surface & Precipitation/Surface"
@@ -310,6 +351,8 @@ products:
     # manifest's expected list matches (see build_manifest.py). There is
     # no running-total APCP in the NAM nest files, hence no precipTotal.
     wgrib2_match: ":APCP:surface:{fh_minus_3}-{fh} hour acc"
+    # Open-Meteo `precipitation` on a 3-hourly-step model IS the 3-h sum.
+    om_var: "precipitation"
     fh_min: 3
     fh_step: 3
     units_in: "kg/m^2"
@@ -3528,6 +3571,434 @@ models:
     point_grid: [128, 128]
     forecast_hours_default: { start: 6, end: 240, step: 6 }
     retain_runs: 4
+
+  # ── Batch 3 om models (2026-08-14): Europe fill-out + Asia + Marine.
+  # All regular-lat-lon grids verified against latest.json crs_wkt; per-
+  # model bboxes are the meta.json grid-point extents (regional models)
+  # or the standard CONUS box (globals + waves). Uncertain publish
+  # cadences use the FINER plausible om_cycle_hours + a wider
+  # om_cycles_back — a nonexistent intermediate cycle just gate-skips.
+
+  ICON:
+    # DWD ICON global, ingested at 0.25°. Hourly f00-f78, 3-hourly to
+    # f180. Has CAPE (mixed-layer parcel per DWD) but NO CIN in the
+    # spatial set, and no visibility.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10m
+      - gust10m
+      - mslp
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - capeML
+      - snod
+      - frzLvl
+      - wind850
+      - wind700
+      - wind500
+      - wind300
+      - wind250
+      - wind200
+      - rh850
+      - rh700
+      - rh500
+    source_type: "openmeteo_spatial"
+    om_model_path: "dwd_icon"
+    om_cycle_hours: 6
+    display: "ICON 25km"
+    picker_group: "Global"
+    picker_order: 27
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [1024, 1024]
+    point_grid: [128, 128]
+    forecast_hours_segments:
+      - { start: 0, end: 78, step: 1 }
+      - { start: 81, end: 180, step: 3 }
+    retain_runs: 4
+
+  ICONEU:
+    # DWD ICON-EU nest (~7 km). Hourly f00-f78, 3-hourly to f120.
+    # Fullest Europe surface set of the batch (vis + CIN included).
+    # DWD runs intermediate 3-hourly cycles with shorter range — the
+    # finer cycle assumption + gates handles whichever exist.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10m
+      - gust10m
+      - mslp
+      - vis
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - capeML
+      - cinML
+      - snod
+      - frzLvl
+      - wind850
+      - wind700
+      - wind500
+      - wind300
+      - wind250
+      - wind200
+      - rh850
+      - rh700
+      - rh500
+    source_type: "openmeteo_spatial"
+    om_model_path: "dwd_icon_eu"
+    om_cycle_hours: 3
+    om_cycles_back: 3
+    display: "ICON-EU 7km"
+    picker_group: "Europe"
+    picker_order: 51
+    bbox_lonlat: [-23.5, 29.5, 62.5, 70.5]
+    image_size: [1536, 1250]
+    point_grid: [128, 128]
+    forecast_hours_segments:
+      - { start: 0, end: 78, step: 1 }
+      - { start: 81, end: 120, step: 3 }
+    retain_runs: 4
+
+  AROMEFR:
+    # Météo-France AROME 0.025° (~2.5 km), hourly f00-f51. Runs land
+    # 5x/day on an irregular schedule (00/03/06/12/18-ish) — the 3-h
+    # cycle assumption + gates renders whichever cycles exist.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10m
+      - gust10m
+      - mslp
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - sfccape
+      - wind850
+      - wind700
+      - wind500
+      - wind300
+      - wind250
+      - wind200
+      - rh850
+      - rh700
+      - rh500
+    source_type: "openmeteo_spatial"
+    om_model_path: "meteofrance_arome_france0025"
+    om_cycle_hours: 3
+    om_cycles_back: 3
+    display: "AROME 2.5km"
+    picker_group: "Europe"
+    picker_order: 52
+    bbox_lonlat: [-12.0, 37.5, 16.0, 55.4]
+    image_size: [1280, 1200]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 51, step: 1 }
+    retain_runs: 4
+
+  ARPEGE:
+    # Météo-France ARPEGE global 0.25°. Hourly f00-f48, 3-hourly to f102.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10m
+      - gust10m
+      - mslp
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - sfccape
+      - wind850
+      - wind700
+      - wind500
+      - wind300
+      - wind250
+      - wind200
+      - rh850
+      - rh700
+      - rh500
+    source_type: "openmeteo_spatial"
+    om_model_path: "meteofrance_arpege_world025"
+    om_cycle_hours: 6
+    display: "ARPEGE 25km"
+    picker_group: "Global"
+    picker_order: 28
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [1024, 1024]
+    point_grid: [128, 128]
+    forecast_hours_segments:
+      - { start: 0, end: 48, step: 1 }
+      - { start: 51, end: 102, step: 3 }
+    retain_runs: 4
+
+  ARPEGEEU:
+    # ARPEGE Europe 0.1° — thin variable set but HOURLY all the way to
+    # f102, the longest hourly scrub in the Europe section.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10m
+      - gust10m
+      - mslp
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+    source_type: "openmeteo_spatial"
+    om_model_path: "meteofrance_arpege_europe"
+    om_cycle_hours: 6
+    display: "ARPEGE-EU 10km"
+    picker_group: "Europe"
+    picker_order: 53
+    bbox_lonlat: [-32.0, 20.0, 42.0, 72.0]
+    image_size: [1280, 1472]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 102, step: 1 }
+    retain_runs: 4
+
+  ICON2I:
+    # ItaliaMeteo/ARPAE ICON-2I (2.2 km Italy), hourly f00-f72, 2
+    # cycles/day (00/12z). Speed-only 10m wind; carries LPI + ML
+    # CAPE/CIN like its ICON-D2 sibling.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10mS
+      - gust10m
+      - mslp
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - capeML
+      - cinML
+      - lpi
+      - snod
+      - frzLvl
+      - rh850
+      - rh700
+      - rh500
+    source_type: "openmeteo_spatial"
+    om_model_path: "italia_meteo_arpae_icon_2i"
+    om_cycle_hours: 12
+    display: "ICON-2I 2km"
+    picker_group: "Europe"
+    picker_order: 54
+    bbox_lonlat: [3.0, 33.7, 22.0, 48.9]
+    image_size: [1024, 1104]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 72, step: 1 }
+    retain_runs: 3
+
+  AROMEAT:
+    # GeoSphere Austria AROME (~2.5 km Alpine domain), hourly f00-f60.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10mS
+      - gust10m
+      - mslp
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - sfccape
+      - sbcin
+    source_type: "openmeteo_spatial"
+    om_model_path: "geosphere_arome_austria"
+    om_cycle_hours: 3
+    om_cycles_back: 3
+    display: "AROME-AT 2.5km"
+    picker_group: "Europe"
+    picker_order: 55
+    bbox_lonlat: [5.498, 42.981, 22.102, 51.819]
+    image_size: [1024, 810]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 60, step: 1 }
+    retain_runs: 4
+
+  JMAMSM:
+    # JMA MSM (5 km Japan), hourly f00-f39, 3-hourly cycles with LONG
+    # ingest latency (~5-8 h behind was observed) — gates + a wide
+    # window absorb it. Pairs with the Himawari W-Pacific satellite
+    # region for the typhoon audience. No gust/CAPE in the set.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10m
+      - mslp
+      - precip1h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+    source_type: "openmeteo_spatial"
+    om_model_path: "jma_msm"
+    om_cycle_hours: 3
+    om_cycles_back: 4
+    display: "JMA MSM 5km"
+    picker_group: "Asia"
+    picker_order: 60
+    bbox_lonlat: [120.0, 22.4, 150.0, 47.6]
+    image_size: [1024, 1068]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 39, step: 1 }
+    retain_runs: 4
+
+  JMAGSM:
+    # JMA GSM global 0.5°, 6-hourly f00-f132, rendered over the West
+    # Pacific typhoon basin (not CONUS) — it lives in the Asia section
+    # next to MSM and the Himawari imagery.
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10m
+      - mslp
+      - precip6h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - wind850
+      - wind700
+      - wind500
+      - wind300
+      - wind250
+      - wind200
+      - rh850
+      - rh700
+      - rh500
+    source_type: "openmeteo_spatial"
+    om_model_path: "jma_gsm"
+    om_cycle_hours: 6
+    om_cycles_back: 3
+    display: "JMA GSM 50km"
+    picker_group: "Asia"
+    picker_order: 61
+    bbox_lonlat: [100.0, 5.0, 170.0, 50.0]
+    image_size: [1280, 968]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 132, step: 6 }
+    retain_runs: 4
+
+  CMA:
+    # CMA GRAPES/CMA-GFS global 0.125°, 3-hourly f00-f120. Surprisingly
+    # rich surface set (vis, CAPE+CIN, snow depth, full ladders).
+    products:
+      - t2m
+      - td2m
+      - rh2m
+      - wind10m
+      - gust10m
+      - mslp
+      - vis
+      - precip3h
+      - tcc
+      - lcc
+      - mcc
+      - hcc
+      - sfccape
+      - sbcin
+      - snod
+      - wind850
+      - wind700
+      - wind500
+      - wind300
+      - wind250
+      - wind200
+      - rh850
+      - rh700
+      - rh500
+    source_type: "openmeteo_spatial"
+    om_model_path: "cma_grapes_global"
+    om_cycle_hours: 6
+    display: "CMA 13km"
+    picker_group: "Global"
+    picker_order: 29
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [1024, 1024]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 120, step: 3 }
+    retain_runs: 4
+
+  GFSWAVE:
+    # NOAA GFS-Wave 0.25°, HOURLY f00-f120 then 3-hourly to f384,
+    # rendered over the CONUS box (both coasts + Gulf + Great Lakes
+    # fringe). Land is nodata → transparent, which reads correctly.
+    products:
+      - waveHgt
+      - swellHgt
+      - wavePeriod
+    source_type: "openmeteo_spatial"
+    om_model_path: "ncep_gfswave025"
+    om_cycle_hours: 6
+    display: "GFS Wave 25km"
+    picker_group: "Marine"
+    picker_order: 70
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [1024, 1024]
+    point_grid: [128, 128]
+    forecast_hours_segments:
+      - { start: 0, end: 120, step: 1 }
+      - { start: 123, end: 384, step: 3 }
+    retain_runs: 4
+
+  ECMWFWAM:
+    # ECMWF WAM 0.25°, 3-hourly f00-f144. No swell split in the open
+    # spatial set (height/period/direction only).
+    products:
+      - waveHgt
+      - wavePeriod
+    source_type: "openmeteo_spatial"
+    om_model_path: "ecmwf_wam025"
+    om_cycle_hours: 6
+    display: "ECMWF Wave 25km"
+    picker_group: "Marine"
+    picker_order: 71
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [1024, 1024]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 144, step: 3 }
+    retain_runs: 4
+
+  GWAM:
+    # DWD GWAM global wave model, 3-hourly f00-f174, 2 cycles/day.
+    products:
+      - waveHgt
+      - swellHgt
+      - wavePeriod
+    source_type: "openmeteo_spatial"
+    om_model_path: "dwd_gwam"
+    om_cycle_hours: 12
+    display: "GWAM 25km"
+    picker_group: "Marine"
+    picker_order: 72
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [1024, 1024]
+    point_grid: [128, 128]
+    forecast_hours_default: { start: 0, end: 174, step: 3 }
+    retain_runs: 3
 
   GFS:
     # 2026-08-06 expansion (Pivotal parity) — verified against the 12z

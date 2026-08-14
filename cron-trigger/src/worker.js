@@ -67,6 +67,10 @@ const CRON_TO_WORKFLOW = {
     "render_gefs.yml",
     "render_icond2.yml",
     "render_om_models.yml",
+    // Batch 3 (13-model matrix) fires once an hour, not twice: all its
+    // models cycle every 3-12 h, and halving the dispatch rate halves
+    // the queue pressure 13 parallel jobs put on the 20-runner cap.
+    { wf: "render_om_models2.yml", minutes: [37] },
   ],
 };
 
