@@ -22,11 +22,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install deps (pyyaml + rclone from Ubuntu repos)
+      - name: Restore rclone (cache)
+        id: rclonecache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.tools/rclone
+          key: rclone-v1.68.2-linux-amd64
+
+      - name: Install deps (pyyaml + modern rclone)
+        # Ubuntu 24.04's apt rclone is 1.60, which still sends the canned
+        # ACL `private` that B2's S3 layer 400s (the documented b2
+        # migration gotcha). Pin a modern binary, cached per the CI
+        # download-hardening pattern.
         run: |
           set -e
           python3 -m pip install --no-input pyyaml
-          sudo apt-get update -qq && sudo apt-get install -y -qq rclone
+          if [ ! -x "$HOME/.tools/rclone" ]; then
+            mkdir -p "$HOME/.tools"
+            curl -sSfL --retry 6 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 120 \
+              -o /tmp/rclone.zip \
+              https://github.com/rclone/rclone/releases/download/v1.68.2/rclone-v1.68.2-linux-amd64.zip
+            unzip -q -j /tmp/rclone.zip -d "$HOME/.tools" rclone-v1.68.2-linux-amd64/rclone
+          fi
+          sudo install -m 0755 "$HOME/.tools/rclone" /usr/local/bin/rclone
+          rclone --version | head -1
+
+      - name: Save rclone (cache)
+        if: steps.rclonecache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.tools/rclone
+          key: rclone-v1.68.2-linux-amd64
 
       - name: Configure rclone for B2
         run: |
