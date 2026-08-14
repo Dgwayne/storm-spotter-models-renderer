@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       prefix:
-        description: 'Bucket prefix to delete, e.g. v1/HRRR/irsat/ (must start with v1/ and name at least model+product)'
+        description: 'Space-separated bucket prefixes to delete, e.g. "v1/HRRR/irsat/" or "v1/GFS013/ v1/UKMO/" (each must be v1/<MODEL>/ or v1/<MODEL>/<product>/)'
         type: string
         required: true
 
@@ -22,13 +22,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Validate prefix
+      - name: Validate prefixes
+        # MODEL-level (v1/<MODEL>/) is allowed as well as product-level:
+        # a wrong source-grid georeference invalidates every product of a
+        # model at once (2026-08-14), and 200 product-level dispatches to
+        # express that is worse than one scoped list. Still refuses bare
+        # "v1/" or anything outside it.
+        env:
+          PREFIXES: ${{ inputs.prefix }}
         run: |
           set -e
-          case "${{ inputs.prefix }}" in
-            v1/*/*/) echo "prefix OK: ${{ inputs.prefix }}" ;;
-            *) echo "::error::prefix must look like v1/<MODEL>/<product>/ — refusing broad or malformed deletes"; exit 1 ;;
-          esac
+          for p in $PREFIXES; do
+            case "$p" in
+              v1/*/*/|v1/*/) [ "$p" = "v1/" ] && { echo "::error::refusing bare v1/"; exit 1; }
+                             echo "prefix OK: $p" ;;
+              *) echo "::error::'$p' must look like v1/<MODEL>/ or v1/<MODEL>/<product>/ — refusing broad or malformed deletes"; exit 1 ;;
+            esac
+          done
 
       - name: Install rclone
         run: |
@@ -49,10 +59,15 @@ jobs:
           endpoint = ${{ secrets.B2_S3_ENDPOINT }}
           EOF
 
-      - name: Delete prefix
+      - name: Delete prefixes
+        env:
+          PREFIXES: ${{ inputs.prefix }}
+          BUCKET: ${{ secrets.B2_BUCKET }}
         run: |
           set -e
-          COUNT=$(rclone lsf --recursive "r2:${{ secrets.B2_BUCKET }}/${{ inputs.prefix }}" --files-only | wc -l)
-          echo "deleting ${COUNT} objects under ${{ inputs.prefix }}"
-          rclone delete "r2:${{ secrets.B2_BUCKET }}/${{ inputs.prefix }}" --rmdirs || true
+          for p in $PREFIXES; do
+            COUNT=$(rclone lsf --recursive "r2:${BUCKET}/${p}" --files-only | wc -l)
+            echo "deleting ${COUNT} objects under ${p}"
+            rclone delete "r2:${BUCKET}/${p}" --rmdirs || true
+          done
           echo "done"

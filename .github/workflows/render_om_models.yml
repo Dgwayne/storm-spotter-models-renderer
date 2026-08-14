@@ -24,6 +24,11 @@ jobs:
     timeout-minutes: 90
     strategy:
       fail-fast: false
+      # Cap concurrent jobs: the free plan allows 20 account-wide and
+      # the om matrices were saturating it, starving the HRRR fan-out
+      # AND letting stale-code runs hold the concurrency group while
+      # fixed re-dispatches starved in the queue (2026-08-14).
+      max-parallel: 6
       matrix:
         model: [NBM, AIGFS, GFS013, UKMO, GDPS, HGEFS]
     env:
