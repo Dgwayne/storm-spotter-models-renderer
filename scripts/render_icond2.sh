@@ -95,6 +95,19 @@ for offset in $(seq 0 "${CYCLES_BACK}"); do
     done
     # Every product for this valid time is done — drop the shared om file.
     rm -f "${OM_CACHE_DIR}/${MODEL}_${RUN_DATE}${RUN_HOUR}_F$(printf '%03d' "$fh").om"
+
+    # Publish the manifest MID-SWEEP every 6 forecast hours on the newest
+    # cycle. A cold start renders ~1300 frames — longer than the 30-min
+    # dispatch interval — and GitHub supersedes the older queued run, so a
+    # publish-only-at-the-end design leaves the manifest with ZERO runs
+    # (app shows "No data") through the entire first day. build_manifest.py
+    # takes a fresh bucket listing and is race-tolerant by design, so
+    # publishing often is safe; it just costs one listing.
+    if [ "${offset}" -eq 0 ] && [ $(( fh % 6 )) -eq 0 ] && [ "${fh}" -gt 0 ]; then
+      echo "==> Interim manifest publish (through f${fh})"
+      python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}" \
+        || echo "  (interim manifest build failed; continuing)"
+    fi
   done
 
   ATTEMPTED_RUNS+=("${RUN_DATE}${RUN_HOUR}")
