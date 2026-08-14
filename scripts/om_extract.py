@@ -36,8 +36,13 @@ def read_var(reader, name: str) -> np.ndarray:
         child = reader.get_child_by_index(i)
         if child.is_array and child.name == name:
             return child[:, :]
-    raise SystemExit(f"om_extract: variable {name!r} not in file "
-                     f"(has: {[reader.get_child_by_index(i).name for i in range(reader.num_children) if reader.get_child_by_index(i).is_array]})")
+    # Exit 3 = "variable not in this file" — decode_pipeline.sh treats it
+    # as a clean skip (the om analogue of "no matching messages in idx").
+    # Open-Meteo's f00 analysis files carry fewer variables than forecast
+    # steps (82 vs 93 on ICON-D2: max/accum fields like `updraft` and
+    # `precipitation` only exist from f01).
+    print(f"om_extract: variable {name!r} not in file", file=sys.stderr)
+    sys.exit(3)
 
 
 def main() -> None:

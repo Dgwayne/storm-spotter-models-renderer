@@ -804,7 +804,11 @@ products:
     wgrib2_match: ""
     # ICON max updraft velocity in the column (m/s) — the closest thing to
     # a storm-intensity proxy the om set offers with no reflectivity field.
+    # Max-over-past-hour field: absent from f00 analysis files (82-var set),
+    # hence the om_fh_min gate (mirrored into expected hours by
+    # build_manifest.py so the scrub bar doesn't paint f00 red).
     om_var: "updraft"
+    om_fh_min: 1
     units_in: "m/s"
     units_out: "m/s"
     convert: ""

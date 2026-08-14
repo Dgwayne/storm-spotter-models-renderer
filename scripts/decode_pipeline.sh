@@ -322,6 +322,19 @@ if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
   OM_VAR=$(yq -r ".products.${PRODUCT}.om_var // \"\"" "$CONFIG")
   OM_UV=$(yq -r "(.products.${PRODUCT}.om_uv // []) | join(\" \")" "$CONFIG")
   OM_CALC=$(yq -r ".products.${PRODUCT}.om_calc // \"\"" "$CONFIG")
+
+  # om_extract exit 3 = variable absent from THIS file (f00 analysis
+  # files carry fewer fields) — a clean skip, mirroring the GRIB path's
+  # "no matching messages in idx". Any other failure stays fatal.
+  om_extract_or_skip() {
+    python3 "${REPO_ROOT}/scripts/om_extract.py" "$@" && return 0
+    local rc=$?
+    if [ "${rc}" -eq 3 ]; then
+      echo "  om variable not in this file; skip"
+      exit 0
+    fi
+    return "${rc}"
+  }
   # om_convert overrides convert for om sources (om values arrive in
   # Open-Meteo's units, which usually — but not always — match the GRIB
   # path's post-normalization unit space; e.g. pressure_msl is already
@@ -333,7 +346,7 @@ if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
     # om_calc formula in FINAL display units — convert is not applied).
     GDAL_INPUT_ARGS=()
     while IFS=$'\t' read -r letter om_name; do
-      python3 "${REPO_ROOT}/scripts/om_extract.py" "${OM_LOCAL}" \
+      om_extract_or_skip "${OM_LOCAL}" \
         "${WORK}/om_${letter}.tif" "${BBOX_ARGS[@]}" "${om_name}"
       GDAL_INPUT_ARGS+=("-${letter}" "${WORK}/om_${letter}.tif")
     done < <(yq -r ".products.${PRODUCT}.om_inputs | to_entries[] | [.key, .value] | @tsv" "$CONFIG")
@@ -341,7 +354,7 @@ if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
       --calc="${OM_CALC}" --NoDataValue=-9999 --type=Float32 --overwrite
   elif [ "${COMPOSITE_UV}" = "true" ]; then
     # om_uv: [u_variable, v_variable] -> band 1 = U, band 2 = V.
-    python3 "${REPO_ROOT}/scripts/om_extract.py" "${OM_LOCAL}" \
+    om_extract_or_skip "${OM_LOCAL}" \
       "${WORK}/om_uv.tif" "${BBOX_ARGS[@]}" ${OM_UV}
     gdal_calc.py --quiet -A "${WORK}/om_uv.tif" --A_band=1 -B "${WORK}/om_uv.tif" --B_band=2 \
       --outfile="${WORK}/mag.tif" --calc="sqrt(A*A + B*B)" \
@@ -357,7 +370,7 @@ if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
       echo "  no om_var defined for ${PRODUCT}; skip"
       exit 0
     fi
-    python3 "${REPO_ROOT}/scripts/om_extract.py" "${OM_LOCAL}" \
+    om_extract_or_skip "${OM_LOCAL}" \
       "${WORK}/native.tif" "${BBOX_ARGS[@]}" "${OM_VAR}"
     if [ -n "${OM_CONVERT}" ]; then
       gdal_calc.py --quiet -A "${WORK}/native.tif" --outfile="${RAW_TIF}" \
