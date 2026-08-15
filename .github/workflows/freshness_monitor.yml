@@ -13,6 +13,20 @@
 # hourly in practice), which is fine for a dead-man's switch — the 120-min
 # limit already allows for skipped ticks, and the previous stall went ~16 h
 # unnoticed.
+#
+# It watches TWO failure classes:
+#   1. STALENESS  — generatedAt stops advancing (dead scheduler / failing render).
+#   2. MISSING Cache-Control — an object stops sending its own cache header.
+# (2) exists because the zone's "Cache JSON feeds" cache rule now carries
+# Edge TTL = "use cache-control header if present, BYPASS cache if not"
+# (added 2026-08-15 after a lightning edge-pin served a 100-min-old feed
+# while the origin was 6 s fresh). That setting makes a missing header
+# fail SAFE for correctness but EXPENSIVE for cost: instead of the old ~4 h
+# edge pin, the object stops being cached at all and every user request
+# falls through to B2. The lightning feed alone is ~900 KB polled every
+# 10 s per user, so a dropped `--header-upload` on a busy day is the
+# difference between cents and ~$100/month. Nothing else would catch it —
+# the data would look perfectly fresh the whole time.
 name: Freshness monitor
 
 on:
@@ -46,6 +60,33 @@ jobs:
               echo "::error::$name manifest is ${age} min old (limit ${max_min} min) — check the stp-models-cron Worker (a 'wrangler deploy' from cron-trigger/ re-arms a stalled scheduler)"
               fail=1
             fi
+          }
+          # Assert the object still sends its OWN Cache-Control (see the
+          # header comment for why a missing one now costs money).
+          check_cc() {
+            local name="$1" url="$2"
+            # The `?_cc=` query is load-bearing, not just cache-busting: a
+            # BARE *.json URL matches the "Cache JSON feeds" rule, whose
+            # browser-TTL rewrite returns max-age=14400 for EVERY object and
+            # would mask a missing origin header. Adding a query stops the
+            # URI matching that wildcard, so this reads the true origin
+            # header — the same value the cache rule itself keys on.
+            local hdrs
+            hdrs=$(curl -fsS --max-time 30 -o /dev/null -D - \
+                   "$url?_cc=$(date +%s)") || {
+              echo "::error::$name Cache-Control probe: fetch failed"
+              fail=1
+              return
+            }
+            local cc
+            cc=$(printf '%s' "$hdrs" | tr -d '\r' \
+                 | grep -i '^cache-control:' | head -1)
+            if [ -z "$cc" ]; then
+              echo "::error::$name sends NO origin Cache-Control — Cloudflare will now BYPASS cache for it, so every user request hits B2. Restore the '--header-upload Cache-Control: public, max-age=N' on this object's upload in the renderer."
+              fail=1
+              return
+            fi
+            echo "$name ${cc#*:}"
           }
           check SAT  "https://models.dgwaynes.com/v1/SAT/manifest.json"  120
           check OBS  "https://models.dgwaynes.com/v1/OBS/manifest.json"  120
@@ -112,4 +153,21 @@ jobs:
           # re-dispatches it within ~5 min of a stall, so 30 min stale here
           # means BOTH recovery layers failed — email the owner.
           check LIGHTNING "https://models.dgwaynes.com/lightning/v1/flashes.json" 30
+
+          # ── Cache-Control assertions ──────────────────────────────────
+          # Scoped to the objects where losing the header would actually
+          # cost real money: size x poll rate. Lightning first (~900 KB
+          # every 10 s per user = by far the biggest exposure), then the
+          # manifests the app polls on tab open, then the slower feeds.
+          # Every one of these was verified sending a header on
+          # 2026-08-15; this asserts it stays that way.
+          echo "--- origin Cache-Control ---"
+          check_cc LIGHTNING  "https://models.dgwaynes.com/lightning/v1/flashes.json"
+          check_cc HRRR       "https://models.dgwaynes.com/v1/HRRR/manifest.json"
+          check_cc OBS        "https://models.dgwaynes.com/v1/OBS/manifest.json"
+          check_cc SAT        "https://models.dgwaynes.com/v1/SAT/manifest.json"
+          check_cc GEOCOLOR   "https://models.dgwaynes.com/v1/SAT/geocolor.json"
+          check_cc WILDFIRE   "https://models.dgwaynes.com/wildfire/v1/current.json"
+          check_cc AIRQUALITY "https://models.dgwaynes.com/airquality/v1/conus.json"
+          check_cc WIND       "https://models.dgwaynes.com/wind/v1/latest.json"
           exit $fail
