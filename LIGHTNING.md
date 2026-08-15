@@ -11,12 +11,17 @@ setup.**
   `noaa-goes18` West). Public domain, commercial use OK, no key.
   *(Blitzortung/LightningMaps are NOT usable — they forbid commercial and
   storm-warning use, even via a proxy.)*
-- **Output:** one small file, rebuilt every ~15 s:
+- **Output:** one small file, rebuilt every ~15-20 s:
   `https://models.dgwaynes.com/lightning/v1/flashes.json`
-- **Cadence:** a 2-hourly cron restarts a long-running (~5h50m) loop that
-  rebuilds the feed every ~15 s (`cancel-in-progress` handles the
-  handoff). Short crons are unreliable on GitHub; the long loop keeps the
-  feed fresh even if a scheduled tick is skipped.
+- **Cadence:** a 2-hourly cron starts a ~2h30m loop that rebuilds the
+  feed every ~15-20 s (7 s sleep + pass work). Runs deliberately
+  **overlap** (~30 min, no concurrency group): the old
+  `cancel-in-progress` handoff froze the feed for the whole time the
+  successor sat in the runner queue (11+ min measured). Two overlapping
+  writers are harmless — each pass rebuilds the full window, last write
+  wins. The `stp-models-cron` Worker dead-mans the feed on every tick
+  (`generatedAt` > 5 min stale + no queued/running lightning run →
+  dispatch), and `freshness_monitor.yml` emails at 30 min stale.
 - **Cost:** $0. Public repo = unlimited Actions minutes; the JSON is a
   few hundred KB (up to ~0.7 MB on an active day, after the service-area
   clip) and egress is free.
@@ -42,7 +47,9 @@ shipping an app update.
 | File | Role |
 |------|------|
 | `scripts/lightning_glm.py` | Fetch GLM granules, parse flashes, dedup, push to R2 |
-| `.github/workflows/lightning.yml` | 2-h cron; ~5h50m internal loop; `cancel-in-progress` |
+| `.github/workflows/lightning.yml` | 2-h cron; ~2h30m internal loop; overlapping handoff |
+| `cron-trigger/src/worker.js` | Dead-man: re-dispatches the loop if the feed stalls >5 min |
+| `.github/workflows/freshness_monitor.yml` | Emails the owner if the feed is >30 min stale |
 
 ## Deploy
 
@@ -52,8 +59,10 @@ shipping an app update.
    `R2_BUCKET`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
    Nothing to add.
 3. GitHub → Actions → **Lightning (GLM)** → **Run workflow** to kick the
-   first run (or wait for the next 2-h tick; `cancel-in-progress`
-   supersedes the running loop either way).
+   first run. **After a code change:** there is no `cancel-in-progress`
+   anymore — an already-running loop keeps executing OLD code until its
+   END (≤2h30m). To cut over immediately: `gh run cancel <old run>`,
+   then dispatch.
 4. After ~1 min, verify:
    ```bash
    curl https://models.dgwaynes.com/lightning/v1/flashes.json | head -c 400

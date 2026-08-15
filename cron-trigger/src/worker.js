@@ -91,9 +91,24 @@ const entryName = (e) => (typeof e === "string" ? e : e.wf);
 const entryFiresAt = (e, minute) =>
   typeof e === "string" || e.minutes.includes(minute);
 
+// The lightning feed is NOT on a cron slot (its workflow is a self-renewing
+// ~2h30m loop started by GitHub's own 2-hourly cron, with runs overlapping so
+// handoffs have no gap — see lightning.yml). This Worker is its dead-man: on
+// every scheduled tick it checks the feed's generatedAt, and if the feed has
+// gone stale (skipped cron tick, crashed run) it dispatches the workflow —
+// but only when GitHub shows no queued or in-progress lightning run, so a
+// long runner queue can't pile up 2h30m loops.
+const LIGHTNING_WORKFLOW = "lightning.yml";
+const LIGHTNING_FEED_URL =
+  "https://models.dgwaynes.com/lightning/v1/flashes.json";
+const LIGHTNING_STALE_SEC = 300;
+
 // Every workflow this Worker knows how to dispatch (for the manual endpoint).
 const KNOWN_WORKFLOWS = new Set(
-  Object.values(CRON_TO_WORKFLOW).flat().map(entryName).concat(DEFAULT_WORKFLOW),
+  Object.values(CRON_TO_WORKFLOW)
+    .flat()
+    .map(entryName)
+    .concat(DEFAULT_WORKFLOW, LIGHTNING_WORKFLOW),
 );
 
 async function dispatch(workflow, token) {
@@ -117,6 +132,62 @@ async function dispatch(workflow, token) {
   console.log(`dispatched ${workflow}`);
 }
 
+// Dead-man check for the lightning feed. Fail-quiet by design: a transient
+// fetch error here must never break the tick's normal dispatches.
+async function checkLightning(token) {
+  let generatedAt;
+  try {
+    // Cache-bust: the edge caches flashes.json (max-age=6) per POP; a
+    // stale-POP copy could mask a real stall.
+    const resp = await fetch(`${LIGHTNING_FEED_URL}?_deadman=${Date.now()}`, {
+      headers: { "Cache-Control": "no-cache", "User-Agent": "stp-models-cron" },
+    });
+    if (!resp.ok) throw new Error(`feed HTTP ${resp.status}`);
+    generatedAt = (await resp.json()).generatedAt;
+  } catch (e) {
+    console.log(`lightning deadman: feed check failed (${e}), skipping`);
+    return;
+  }
+  const ageSec = (Date.now() - Date.parse(generatedAt)) / 1000;
+  if (!(ageSec > LIGHTNING_STALE_SEC)) return; // fresh (or unparseable date)
+
+  // Stale. Dispatch only if GitHub has no lightning run queued or running —
+  // a queued run under runner starvation will start eventually, and piling
+  // more 2h30m loops behind it would make the starvation worse.
+  const runsUrl =
+    `https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/` +
+    `${LIGHTNING_WORKFLOW}/runs?per_page=10`;
+  try {
+    const resp = await fetch(runsUrl, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "stp-models-cron",
+      },
+    });
+    if (!resp.ok) throw new Error(`runs list HTTP ${resp.status}`);
+    const runs = (await resp.json()).workflow_runs || [];
+    const active = runs.some(
+      (r) => r.status === "queued" || r.status === "in_progress",
+    );
+    if (active) {
+      console.log(
+        `lightning deadman: feed ${Math.round(ageSec)}s stale but a run is ` +
+          `already queued/in progress — waiting`,
+      );
+      return;
+    }
+  } catch (e) {
+    console.log(`lightning deadman: runs check failed (${e}), skipping`);
+    return;
+  }
+  console.log(
+    `lightning deadman: feed ${Math.round(ageSec)}s stale, no active run — dispatching`,
+  );
+  await dispatch(LIGHTNING_WORKFLOW, token);
+}
+
 export default {
   async scheduled(event, env, ctx) {
     if (!env.GH_DISPATCH_TOKEN) {
@@ -130,7 +201,13 @@ export default {
       .filter((e) => entryFiresAt(e, minute))
       .map(entryName);
     ctx.waitUntil(
-      Promise.all(workflows.map((wf) => dispatch(wf, env.GH_DISPATCH_TOKEN))),
+      Promise.all(
+        workflows
+          .map((wf) => dispatch(wf, env.GH_DISPATCH_TOKEN))
+          // Piggybacks on every tick (the 5 slots' union fires every few
+          // minutes) — detection within ~5 min at zero extra cron slots.
+          .concat(checkLightning(env.GH_DISPATCH_TOKEN)),
+      ),
     );
   },
 

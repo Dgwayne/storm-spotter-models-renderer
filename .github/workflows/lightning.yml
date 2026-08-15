@@ -7,29 +7,37 @@ name: Lightning (GLM)
 # app (correctly) drops everything older than its 15-min window. So the
 # feed must NOT depend on frequent cron ticks.
 #
-# Instead each run sets up once and then LOOPS for up to ~5h50m,
-# rebuilding flashes.json from the newest GLM granules every ~25 s. A
-# reliable low-frequency cron (every 2 h — long crons are honored far
-# more reliably than short ones) restarts it via cancel-in-progress, and
-# because one run lasts hours, even a delayed or skipped scheduled tick
-# can't stale the feed — the current run just keeps going on its own.
+# Instead each run sets up once and then LOOPS for ~2h30m, rebuilding
+# flashes.json from the newest GLM granules every ~15-20 s, while a
+# reliable low-frequency cron (every 2 h) starts the next run. Runs
+# OVERLAP by design (~30 min): there is deliberately NO concurrency
+# group. The old cancel-in-progress handoff froze the feed for the whole
+# time the successor sat in GitHub's runner queue (measured 11+ min on
+# 2026-08-15, up to 12x/day) because the cancel fires at run *creation*,
+# not run start. With overlap, the outgoing run keeps writing until the
+# incoming one is looping; two writers co-writing the same feed is
+# harmless (each pass rebuilds the full window from source, last write
+# wins, both fresh). The stp-models-cron Worker additionally watchdogs
+# the feed's generatedAt and dispatches this workflow if it ever goes
+# stale (skipped cron tick, crashed run).
+#
+# DEPLOY NOTE: with no cancel-in-progress, a workflow_dispatch after a
+# code change does NOT stop the already-running loop — it keeps running
+# OLD code until its END (≤2h30m). To cut over immediately:
+# `gh run cancel <old>` then dispatch.
 #
 # Public repo => unlimited Actions minutes, so the long loop is free.
 # This is a data pipeline for the app, not a hosted server.
 
 on:
   schedule:
-    - cron: '0 */2 * * *'    # every 2 h — reliable; just needs to restart the loop
+    - cron: '0 */2 * * *'    # every 2 h — reliable; starts the next loop
   workflow_dispatch:
-
-concurrency:
-  group: lightning-glm
-  cancel-in-progress: true   # a fresh tick supersedes the long-running loop
 
 jobs:
   lightning:
     runs-on: ubuntu-latest
-    timeout-minutes: 355
+    timeout-minutes: 165
     env:
       R2_BUCKET: ${{ secrets.B2_BUCKET }}
       R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
@@ -90,12 +98,12 @@ jobs:
       - name: Stream GLM lightning to R2 (long loop)
         run: |
           set -uo pipefail
-          # Loop up to ~5h50m, refreshing every ~25 s. The 2-hourly cron
-          # normally cancels + restarts this well before the cap, so the
-          # cap only matters if a scheduled tick is delayed/skipped —
-          # then this run keeps the feed fresh on its own instead of
-          # going stale.
-          END=$(( $(date -u +%s) + 21000 ))
+          # Loop ~2h30m: long enough that the 2-hourly cron's next run
+          # overlaps this one even with GitHub's observed cron drift
+          # (ticks land up to ~2h06m apart) plus queue + setup time, so
+          # the handoff has no gap. Short enough that a stale-code run
+          # after a deploy ages out within a couple hours.
+          END=$(( $(date -u +%s) + 9000 ))
           PASS=0
           FAILS=0
           while [ "$(date -u +%s)" -lt "$END" ]; do
@@ -104,8 +112,9 @@ jobs:
               FAILS=$((FAILS + 1))
               echo "  pass ${PASS} failed (${FAILS} total)"
             fi
-            # ~15 s keeps the feed fresh for the app's continuous reveal
-            # (GLM granules publish ~20 s).
-            [ "$(date -u +%s)" -lt "$END" ] && sleep 15 || true
+            # GLM granules publish every 20 s; ~7 s sleep + pass work
+            # (~8-15 s) catches each granule soon after it lands without
+            # hammering the buckets.
+            [ "$(date -u +%s)" -lt "$END" ] && sleep 7 || true
           done
           echo "==> loop done after ${PASS} passes (${FAILS} failures)"

@@ -376,7 +376,10 @@ def main() -> int:
     out_path.write_text(json.dumps(payload, separators=(",", ":")))
 
     # Short cache so the app sees fresh data within the loop cadence while
-    # still letting Cloudflare's edge absorb repeated polls.
+    # still letting Cloudflare's edge absorb repeated polls. 6 s (not 15)
+    # keeps edge staleness well under the ~15-20 s rebuild cadence; origin
+    # hits stay bounded by one per POP per 6 s only while users are
+    # actively polling, comfortably inside B2's free class-B tier.
     subprocess.check_call(
         [
             "rclone",
@@ -386,7 +389,7 @@ def main() -> int:
             "--s3-no-check-bucket",
             "--no-traverse",
             "--header-upload",
-            "Cache-Control: public, max-age=15",
+            "Cache-Control: public, max-age=6",
         ]
     )
     print(f"  uploaded {OUT_KEY}: {len(flashes)} flashes ({out_path.stat().st_size} bytes)")
