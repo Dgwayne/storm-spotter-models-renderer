@@ -57,19 +57,29 @@ jobs:
           # Batch-2 om models (render_om_models.yml matrix, same slot).
           # Every sweep's bootstrap manifest touches generatedAt, so 120
           # holds even for the 12-h-cycle GDPS.
-          check NBM    "https://models.dgwaynes.com/v1/NBM/manifest.json"    120
-          check AIGFS  "https://models.dgwaynes.com/v1/AIGFS/manifest.json"  120
-          check GFS013 "https://models.dgwaynes.com/v1/GFS013/manifest.json" 120
-          check UKMO   "https://models.dgwaynes.com/v1/UKMO/manifest.json"   120
-          check GDPS   "https://models.dgwaynes.com/v1/GDPS/manifest.json"   120
-          check HGEFS  "https://models.dgwaynes.com/v1/HGEFS/manifest.json"  120
+          # 180 not 120: these ride a max-parallel-capped matrix, and under
+          # cold-start/backfill congestion a model's job can queue past 2 h
+          # while the scheduler is perfectly healthy (2026-08-14 morning:
+          # UKMO hit 141 m and emailed; the data pipeline was fine). The
+          # monitor detects DEAD schedulers, not per-model latency SLAs.
+          check NBM    "https://models.dgwaynes.com/v1/NBM/manifest.json"    180
+          check AIGFS  "https://models.dgwaynes.com/v1/AIGFS/manifest.json"  180
+          check GFS013 "https://models.dgwaynes.com/v1/GFS013/manifest.json" 180
+          check UKMO   "https://models.dgwaynes.com/v1/UKMO/manifest.json"   180
+          check GDPS   "https://models.dgwaynes.com/v1/GDPS/manifest.json"   180
+          check HGEFS  "https://models.dgwaynes.com/v1/HGEFS/manifest.json"  180
           # Batch-3 om models dispatch HOURLY (:37 only — 13 parallel
           # jobs vs the 20-runner cap), so one queued-out tick already
           # means a 2 h generatedAt gap. 180 absorbs exactly one missed
           # tick and still catches a dead scheduler.
+          # 240 not 180: hourly dispatch + max-parallel 4-5 across 25 jobs
+          # means a healthy model can legitimately go ~3 h between manifest
+          # touches whenever backfills hog the queue (the 2026-08-14 spam:
+          # UKV 324 m, JMAMSM 209 m, METNO 210 m — every one self-healed).
+          # A dead Worker still trips this within 4 h on every model at once.
           for m in ICON ICONEU AROMEFR ARPEGE ARPEGEEU ICON2I AROMEAT JMAMSM JMAGSM CMA GFSWAVE ECMWFWAM GWAM \
                    HRDPS RDPS KNMIHAR DMIHAR UKV ALADIN ICONCH1 ICONCH2 METNO AROMEHD CAMSEU CAMSGL; do
-            check "$m" "https://models.dgwaynes.com/v1/$m/manifest.json" 180
+            check "$m" "https://models.dgwaynes.com/v1/$m/manifest.json" 240
           done
           # Sub-hourly om models (render_om_15min.yml, :7/:37 both ticks):
           # every 30-min sweep touches generatedAt via the bootstrap

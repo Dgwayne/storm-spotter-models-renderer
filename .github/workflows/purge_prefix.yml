@@ -21,7 +21,10 @@ jobs:
   purge:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
     steps:
+      - uses: actions/checkout@v4
       - name: Validate prefixes
         # MODEL-level (v1/<MODEL>/) is allowed as well as product-level:
         # a wrong source-grid georeference invalidates every product of a
@@ -71,3 +74,22 @@ jobs:
             rclone delete "r2:${BUCKET}/${p}" --rmdirs || true
           done
           echo "done"
+
+      - name: Republish manifests for purged models
+        # A model-level purge deletes manifest.json too, and until the
+        # model's next sweep the CDN 404s — which the freshness monitor
+        # correctly (and noisily: 6 emails on 2026-08-14) reports as an
+        # outage. Rebuild an honest empty-or-partial manifest immediately
+        # so a purge is never externally visible as anything but
+        # "no runs yet". Works for product-level prefixes too (the
+        # rebuilt manifest simply stops listing the deleted frames).
+        env:
+          PREFIXES: ${{ inputs.prefix }}
+        run: |
+          set -e
+          python3 -m pip install --no-input pyyaml
+          MODELS=$(for p in $PREFIXES; do echo "$p" | cut -d/ -f2; done | sort -u)
+          for m in $MODELS; do
+            echo "rebuilding manifest for $m"
+            python3 scripts/build_manifest.py "$m" || echo "  (manifest rebuild failed for $m; next sweep covers it)"
+          done
