@@ -1,0 +1,132 @@
+name: Render MRMS Severe (fast subset)
+
+on:
+  schedule:
+    # Decorative — GitHub's own scheduler drops most sub-hourly ticks, which
+    # is the entire reason the cron-trigger Worker exists. The real cadence
+    # comes from CRON_TO_WORKFLOW in cron-trigger/src/worker.js, where this
+    # workflow rides the :00/:15/:30/:45, :05/:20/:35/:50 and :10/:25/:40/:55
+    # slots — their union is every 5 minutes, with no 6th cron trigger (the
+    # Cloudflare free plan caps at 5, and all 5 are already spoken for).
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      force_rerender:
+        description: 'Re-render frames even when already on B2 (bypass idempotency check).'
+        type: boolean
+        default: false
+
+# A SEPARATE group from render-mrms-qpe on purpose. Sharing it would let a
+# 5-minute tick cancel the pending 15-minute full sweep, and the full sweep
+# is the only thing that renders the other 86 products.
+concurrency:
+  group: render-mrms-severe
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    # Well under the 5-minute cadence in practice (six products, warm caches).
+    # If a tick ever overruns, GitHub queues the next one and replaces any
+    # older pending run, so the schedule self-heals rather than piling up.
+    timeout-minutes: 12
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+      FORCE_RERENDER: ${{ inputs.force_rerender && '1' || '' }}
+      # Only products flagged `fast_cadence: true` in config/products.yml.
+      OBS_FAST_ONLY: '1'
+      # Retention and the authoritative manifest rebuild are the 15-min
+      # sweep's job. A fast tick that pruned and rebuilt would list the
+      # whole ~7,000-object prefix twelve times an hour, which is the one
+      # thing here that would have cost real money (B2 free Class C is
+      # 2,500/day; that pattern needed ~6,100). OBS_FAST_ONLY takes the
+      # cheap path instead: read the CDN manifest, patch it, write it back.
+      OBS_SKIP_PRUNE: '1'
+
+    defaults:
+      run:
+        shell: bash -el {0}    # ensures conda env is activated for every step
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # No wgrib2 needed — MRMS QPE files are single-message gribs that
+      # GDAL's GRIB driver reads directly.
+      - name: Restore micromamba binary (cache)
+        id: mmbin
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Set up micromamba (gdal + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: renderer
+          create-args: >-
+            python=3.11
+            gdal
+            libgdal-grib
+            rclone
+            pyyaml
+            curl
+          cache-environment: true
+          init-shell: bash
+          download-micromamba: ${{ steps.mmbin.outputs.cache-hit != 'true' }}
+          micromamba-binary-path: ~/micromamba-bin/micromamba
+
+      - name: Save micromamba binary (cache)
+        if: steps.mmbin.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Restore yq (cache)
+        id: yqcache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.tools/yq
+          key: yq-v4.53.3-linux-amd64
+
+      - name: Install yq (Go binary)
+        run: |
+          set -e
+          if [ ! -x "$HOME/.tools/yq" ]; then
+            mkdir -p "$HOME/.tools"
+            curl -sSfL --retry 6 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 40 \
+              -o "$HOME/.tools/yq" \
+              https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64
+            chmod +x "$HOME/.tools/yq"
+          fi
+          sudo install -m 0755 "$HOME/.tools/yq" /usr/local/bin/yq
+          yq --version
+          gdalinfo --version
+          rclone --version | head -1
+
+      - name: Save yq (cache)
+        if: steps.yqcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.tools/yq
+          key: yq-v4.53.3-linux-amd64
+
+      - name: Configure rclone for Cloudflare R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Render MRMS severe subset
+        run: bash scripts/render_mrms_obs.sh

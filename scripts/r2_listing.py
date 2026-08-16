@@ -30,6 +30,14 @@ PNG_RE = re.compile(r"F(\d{3})\.png")
 # collide. A product only ever uses one scheme, so both feed the same
 # int set in parse_tree.
 MPNG_RE = re.compile(r"M(\d{5})\.png")
+# render_mrms_obs.sh drops a zero-byte F000.src-<HHMMSS> beside each frame
+# recording WHICH source file the hourly slot currently holds. It was written
+# purely as an idempotency marker, but it is also the only record anywhere of
+# the observation's real valid time: the run stamp is only the hour the file
+# fell in, so a slot stamped 19 can hold anything from 19:00 to 19:58. The
+# manifest publishes it (see build_manifest.py) so the app can say how old the
+# data actually is instead of implying the top of the hour.
+SRC_MARKER_RE = re.compile(r"F000\.src-(\d{6})")
 
 
 def rclone_lsf_recursive(bucket: str, model: str) -> str | None:
@@ -73,6 +81,37 @@ def parse_tree(listing: str, products) -> dict:
         if m:
             hours.add(int(m.group(1)))
     return tree
+
+
+def parse_src_times(listing: str, products) -> dict:
+    """{product: {run: "HHMMSS"}} from the F000.src-<HHMMSS> markers.
+
+    Same single listing parse_tree() walks, so this costs no extra LIST calls.
+    Only products in `products` are kept, matching parse_tree's contract.
+
+    render_mrms_obs.sh deletes the previous marker after writing the new one,
+    so a slot normally holds exactly one. `max` picks the later stamp anyway:
+    if a delete ever fails, the newest marker is the one describing the frame
+    that is actually there, and reporting the older one would overstate the
+    data's age.
+    """
+    product_set = set(products)
+    out: dict = {}
+    for line in listing.splitlines():
+        parts = line.strip().split("/")
+        if len(parts) != 3:
+            continue
+        product, run, fname = parts
+        if product not in product_set or not RUN_RE.fullmatch(run):
+            continue
+        m = SRC_MARKER_RE.fullmatch(fname)
+        if not m:
+            continue
+        runs = out.setdefault(product, {})
+        prev = runs.get(run)
+        if prev is None or m.group(1) > prev:
+            runs[run] = m.group(1)
+    return out
 
 
 def runs_by_product(tree: dict) -> dict:

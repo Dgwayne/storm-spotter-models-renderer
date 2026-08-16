@@ -18,7 +18,7 @@ from pathlib import Path
 
 import yaml  # PyYAML
 
-from r2_listing import parse_tree, rclone_lsf_recursive
+from r2_listing import parse_src_times, parse_tree, rclone_lsf_recursive
 from r2_listing import all_runs as tree_all_runs
 
 MODEL = sys.argv[1]
@@ -81,7 +81,11 @@ def expected_fhs(model: str, run_hour: int) -> list[int]:
 # This is a FRESH listing at build time — deliberately NOT the driver's
 # tick-start EXISTING_KEYS_FILE, which predates this tick's uploads and prune
 # and would hide just-rendered frames for a full tick.
-r2_tree = parse_tree(rclone_lsf_recursive(bucket, MODEL) or "", products)
+listing = rclone_lsf_recursive(bucket, MODEL) or ""
+r2_tree = parse_tree(listing, products)
+# Real observation valid times, read off the idempotency markers in the same
+# listing (OBS only — no other model writes them). See parse_src_times.
+src_times = parse_src_times(listing, products)
 all_run_stamps = tree_all_runs(r2_tree)
 recent_runs = all_run_stamps[-retain:] if all_run_stamps else []
 
@@ -181,16 +185,37 @@ for run in recent_runs:
     available = {}
     for code in products:
         available[code] = sorted(r2_tree.get(code, {}).get(run, set()))
-    runs_payload.append(
-        {
-            "runTime": dt.datetime.strptime(run, stamp_fmt)
+    entry = {
+        "runTime": dt.datetime.strptime(run, stamp_fmt)
+        .replace(tzinfo=dt.timezone.utc)
+        .isoformat(),
+        "runStamp": run,
+        "available": available,
+        "expected": {code: expected_for(code, expected) for code in products},
+    }
+    # srcTimes: the observation's REAL valid time per product, where one is
+    # recorded. runTime is only the hour the source file fell in, so a slot
+    # stamped 19 can hold anything from 19:00 to 19:58 — the app was showing
+    # "thru 19Z" over data from 19:33 with no way to tell the difference,
+    # which reads far fresher than it is on a fast-moving product like
+    # rotation. Emitted only when non-empty, so every non-OBS manifest stays
+    # byte-identical and old app builds (which ignore unknown keys) are
+    # unaffected.
+    srcs = {}
+    for code in products:
+        hhmmss = src_times.get(code, {}).get(run)
+        if not hhmmss:
+            continue
+        # The marker's HH always equals the run's hour (the slot is derived
+        # from that same source stamp), so the run's date carries the day.
+        srcs[code] = (
+            dt.datetime.strptime(run[:8] + hhmmss, "%Y%m%d%H%M%S")
             .replace(tzinfo=dt.timezone.utc)
-            .isoformat(),
-            "runStamp": run,
-            "available": available,
-            "expected": {code: expected_for(code, expected) for code in products},
-        }
-    )
+            .isoformat()
+        )
+    if srcs:
+        entry["srcTimes"] = srcs
+    runs_payload.append(entry)
 
 manifest = {
     "schemaVersion": 1,

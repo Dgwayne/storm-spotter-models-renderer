@@ -27,3 +27,5 @@ venv/
 # Local secrets
 .env
 .env.local
+# wrangler's local state (cron-trigger deploys)
+.wrangler/

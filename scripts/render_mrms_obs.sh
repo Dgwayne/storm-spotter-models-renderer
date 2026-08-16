@@ -20,7 +20,22 @@
 #
 # Idempotency: a zero-byte marker F000.src-<HHMMSS> records which source
 # stamp the slot currently holds; if the newest S3 object matches the
-# marker, the tick skips the product entirely.
+# marker, the tick skips the product entirely. build_manifest.py also reads
+# those markers to publish each product's REAL valid time (srcTimes), since
+# the hourly run stamp alone can't distinguish 19:02 data from 19:58.
+#
+# Two env knobs, both used by render_mrms_severe.yml:
+#   OBS_FAST_ONLY  — render ONLY products flagged `fast_cadence: true` in
+#                    products.yml. The full 92-product sweep can't run more
+#                    often than ~15 min, but the handful of products a
+#                    warning decision turns on (rotation, hail size,
+#                    lowest-altitude reflectivity) publish upstream every
+#                    ~2 min, and at a 15-min render cadence they were
+#                    reaching the app up to ~17 min old — visibly trailing
+#                    the storm they describe.
+#   OBS_SKIP_PRUNE — skip the retention prune. It only needs to run on the
+#                    full sweep; doing it on every fast tick would triple
+#                    this model's LIST calls for nothing.
 set -euo pipefail
 
 MODEL="OBS"
@@ -35,19 +50,67 @@ BBOX=$(yq -r ".models.${MODEL}.bbox_lonlat | join(\" \")" "$CONFIG")
 IMG_W=$(yq -r ".models.${MODEL}.image_size[0]" "$CONFIG")
 IMG_H=$(yq -r ".models.${MODEL}.image_size[1]" "$CONFIG")
 
-# ── Pre-fetch R2 listing (same trick as render_mrms_qpe.sh) ────────────
+# ── Idempotency state ──────────────────────────────────────────────────
+# The full sweep pre-lists the bucket once and answers "already rendered?"
+# from that listing. The FAST tick must not: v1/OBS/ is ~7,000 objects = 8
+# LIST pages, and doing that twelve times an hour is the single thing that
+# would push this model past B2's free Class C allowance (measured: it would
+# have taken the model from ~1,500 to ~6,100 LIST calls/day against a 2,500
+# free tier). It reads the manifest off the public CDN instead — Cloudflare
+# serves it, B2 never sees the request, and the srcTimes already in there
+# answer exactly the same question.
 EXISTING_KEYS_FILE=$(mktemp)
-trap 'rm -f "$EXISTING_KEYS_FILE"' EXIT
-echo "==> Pre-listing R2 contents under v1/${MODEL}/"
-if rclone lsf --recursive "r2:${R2_BUCKET}/v1/${MODEL}/" \
-    --files-only 2>/dev/null > "$EXISTING_KEYS_FILE"; then
-  echo "  $(wc -l < "$EXISTING_KEYS_FILE") existing keys cached"
+FAST_SRC_FILE=$(mktemp)
+trap 'rm -f "$EXISTING_KEYS_FILE" "$FAST_SRC_FILE"' EXIT
+: > "$EXISTING_KEYS_FILE"
+: > "$FAST_SRC_FILE"
+
+if [ -n "${OBS_FAST_ONLY:-}" ]; then
+  echo "==> Fast tick: reading current source stamps from the CDN manifest"
+  MODELS_BASE_URL="${MODELS_BASE_URL:-https://models.dgwaynes.com/v1}"
+  if curl -sf -H 'Cache-Control: no-cache' -A 'stp-renderer/1.0' \
+       "${MODELS_BASE_URL}/${MODEL}/manifest.json?_fast=$(date +%s)" \
+       -o "${FAST_SRC_FILE}.json"; then
+    python3 - "${FAST_SRC_FILE}.json" > "$FAST_SRC_FILE" <<'PY'
+import json, sys
+# "<product> <runStamp> <HHMMSS>" per line, for the awk lookup below.
+try:
+    m = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    sys.exit(0)
+for run in m.get("runs") or []:
+    stamp = run.get("runStamp")
+    for code, iso in (run.get("srcTimes") or {}).items():
+        # 2026-08-16T19:33:20+00:00 -> 193320
+        t = iso[11:19].replace(":", "")
+        if stamp and len(t) == 6:
+            print(f"{code} {stamp} {t}")
+PY
+    echo "  $(wc -l < "$FAST_SRC_FILE") known source stamps"
+  else
+    echo "  manifest unavailable; this tick re-renders (uploads are free)"
+  fi
 else
-  echo "  (no existing keys, fresh bucket)"
-  : > "$EXISTING_KEYS_FILE"
+  echo "==> Pre-listing R2 contents under v1/${MODEL}/"
+  if rclone lsf --recursive "r2:${R2_BUCKET}/v1/${MODEL}/" \
+      --files-only 2>/dev/null > "$EXISTING_KEYS_FILE"; then
+    echo "  $(wc -l < "$EXISTING_KEYS_FILE") existing keys cached"
+  else
+    echo "  (no existing keys, fresh bucket)"
+    : > "$EXISTING_KEYS_FILE"
+  fi
 fi
 
 has_key() { grep -qxF "$1" "$EXISTING_KEYS_FILE"; }
+
+# Source stamp the manifest says this product/run already holds (fast tick).
+manifest_src() {
+  awk -v p="$1" -v r="$2" '$1==p && $2==r {print $3; exit}' "$FAST_SRC_FILE"
+}
+
+# Products this tick rendered, as "<code>=<HHMMSS>" for the manifest patch.
+FAST_PATCH_ARGS=()
+FAST_RUN_STAMP=""
 
 # Newest .grib2.gz key under CONUS/<dir>/<date>/ (S3 lists ascending; a
 # 2-min product day is ~720 objects — one 1000-key page). Empty if none.
@@ -70,6 +133,14 @@ for product in $ALL_PRODUCTS; do
   mrms_dir=$(yq -r ".products.${product}.mrms_dir // \"\"" "$CONFIG")
   # QPE products (mrms_product / Pass cycle) belong to render_mrms_qpe.sh.
   [ -z "${mrms_dir}" ] && continue
+
+  # Fast tick: only the severe subset. Filtering here rather than rebuilding
+  # the product list keeps one code path — and the flag lives in
+  # products.yml, so tuning the subset never touches the workflow.
+  if [ -n "${OBS_FAST_ONLY:-}" ]; then
+    fast=$(yq -r ".products.${product}.fast_cadence // false" "$CONFIG")
+    [ "${fast}" = "true" ] || continue
+  fi
 
   scale=$(yq -r ".products.${product}.scale // 1" "$CONFIG")
   sentinel_lt=$(yq -r ".products.${product}.sentinel_lt // 0" "$CONFIG")
@@ -108,8 +179,15 @@ for product in $ALL_PRODUCTS; do
   json_rel="${out_rel%.png}.json"
   marker_rel="${out_rel%.png}.src-${vtime}"
 
-  if has_key "${marker_rel#v1/${MODEL}/}" && [ -z "${FORCE_RERENDER:-}" ]; then
-    continue  # slot already holds exactly this source file
+  if [ -z "${FORCE_RERENDER:-}" ]; then
+    if [ -n "${OBS_FAST_ONLY:-}" ]; then
+      # Manifest-based skip. Worst case the CDN copy is up to 60 s stale and
+      # a product re-renders once for nothing — uploads are free, so that is
+      # the cheap side of the trade.
+      [ "$(manifest_src "${product}" "${stamp}")" = "${vtime}" ] && continue
+    elif has_key "${marker_rel#v1/${MODEL}/}"; then
+      continue  # slot already holds exactly this source file
+    fi
   fi
 
   echo "[${product}] newest=${src_stamp} → run ${stamp}Z"
@@ -203,16 +281,23 @@ PY
     --header-upload "Cache-Control: public, max-age=300"
   echo "  uploaded ${out_rel} ($(stat -c%s "${work}/F000.png" 2>/dev/null || echo '?') bytes)"
 
-  # Source marker: makes the next tick a no-op until a fresher file
-  # publishes. Old markers for the same run are removed so the listing
-  # stays one-marker-per-slot.
-  while IFS= read -r old_marker; do
-    rclone deletefile "r2:${R2_BUCKET}/v1/${MODEL}/${old_marker}" 2>/dev/null || true
-  done < <(grep -E "^${product}/${stamp}/F000\.src-" "$EXISTING_KEYS_FILE" || true)
+  # Source marker: still written on every tick — it is what build_manifest.py
+  # reads to publish srcTimes, so the full sweep stays authoritative either
+  # way. The cleanup of superseded markers needs the bucket listing, so a
+  # fast tick leaves its markers behind; they are zero-byte, and the next
+  # sweep sweeps them (parse_src_times takes the newest, so an extra one is
+  # never read as the current value).
+  if [ -z "${OBS_FAST_ONLY:-}" ]; then
+    while IFS= read -r old_marker; do
+      rclone deletefile "r2:${R2_BUCKET}/v1/${MODEL}/${old_marker}" 2>/dev/null || true
+    done < <(grep -E "^${product}/${stamp}/F000\.src-" "$EXISTING_KEYS_FILE" || true)
+  fi
   : > "${work}/marker"
   rclone copyto "${work}/marker" "r2:${R2_BUCKET}/${marker_rel}" \
     --s3-no-check-bucket --no-traverse
   RENDERED_ANY=true
+  FAST_PATCH_ARGS+=("${product}=${vtime}")
+  FAST_RUN_STAMP="${stamp}"
   rm -rf "${work}"
 done
 
@@ -220,10 +305,27 @@ done
 # already rebuilds the manifest every tick regardless) ──────────────────
 if [ "${RENDERED_ANY}" = true ] || [ -n "${FORCE_RERENDER:-}" ]; then
   echo ""
-  echo "==> Pruning OBS to last ${RETAIN} valid hours"
-  python3 "${SCRIPT_DIR}/prune_old_runs.py" "${MODEL}" "${RETAIN}"
-  echo "==> Rebuilding OBS manifest"
-  python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}"
+  if [ -n "${OBS_FAST_ONLY:-}" ]; then
+    # Fast tick: patch the timestamps into the published manifest instead of
+    # rebuilding it. A rebuild lists the whole prefix; this reads the CDN
+    # copy and writes it back, so the whole tick costs B2 nothing but free
+    # Class A writes. The 15-min sweep still does the authoritative rebuild,
+    # including prune and the full availability map.
+    # FORCE_RERENDER can reach here with nothing actually rendered; an
+    # empty array would also trip `set -u` on older bash.
+    if [ ${#FAST_PATCH_ARGS[@]} -gt 0 ] && [ -n "${FAST_RUN_STAMP}" ]; then
+      echo "==> Patching srcTimes into the published manifest"
+      python3 "${SCRIPT_DIR}/patch_obs_srctimes.py" \
+        "${FAST_RUN_STAMP}" "${FAST_PATCH_ARGS[@]}"
+    else
+      echo "==> Nothing rendered; manifest left alone"
+    fi
+  else
+    echo "==> Pruning OBS to last ${RETAIN} valid hours"
+    python3 "${SCRIPT_DIR}/prune_old_runs.py" "${MODEL}" "${RETAIN}"
+    echo "==> Rebuilding OBS manifest"
+    python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}"
+  fi
 else
   echo "==> No new MRMS observation frames this tick"
 fi

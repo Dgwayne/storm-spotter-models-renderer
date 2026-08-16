@@ -28,6 +28,23 @@ const REPO = "storm-spotter-models-renderer";
 // frame. It rides the same slot as render_goes.yml — both are satellite,
 // both are idempotent backfill-the-window renders, so a 15-min dispatch is
 // well inside GIBS' own ~40-min latency.
+// The severe subset (rotation, hail size, lowest-altitude reflectivity) on a
+// 5-MINUTE cadence, without a 6th cron trigger — the free plan caps at 5 and
+// all 5 are spoken for. Instead it rides three existing slots whose minutes
+// are disjoint and, unioned, land exactly on the 5s:
+//   :00 :15 :30 :45  +  :05 :20 :35 :50  +  :10 :25 :40 :55
+// Deliberately NOT on the :02/:17/:32/:47 slot: that one runs the full
+// 92-product OBS sweep, and overlapping the two every quarter hour would
+// have them racing over the same manifest for no gain.
+//
+// Why it exists: MRMS publishes these products every ~2 min, but the full
+// sweep can only run every 15, so measured on 2026-08-16 the app was showing
+// rotation ~7 min old mid-tick and up to ~17 min old just before one — far
+// enough behind a moving storm to sit outside the warning polygon it
+// belonged to. Six products with warm caches finish well inside 5 min, and
+// the idempotency markers make a tick with no new source file nearly free.
+const SEVERE_WORKFLOW = "render_mrms_severe.yml";
+
 const CRON_TO_WORKFLOW = {
   // Soundings (skew-T sites + point tiles, hourly f00-f18 scrubber) ride the
   // HRRR slot's :35 tick only: HRRR f18 for the previous hour's cycle
@@ -37,8 +54,9 @@ const CRON_TO_WORKFLOW = {
   "5,20,35,50 * * * *": [
     "render_hrrr.yml",
     { wf: "extract_soundings.yml", minutes: [35] },
+    SEVERE_WORKFLOW,
   ],
-  "10,25,40,55 * * * *": ["render_rrfs.yml"],
+  "10,25,40,55 * * * *": ["render_rrfs.yml", SEVERE_WORKFLOW],
   "2,17,32,47 * * * *": [
     "render_mrms_qpe.yml",
     "render_goes.yml",
@@ -50,7 +68,7 @@ const CRON_TO_WORKFLOW = {
   // within one refresh of the authoritative record. wildfire.yml also keeps
   // an hourly GitHub-native cron as a backstop for the 2026-07-13 failure
   // mode where this Worker's triggers silently stopped firing.
-  "0,15,30,45 * * * *": ["render_nam.yml", "wildfire.yml"],
+  "0,15,30,45 * * * *": ["render_nam.yml", "wildfire.yml", SEVERE_WORKFLOW],
   // GFS rides the ECMWF slot: GitHub-native cron for render_gfs.yml was
   // firing with gaps up to 4 h, compounding the old single-target render
   // strategy into ~5-9 h of app-visible staleness. 30-min dispatches +
