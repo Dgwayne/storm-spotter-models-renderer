@@ -74,8 +74,20 @@ export OBS_PATCH_CREATE_RUNS=1
 export OBS_RETAIN="${OBS_RETAIN:-4}"
 
 if [ -n "$DRY_RUN" ]; then
+  # Report the retention that will actually be APPLIED, not the variable.
+  # OBS_RETAIN stays exported after cutover but render_mrms_obs.sh ignores it
+  # for the live prefix, so echoing it raw showed "retain=4" on a box that
+  # prunes to 26. Accurate about the environment, badly wrong about the
+  # behaviour, and the kind of thing someone reads at 3am and acts on. Mirror
+  # the guard instead.
+  EFFECTIVE_RETAIN=$(yq -r '.models.OBS.retain_runs' "${REPO_DIR}/config/products.yml")
+  RETAIN_NOTE="from config"
+  if [ -n "${OBS_RETAIN:-}" ] && [ "${OBS_PREFIX:-OBS}" != "OBS" ]; then
+    EFFECTIVE_RETAIN="${OBS_RETAIN}"
+    RETAIN_NOTE="OBS_RETAIN override, shadow prefix"
+  fi
   echo "tier=${TIER} prefix=${OBS_PREFIX:-OBS} jobs=${OBS_JOBS} single_pass=${OBS_SINGLE_PASS:-0}"
-  echo "state=${OBS_STATE_DIR} retain=${OBS_RETAIN} skip_prune=${OBS_SKIP_PRUNE:-0}"
+  echo "state=${OBS_STATE_DIR} retain=${EFFECTIVE_RETAIN} (${RETAIN_NOTE}) skip_prune=${OBS_SKIP_PRUNE:-0}"
   echo "bucket=${R2_BUCKET:-<unset>} endpoint=${R2_ENDPOINT:-<unset>}"
   if [ "$TIER" = qpe ]; then
     yq -r '.products | to_entries | map(select(.value.mrms_product)) | length' \
