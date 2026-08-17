@@ -1,0 +1,19 @@
+[Unit]
+Description=MRMS fast tier every 2 min (41 products, ~2 min at source)
+
+[Timer]
+Unit=stp-mrms@fast.service
+OnCalendar=*:0/2
+# THE ONE THAT MATTERS: systemd's default AccuracySec is 60 s, which it
+# spends coalescing timers to save wakeups. On a 2-minute cadence that is
+# up to half the budget given away for nothing, and it is invisible — the
+# timer still reports as firing "every 2 minutes".
+AccuracySec=1s
+RandomizedDelaySec=0
+# No catch-up burst after a reboot or a suspend: MRMS frames are
+# latest-only, so a missed tick has nothing to replay. The next tick
+# renders the newest file, which is all anyone wanted.
+Persistent=false
+
+[Install]
+WantedBy=timers.target

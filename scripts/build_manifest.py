@@ -18,10 +18,15 @@ from pathlib import Path
 
 import yaml  # PyYAML
 
-from r2_listing import parse_src_times, parse_tree, rclone_lsf_recursive
+from r2_listing import parse_src_times, parse_tree, prefix_for, rclone_lsf_recursive
 from r2_listing import all_runs as tree_all_runs
 
 MODEL = sys.argv[1]
+# Bucket path segment — MODEL everywhere except a shadowing OBS run, whose
+# manifest must land beside its frames rather than over the live one.
+# The manifest's own "model" field stays MODEL, so a shadow manifest is
+# byte-for-byte what the live one will be once the prefix flips.
+PREFIX = prefix_for(MODEL)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONFIG = REPO_ROOT / "config" / "products.yml"
 
@@ -235,10 +240,10 @@ if step_minutes:
     manifest["schemaVersion"] = 2
     manifest["stepMinutes"] = step_minutes
 
-out_path = Path("/tmp") / f"manifest_{MODEL}.json"
+out_path = Path("/tmp") / f"manifest_{PREFIX}.json"
 out_path.write_text(json.dumps(manifest, indent=2))
 
-# Upload to R2 at v1/<MODEL>/manifest.json
+# Upload to R2 at v1/<PREFIX>/manifest.json
 #
 # Cache-Control is CRITICAL here. Without it Cloudflare applies its default
 # 4-hour Browser Cache TTL, which froze the manifest at the edge — the app
@@ -253,7 +258,7 @@ subprocess.check_call(
         "rclone",
         "copyto",
         str(out_path),
-        f"r2:{bucket}/v1/{MODEL}/manifest.json",
+        f"r2:{bucket}/v1/{PREFIX}/manifest.json",
         "--s3-no-check-bucket",
         "--no-traverse",
         "--header-upload",
@@ -261,4 +266,4 @@ subprocess.check_call(
     ]
 )
 
-print(f"manifest uploaded: v1/{MODEL}/manifest.json ({len(runs_payload)} runs)")
+print(f"manifest uploaded: v1/{PREFIX}/manifest.json ({len(runs_payload)} runs)")

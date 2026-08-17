@@ -26,7 +26,11 @@ srcTimes entries are touched; every other key is passed through untouched.
 Usage:  patch_obs_srctimes.py <run_stamp> <code>=<HHMMSS> [<code>=<HHMMSS> ...]
 
 Env:    R2_BUCKET, plus rclone's r2: remote (configured by the workflow),
-        MODELS_BASE_URL (optional; defaults to the public CDN origin).
+        MODELS_BASE_URL (optional; defaults to the public CDN origin),
+        OBS_PREFIX (optional; which prefix's manifest to patch — a shadow
+        run must patch its own, never the live one),
+        OBS_PATCH_CREATE_RUNS (optional; also publish a not-yet-seen run and
+        claim frames into `available`, closing the hourly-rollover hole).
 """
 
 from __future__ import annotations
@@ -42,6 +46,14 @@ import urllib.request
 from pathlib import Path
 
 MODEL = "OBS"
+# Read and write the same prefix the frames went to (see r2_listing.prefix_for).
+# A shadow run must patch its own manifest, never the live one.
+PREFIX = os.environ.get("OBS_PREFIX") or MODEL
+# Opt-in: also publish a run the manifest has not seen yet, and claim frames
+# into `available`. Off by default so the GitHub severe workflow — the
+# rollback target until the VPS cutover has held — keeps behaving exactly as
+# it does today. See the CREATE_RUNS branch in main() for what it fixes.
+CREATE_RUNS = bool(os.environ.get("OBS_PATCH_CREATE_RUNS"))
 BASE = os.environ.get("MODELS_BASE_URL", "https://models.dgwaynes.com/v1")
 BUCKET = os.environ["R2_BUCKET"]
 
@@ -53,7 +65,7 @@ def fetch_manifest() -> dict | None:
     and patching a copy that predates the last sweep would hand back a stale
     `available` map along with the fresh timestamps.
     """
-    url = f"{BASE}/{MODEL}/manifest.json?_patch={int(time.time())}"
+    url = f"{BASE}/{PREFIX}/manifest.json?_patch={int(time.time())}"
     req = urllib.request.Request(
         url,
         headers={
@@ -93,16 +105,55 @@ def main() -> int:
         print("  manifest has no runs; skipping patch")
         return 0
 
-    # Only ever touch a run the sweep already published. Inventing one here
-    # would put a run in the manifest with no `expected` map behind it, and
-    # the app would paint the scrub bar as permanently incomplete.
     target = next(
         (r for r in runs if isinstance(r, dict) and r.get("runStamp") == run_stamp),
         None,
     )
     if target is None:
-        print(f"  run {run_stamp} not in manifest yet; the sweep will publish it")
-        return 0
+        if not CREATE_RUNS:
+            # Historical behaviour: only ever touch a run the sweep already
+            # published, because a run with no `expected` map behind it would
+            # make the app paint the scrub bar as permanently incomplete.
+            print(f"  run {run_stamp} not in manifest yet; the sweep will publish it")
+            return 0
+        # The hourly-rollover hole. Products render into an hourly slot, so at
+        # the top of every hour the first tick writes frames into a run stamp
+        # the manifest has never heard of — and refusing to publish it means
+        # the app keeps showing the PREVIOUS hour until the next full sweep.
+        # At a 20-minute sweep that is up to 20 minutes of staleness handed
+        # back on every hour boundary, which would eat most of what the
+        # 2-minute tier just bought.
+        #
+        # `expected` is copied from the newest existing run rather than
+        # recomputed: OBS has only forecast_hours_default (no synoptic
+        # variation), so every run's expected map is identical, and copying
+        # keeps the one definition in build_manifest.py. Products this tick
+        # did not render simply stay absent from `available`, and the app
+        # walks runs newest-first looking for one that actually has the
+        # product — so a partially-populated new run degrades to exactly the
+        # right answer per product. The next sweep replaces all of it.
+        newest = runs[-1]
+        target = {
+            "runTime": dt.datetime.strptime(run_stamp, "%Y%m%d%H")
+            .replace(tzinfo=dt.timezone.utc)
+            .isoformat(),
+            "runStamp": run_stamp,
+            "available": {},
+            "expected": dict(newest.get("expected") or {}),
+            "srcTimes": {},
+        }
+        runs.append(target)
+        print(f"  run {run_stamp} is new; added to the manifest")
+
+    # A product that just rendered into this run has its frame on the bucket
+    # NOW. Recording that here (not only at the next sweep) is what lets the
+    # app pick up the new hour immediately — `expected` for OBS is [0], and
+    # the app requires available to contain expected.first before it will use
+    # a run.
+    available = target.get("available")
+    if not isinstance(available, dict):
+        available = {}
+    expected_map = target.get("expected") or {}
 
     src_times = target.get("srcTimes")
     if not isinstance(src_times, dict):
@@ -119,10 +170,25 @@ def main() -> int:
         if src_times.get(code) != iso:
             src_times[code] = iso
             patched.append(f"{code}@{hhmmss}")
+        if CREATE_RUNS:
+            # Frame is uploaded by the time this runs, so claim it. Use the
+            # product's own expected list rather than a hardcoded [0] so this
+            # stays correct if OBS ever grows a multi-hour product.
+            want = (expected_map.get(code) or [0])[:1]
+            have = available.get(code) or []
+            if want and want[0] not in have:
+                available[code] = sorted({*have, want[0]})
     if not patched:
         print("  srcTimes already current; no write")
         return 0
     target["srcTimes"] = src_times
+    if CREATE_RUNS:
+        target["available"] = available
+        # The app reads runs newest-last. Appending is already in order for
+        # the only case that produces a new run (the hour rolling forward),
+        # but sorting costs nothing and keeps a late-publishing product from
+        # putting the list out of order.
+        runs.sort(key=lambda r: r.get("runStamp") or "")
     # generatedAt is what the dead-man monitor reads; a fast tick really did
     # regenerate this file, and leaving the old value would make a healthy
     # pipeline look stalled between sweeps.
@@ -136,7 +202,7 @@ def main() -> int:
                 "rclone",
                 "copyto",
                 str(out),
-                f"r2:{BUCKET}/v1/{MODEL}/manifest.json",
+                f"r2:{BUCKET}/v1/{PREFIX}/manifest.json",
                 "--s3-no-check-bucket",
                 "--no-traverse",
                 "--header-upload",
