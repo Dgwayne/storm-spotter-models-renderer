@@ -13,6 +13,10 @@ set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/Dgwayne/storm-spotter-models-renderer.git}"
 REPO_DIR="${REPO_DIR:-/opt/stp-renderer}"
+# The branch the box tracks. Stays on the VPS branch until the cutover has
+# held; hardcoding main would silently roll the box back to the Actions-era
+# script on the next bootstrap run.
+REPO_REF="${REPO_REF:-main}"
 ETC_DIR="/etc/stp-renderer"
 STATE_DIR="/var/lib/stp-renderer"
 # The account the timers run as. Oracle's Ubuntu image logs in as `ubuntu`;
@@ -49,13 +53,14 @@ if ! command -v yq >/dev/null 2>&1 || ! yq --version 2>/dev/null | grep -q "${YQ
   rm -f /tmp/yq
 fi
 
-echo "==> Repo at ${REPO_DIR}"
+echo "==> Repo at ${REPO_DIR} (${REPO_REF})"
 if [ -d "${REPO_DIR}/.git" ]; then
   git -C "${REPO_DIR}" fetch --quiet origin
-  git -C "${REPO_DIR}" reset --hard --quiet origin/main
+  git -C "${REPO_DIR}" reset --hard --quiet "origin/${REPO_REF}"
 else
-  git clone --quiet "${REPO_URL}" "${REPO_DIR}"
+  git clone --quiet --branch "${REPO_REF}" "${REPO_URL}" "${REPO_DIR}"
 fi
+git -C "${REPO_DIR}" --no-pager log --oneline -1
 chown -R "${RUN_USER}:${RUN_USER}" "${REPO_DIR}"
 
 echo "==> Directories"
