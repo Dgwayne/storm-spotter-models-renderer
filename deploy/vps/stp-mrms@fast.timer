@@ -1,9 +1,32 @@
 [Unit]
-Description=MRMS fast tier every 4 min (41 products, ~2 min at source)
+Description=MRMS fast tier every 3 min (41 products, ~2 min at source)
 
 [Timer]
 Unit=stp-mrms@fast.service
-# WAS *:0/2 until 2026-08-17. Slowed to 4 min so the whole box fits inside
+# CADENCE HISTORY, and read the margin note before changing this again.
+#
+#   *:0/2  until 2026-08-17  (on 4 OCPU)
+#   *:0/4  2026-08-17        (proving the box fits 2 OCPU / Always Free)
+#   *:0/3  2026-08-17        (current; operator preference, measured below)
+#
+# Measured on the live 2-core box, elapsed per tick vs the tier's budget:
+#
+#   cadence | worst tick     | % of budget | load avg (2 cores)
+#   4 min   | 141s of 240s   |     59%     | 1.18 / 1.51 / 1.89
+#   3 min   | 153s of 180s   |     85%     | 3.71 / 4.02 / 3.20
+#
+# 3 min held over 9 consecutive ticks with ZERO skips and no divergence, but
+# it spends most of the safety margin to do it. The measurable freshness gain
+# is small: et18 live lag sampled every 45s across 9 samples averaged 2.46 min
+# (total age 4.82 min), and the theoretical improvement over 4 min is only
+# ~0.5 min, which is smaller than the sawtooth's own 0.0-4.1 min swing. The
+# operator reports a perceptible difference on device and chose to keep it.
+#
+# WATCH: `status=skipped reason=previous-tick-still-running` in the journal.
+# At 85% of budget that is the first thing that will appear if anything gets
+# slower. Reverting is a one-character edit back to *:0/4.
+#
+# WAS *:0/2 until 2026-08-17. Slowed so the whole box fits inside
 # the Always Free ceiling of 2 OCPU / 12 GB, which Oracle halved from
 # 4 OCPU / 24 GB on 2026-06-15. This instance is on a 30-day Free Trial that
 # ends 2026-09-16; an A1 instance over the Always Free size is disabled at
@@ -17,17 +40,17 @@ Unit=stp-mrms@fast.service
 # most frequent one halves the dominant load.
 #
 # Freshness cost is small and uniform: MRMS publishes these products about
-# every 2 min, so rendering every 4 adds ~2 min of average staleness. That is
-# still far inside the freshness monitor's 20-minute OBS limit, and nowhere
-# near the 21-41 min this pipeline saw on GitHub Actions before the migration.
+# every 2 min, so rendering every 3 adds ~1.5 min of average staleness. That
+# is still well inside the freshness monitor's 20-minute OBS limit, and
+# nowhere near the 21-41 min this pipeline saw on Actions before the migration.
 # Per-tick work does NOT grow with the interval: these are latest-frame
 # products, so a longer gap renders the newest file, not a backlog.
-OnCalendar=*:0/4
+OnCalendar=*:0/3
 # THE ONE THAT MATTERS: systemd's default AccuracySec is 60 s, which it
-# spends coalescing timers to save wakeups. On a 4-minute cadence that is
-# up to a quarter of the budget given away for nothing (it was half at the
-# old 2-minute cadence), and it is invisible — the timer still reports as
-# firing "every 4 minutes".
+# spends coalescing timers to save wakeups. On a 3-minute cadence that is up
+# to a third of the budget given away for nothing, and it matters more here
+# than it ever has, because the tier already runs at 85% of budget. It is
+# also invisible — the timer still reports as firing "every 3 minutes".
 AccuracySec=1s
 RandomizedDelaySec=0
 # No catch-up burst after a reboot or a suspend: MRMS frames are

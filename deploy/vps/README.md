@@ -30,7 +30,7 @@ here, not on GitHub Actions.
 > obligation begins only on an explicit *Upgrade to Pay As You Go*.
 >
 > **The plan: resize to 2 OCPU / 12 GB before 2026-09-16 and stay free.** The
-> `fast` tier was slowed 2 min -> 4 min on 2026-08-17 to make the box fit
+> `fast` tier was slowed 2 min -> 4 min, then set to 3 min, on 2026-08-17 to make the box fit
 > inside 2 cores (see the tier table below). Resizing is an in-place shape
 > edit plus a reboot, and it preserves the boot volume, VNIC and the public
 > IP. Upgrading to PAYG and keeping 4 OCPU is the alternative at about
@@ -88,7 +88,7 @@ bytes; rendering slower throws away freshness that was there for the taking.
 
 | tier | timer | products | source cadence |
 |---|---|---|---|
-| `fast` | 4 min | 41 | 2.0 min — rotation, MESH, POSH, SHI, all 4 echo tops, VIL/VILD/VII, RALA, isothermal reflectivity, rate, ARI, FFG |
+| `fast` | 3 min | 41 | 2.0 min — rotation, MESH, POSH, SHI, all 4 echo tops, VIL/VILD/VII, RALA, isothermal reflectivity, rate, ARI, FFG |
 | `mid` | 10 min | 9 | 10 min (FLASH soil sat / streamflow), plus `rq15m` at 15 |
 | `slow` | 20 min | 37 | 30-71 min — the swaths, 3-72h QPE accums, all multi-sensor |
 | `qpe` | 15 min | 5 | MultiSensor Pass1 ~:16, Pass2 ~:58 after each valid hour |
@@ -118,7 +118,7 @@ Measured runtimes, worst observed:
 
 | tier | elapsed | cadence | headroom |
 |---|---|---|---|
-| fast | 88-94s | **240s** | **61%** |
+| fast | 87-153s | **180s** | **15%** at worst (see the timer unit for the 4-min vs 3-min trade) |
 | mid | 36s | 600s | 94% |
 | slow | 56s | 1200s | 95% |
 | qpe | 43s | 900s | 95% |
@@ -127,13 +127,18 @@ Halving the cores cost the fast tier only ~40% more wall time, not 2x, because
 the render already runs `OBS_JOBS=4` and is partly I/O bound on NOAA fetches.
 The old 2-minute cadence failed not because a single tick was too slow but
 because five of them per ten minutes, plus mid/slow/qpe, exceeded what two
-cores can serialise. At four minutes that drops to 2.5 ticks and it fits.
+cores can serialise. At three minutes that drops to 3.3 ticks and it fits,
+though at 85% of budget rather than 59%. Four minutes is the conservative
+setting if the tier ever starts logging status=skipped.
 
-**The freshness cost is far smaller than the halved cadence suggests.**
-Measured live lag against NOAA's newest file right after the change: 0.0 to
-4.0 min, mostly 2.0, which is what the 4 OCPU / 2-minute configuration was
-already delivering. Polling interval is not the dominant term; NOAA's own
-publish latency plus ~1.5 min of render time is.
+**The freshness cost is far smaller than the cadence change suggests.**
+et18 live lag sampled every 45 s over 9 samples at the 3-minute cadence:
+0.0, 2.0, 2.0, 2.0, 2.0, 2.0, 4.0, 4.0, 4.1, mean **2.46 min** (total age
+mean 4.82 min). Polling interval is not the dominant term; NOAA's own ~2.3
+min publish latency plus ~1.5 min of render time is the floor, which is why
+no cadence makes these products look as fast as base reflectivity. Base
+reflectivity is not in this catalog at all — it is fetched live from IEM and
+never touches this box.
 
 ## Install
 
