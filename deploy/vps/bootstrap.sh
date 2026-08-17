@@ -44,7 +44,8 @@ echo "==> yq ${YQ_VERSION} (arm64)"
 # Pinned and retried: the renderer's GitHub Actions were taken out for
 # several hours on 2026-08-12 by a GitHub release-CDN outage, and a box
 # that cannot install yq cannot render anything at all.
-if ! command -v yq >/dev/null 2>&1 || ! yq --version 2>/dev/null | grep -q "${YQ_VERSION}"; then
+YQ_HAVE=$(yq --version 2>/dev/null || true)   # same SIGPIPE/pipefail trap as the GRIB check
+if ! grep -q "${YQ_VERSION}" <<<"$YQ_HAVE"; then
   curl -sSfL --retry 6 --retry-all-errors --retry-delay 5 \
     --connect-timeout 10 --max-time 60 \
     -o /tmp/yq \
@@ -123,8 +124,17 @@ systemctl daemon-reload
 
 echo "==> Toolchain check"
 gdalinfo --version
-gdalinfo --formats | grep -qi grib && echo "GRIB driver: present" || {
-  echo "GRIB driver MISSING — gdal cannot read MRMS files" >&2; exit 1; }
+# Capture first, then match. `gdalinfo --formats | grep -qi grib` looks
+# equivalent and is not: grep -q exits at the first match, gdalinfo takes
+# SIGPIPE, and under `set -o pipefail` the pipeline reports THAT as the
+# result. The check then fails on a box where the driver is present and
+# working (verified 2026-08-17 — 149 drivers listed, GRIB among them).
+GDAL_FORMATS=$(gdalinfo --formats 2>/dev/null || true)
+if grep -qi 'grib' <<<"$GDAL_FORMATS"; then
+  echo "GRIB driver: present"
+else
+  echo "GRIB driver MISSING — gdal cannot read MRMS files" >&2; exit 1
+fi
 python3 -c "from osgeo import gdal; import numpy; print('osgeo bindings:', gdal.__version__)"
 python3 -c "import yaml; print('pyyaml: ok')"
 rclone --version | head -1
