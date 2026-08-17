@@ -165,6 +165,7 @@ if [ -n "${missing}" ]; then
 fi
 echo "GDAL tools: all present (single pass + classic fallback)"
 
+CURRENT_PREFIX=$(grep '^OBS_PREFIX=' "${ETC_DIR}/prefix.env" | cut -d= -f2)
 cat <<EOF
 
 ==> Bootstrap complete.
@@ -175,5 +176,5 @@ Next:
   3. start the timers:
        sudo systemctl enable --now stp-mrms@fast.timer stp-mrms@mid.timer stp-mrms@slow.timer
 
-Prefix is currently: \$(grep OBS_PREFIX ${ETC_DIR}/prefix.env)
+Rendering to prefix: v1/${CURRENT_PREFIX}/   <-- shadow until you flip it
 EOF
