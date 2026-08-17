@@ -132,11 +132,16 @@ jobs:
                    HRDPS RDPS KNMIHAR DMIHAR UKV ALADIN ICONCH1 ICONCH2 METNO AROMEHD CAMSEU CAMSGL; do
             check "$m" "https://models.dgwaynes.com/v1/$m/manifest.json" 240
           done
-          # Sub-hourly om models (render_om_15min.yml, :7/:37 both ticks):
-          # every 30-min sweep touches generatedAt via the bootstrap
-          # manifest, so 120 = the standard limit.
-          check HRRR15    "https://models.dgwaynes.com/v1/HRRR15/manifest.json"    120
-          check AROMEFR15 "https://models.dgwaynes.com/v1/AROMEFR15/manifest.json" 120
+          # Sub-hourly om models (render_om_15min.yml, dispatched :10/:40).
+          # TIGHTENED 120 -> 45 on 2026-08-17. The standard 120 was far too
+          # loose for models whose entire product is 15-minute frames: on
+          # 2026-08-17 every one of this workflow's last eight runs was
+          # cancelled by runner starvation, leaving HRRR15 at 45 min and
+          # AROMEFR15 at 77 min stale, and the monitor sat green through all
+          # of it. Healthy is 3-13 min (measured), so 45 has ample margin
+          # over normal queue delay while still catching starvation.
+          check HRRR15    "https://models.dgwaynes.com/v1/HRRR15/manifest.json"    45
+          check AROMEFR15 "https://models.dgwaynes.com/v1/AROMEFR15/manifest.json" 45
           # GeoColor writes its OWN manifest, so a SAT/manifest.json check
           # says nothing about it. That gap let render_goes_geocolor.yml sit
           # on throttled GitHub-native cron until a user noticed night

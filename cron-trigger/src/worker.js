@@ -102,7 +102,15 @@ const CRON_TO_WORKFLOW = {
     "render_nam.yml",
     "wildfire.yml",
     { wf: "render_om_models.yml", minutes: [15, 45] },
-    { wf: "render_om_models3.yml", minutes: [30] },
+    // Batch 5 (12 models: projected grids + CAMS) is the single largest
+    // consumer in the whole repo. Measured over 4.2 h on 2026-08-17 it burned
+    // 136.5 runner-min/hr, i.e. 2.28 sustained cores and 38% of everything
+    // the account rendered, against ~8 concurrent slots. Its models cycle
+    // every 3-12 h, so an hourly dispatch was several times more often than
+    // the data changes, and the cost of that landed on every other workflow
+    // as queue time. Halved to every second hour, which frees ~1.1 cores,
+    // more than HRRR and RRFS combined.
+    { wf: "render_om_models3.yml", minutes: [30], hours: [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22] },
   ],
   // Slot E. Deliberately left almost empty now. ECMWF open data publishes
   // ~7-9 h after init, so twice-hourly is already far more often than it
@@ -119,10 +127,18 @@ const CRON_TO_WORKFLOW = {
 // editing wrangler.toml but not this file) — better to fire HRRR than nothing.
 const DEFAULT_WORKFLOW = "render_hrrr.yml";
 
-// Entries are plain workflow-name strings or { wf, minutes } objects.
+// Entries are plain workflow-name strings, or { wf, minutes, hours } objects
+// that narrow when the entry fires within its slot:
+//   minutes: [...]  only on these minutes of the slot (e.g. [37] on a
+//                   :7/:37 slot halves a workflow's rate to hourly)
+//   hours:   [...]  only in these UTC hours (e.g. every even hour = 2-hourly)
+// Both are optional and AND together, so { minutes: [30], hours: [0,2,...] }
+// reads as ":30 on even hours".
 const entryName = (e) => (typeof e === "string" ? e : e.wf);
-const entryFiresAt = (e, minute) =>
-  typeof e === "string" || e.minutes.includes(minute);
+const entryFiresAt = (e, minute, hour) =>
+  typeof e === "string" ||
+  ((e.minutes === undefined || e.minutes.includes(minute)) &&
+    (e.hours === undefined || e.hours.includes(hour)));
 
 // The lightning feed is NOT on a cron slot (its workflow is a self-renewing
 // ~2h30m loop started by GitHub's own 2-hourly cron, with runs overlapping so
@@ -229,9 +245,11 @@ export default {
     // event.scheduledTime is the SCHEDULED epoch ms (not the actual firing
     // time), so the minute extracted here matches the cron expression even
     // when Cloudflare fires a beat late.
-    const minute = new Date(event.scheduledTime).getUTCMinutes();
+    const scheduledAt = new Date(event.scheduledTime);
+    const minute = scheduledAt.getUTCMinutes();
+    const hour = scheduledAt.getUTCHours();
     const workflows = (CRON_TO_WORKFLOW[event.cron] || [DEFAULT_WORKFLOW])
-      .filter((e) => entryFiresAt(e, minute))
+      .filter((e) => entryFiresAt(e, minute, hour))
       .map(entryName);
     ctx.waitUntil(
       Promise.all(
