@@ -89,7 +89,17 @@ jobs:
             echo "$name ${cc#*:}"
           }
           check SAT  "https://models.dgwaynes.com/v1/SAT/manifest.json"  120
-          check OBS  "https://models.dgwaynes.com/v1/OBS/manifest.json"  120
+          # OBS is 20, not the standard 120, because it no longer renders
+          # here — it is the always-on box (deploy/vps/), whose fast tier
+          # touches generatedAt every 2 minutes. 120 was calibrated against a
+          # 15-minute sweep, where it meant a handful of missed ticks; against
+          # a 2-minute pipeline it is sixty of them, so a dead box could sit
+          # unnoticed for two hours on the freshest feed in the app. 20 leaves
+          # room for a slow tick or a brief network stall without crying wolf.
+          #
+          # This check deliberately stays on Actions: a watchdog hosted on the
+          # thing it watches cannot report that thing being down.
+          check OBS  "https://models.dgwaynes.com/v1/OBS/manifest.json"  20
           check HRRR "https://models.dgwaynes.com/v1/HRRR/manifest.json" 120
           # ICON-D2 (om-source pilot): rides the :7/:37 Worker slot, so a
           # healthy sweep touches generatedAt every ~30 min regardless of
