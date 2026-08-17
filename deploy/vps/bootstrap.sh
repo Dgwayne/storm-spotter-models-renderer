@@ -126,6 +126,30 @@ rclone --version | head -1
 yq --version
 flock --version | head -1
 
+# The C++ tools and the Python utility scripts are packaged separately on
+# Debian-family distros, and gdal_calc.py/gdal_edit.py have moved between
+# gdal-bin, python3-gdal and a gdal-python-tools package across GDAL
+# releases. The single pass does not need them, but the classic chain is
+# the fallback we keep reachable precisely so a suspect frame can be
+# re-rendered the old way — a fallback that turns out not to be installed
+# is worse than no fallback, because you find out while trying to use it.
+missing=""
+for t in gdal_translate gdalwarp gdaldem gdalinfo gdal_calc.py gdal_edit.py; do
+  command -v "$t" >/dev/null 2>&1 || missing="${missing} ${t}"
+done
+if [ -n "${missing}" ]; then
+  echo "    missing GDAL tools:${missing}" >&2
+  echo "    trying gdal-python-tools (newer GDAL splits the scripts out)" >&2
+  apt-get install -y -qq --no-install-recommends gdal-python-tools 2>/dev/null || true
+  for t in ${missing}; do
+    command -v "$t" >/dev/null 2>&1 || {
+      echo "STILL MISSING: ${t} — the classic render chain cannot run" >&2
+      echo "  (OBS_SINGLE_PASS=1 will still work; the fallback will not)" >&2
+      exit 1; }
+  done
+fi
+echo "GDAL tools: all present (single pass + classic fallback)"
+
 cat <<EOF
 
 ==> Bootstrap complete.
