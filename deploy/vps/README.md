@@ -1,7 +1,23 @@
 # MRMS render box (Oracle Always Free, ARM64)
 
-Moves the MRMS observation catalog off GitHub Actions and onto a single
-always-on box.
+The MRMS observation catalog and the MultiSensor QPE accumulations render
+here, not on GitHub Actions.
+
+**Cutover: done 2026-08-17 08:46Z.** Measured immediately after, against
+NOAA's newest published file:
+
+| product | before (median / p90) | after |
+|---|---|---|
+| et18 | 21.1 / 41.1 min | 4.5 min |
+| vil | 21.1 / 41.1 | 2.5 |
+| posh | 21.1 / 41.1 | 2.5 |
+| shi | 15.0 / 35.1 | 2.5 |
+| rala | 7.1 / 16.1 | 2.5 |
+
+Seven of ten watched products sit at **0.0 min of lag** — the app is exactly
+as fresh as NOAA, not approaching it. The "before" column is a real hour of
+sampling, and note its p90: Actions was not merely slow, it was erratic, and
+the tail is what put a rotation product outside the polygon it belonged to.
 
 ## Why this exists
 
@@ -31,9 +47,27 @@ bytes; rendering slower throws away freshness that was there for the taking.
 | `fast` | 2 min | 41 | 2.0 min — rotation, MESH, POSH, SHI, all 4 echo tops, VIL/VILD/VII, RALA, isothermal reflectivity, rate, ARI, FFG |
 | `mid` | 10 min | 9 | 10 min (FLASH soil sat / streamflow), plus `rq15m` at 15 |
 | `slow` | 20 min | 37 | 30-71 min — the swaths, 3-72h QPE accums, all multi-sensor |
+| `qpe` | 15 min | 5 | MultiSensor Pass1 ~:16, Pass2 ~:58 after each valid hour |
 
 The 37 slow ones cannot be improved: their source only publishes every
 30-71 minutes. WeatherWise hits the same wall.
+
+`qpe` is not a cadence tier — it runs `render_mrms_qpe.sh`, a different
+script with the Pass1/Pass2 gauge-correction cycle. It lives here rather
+than on Actions because it rebuilds `manifest.json` twice per tick and
+prunes. Two processes doing that on separate schedules is not corrupting
+(every rebuild derives from a fresh listing) but it lets a fast-tier
+srcTimes patch land on a rebuild and briefly revert QPE availability. One
+box, one writer, one manifest lock.
+
+Measured runtimes, worst observed:
+
+| tier | elapsed | cadence | headroom |
+|---|---|---|---|
+| fast | 57-85s | 120s | 29% at worst, under QPE contention |
+| mid | 25s | 600s | 96% |
+| slow | 81s | 1200s | 93% |
+| qpe | 302s cold | 900s | 66% |
 
 ## Install
 
@@ -81,11 +115,12 @@ Start the timers:
 sudo systemctl enable --now stp-mrms@fast.timer stp-mrms@mid.timer stp-mrms@slow.timer
 ```
 
-## Shadow mode
+## Shadow mode (how this was validated, and how to re-enter it)
 
-`/etc/stp-renderer/prefix.env` ships as `OBS_PREFIX=OBS-shadow`. In that
-state the box renders a complete parallel copy of the catalog to
-`v1/OBS-shadow/` with its own `manifest.json`, and:
+`OBS_PREFIX` in `/etc/stp-renderer/prefix.env` is the whole switch. It reads
+`OBS` now. Set it to `OBS-shadow` and the box renders a complete parallel
+copy instead, which is how any future change to this pipeline should be
+proven before it touches production:
 
 - the app keeps reading `v1/OBS/` and cannot tell the box exists;
 - `prune_old_runs.py` addresses `v1/OBS-shadow/...` and has no path to
@@ -103,10 +138,17 @@ journalctl -u 'stp-mrms@*' -g TICK -f
 python3 /opt/stp-renderer/deploy/vps/compare_freshness.py
 ```
 
-## THE SWITCH
+## THE SWITCH (executed 2026-08-17 08:46Z — kept as the procedure)
 
 Server-side, so it needs no app release and takes effect on the app's next
 60-second manifest poll. Same URLs, fresher data behind them.
+
+One step below is easy to skip and matters: **cancel queued Actions runs**.
+Four MRMS runs were sitting `queued`/`pending` at cutover, some for eight
+minutes. Removing the workflows from the Worker stops new dispatches but
+does nothing about work already in the queue, and a `workflow_dispatch` run
+checks out `main` when it finally starts — so those would have woken up
+after the switch and written to `v1/OBS/` behind the box.
 
 1. **Stop GitHub rendering OBS.** Two edits, both required — a workflow
    change in this repo is always the `.yml` *and* `CRON_TO_WORKFLOW`:
@@ -114,15 +156,21 @@ Server-side, so it needs no app release and takes effect on the app's next
      cron slots, `wrangler deploy`
    - `.github/workflows/render_mrms_qpe.yml`: remove the
      "Render MRMS observation catalog" step
-2. **Confirm nothing is still in flight:**
+2. **Drain the queue — do not just watch it.**
    ```bash
-   gh run list --repo Dgwayne/storm-spotter-models-renderer \
-     --workflow render_mrms_severe.yml --limit 5
-   gh run list --repo Dgwayne/storm-spotter-models-renderer \
-     --workflow render_mrms_qpe.yml --limit 5
+   for wf in render_mrms_severe.yml render_mrms_qpe.yml; do
+     for id in $(gh run list --workflow "$wf" --limit 15 \
+         --json databaseId,status \
+         --jq '.[]|select(.status=="queued" or .status=="pending"
+                          or .status=="in_progress")|.databaseId'); do
+       gh run cancel "$id"
+     done
+   done
    ```
-   Wait for `in_progress` to clear. A run queued on old code can finish
-   after a patch and clobber it.
+   Then re-run the query until both report zero. Waiting alone can take
+   25 minutes here — that queue depth is the reason for the whole
+   migration — and every run still in it will check out `main` when it
+   starts and write to `v1/OBS/` behind the box.
 3. **Point the box at live:**
    ```bash
    sudo sed -i 's/^OBS_PREFIX=.*/OBS_PREFIX=OBS/' /etc/stp-renderer/prefix.env
@@ -178,9 +226,16 @@ tick (rebuild + prune). B2's free Class C allowance is 2,500/day:
 
 | | LIST calls/day |
 |---|---|
-| GitHub OBS today | ~1,536 |
-| shadow (retain 4 ⇒ one page) | ~144 |
-| box on live after cutover (retain 26 ⇒ 8 pages) | ~1,152 |
+| GitHub OBS, before cutover | ~1,536 |
+| shadow during validation (retain 4 ⇒ one page) | ~144 |
+| **box on live now** (slow tier, retain 26 ⇒ 8 pages) | ~1,152 |
+| **plus the qpe tier** (1 pre-list + up to 3 rebuild/prune) | ~384 |
+| **total now** | **~1,536** |
+
+Unchanged from before the migration, against a 2,500/day free allowance —
+the work moved, the LIST cost did not. Verified in the journal: fast and
+mid tiers performed **zero** bucket listings across every tick, because
+local state answers idempotency.
 
 The naive version of the fast path — pre-list the bucket and fully rebuild
 on every tick — needed ~6,144/day, which is ~$0.44/mo. That is why
