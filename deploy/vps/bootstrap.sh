@@ -23,6 +23,13 @@ STATE_DIR="/var/lib/stp-renderer"
 # SUDO_USER keeps this correct if the image ever uses another name.
 RUN_USER="${RUN_USER:-${SUDO_USER:-ubuntu}}"
 YQ_VERSION="v4.53.3"
+# Ubuntu 24.04 ships rclone 1.60.1 (2022), which sends `x-amz-acl: private`
+# on every PUT. B2's S3 endpoint rejects that outright:
+#   InvalidArgument: Unsupported value for canned acl 'private'
+# so EVERY upload fails. --s3-acl="" does not suppress it on 1.60 either
+# (tested on the box). CI never hit this because conda-forge ships current
+# rclone. Pin a modern one rather than depend on the distro's.
+RCLONE_VERSION="v1.75.0"
 
 [ "$(id -u)" -eq 0 ] || { echo "run me with sudo" >&2; exit 1; }
 id "$RUN_USER" >/dev/null 2>&1 || { echo "no such user: $RUN_USER" >&2; exit 1; }
@@ -38,7 +45,26 @@ apt-get update -qq
 # flock     : util-linux; serialises manifest writes across tiers
 apt-get install -y -qq --no-install-recommends \
   gdal-bin python3-gdal python3-numpy python3-yaml \
-  rclone git curl ca-certificates util-linux
+  git curl ca-certificates util-linux unzip
+
+echo "==> rclone ${RCLONE_VERSION} (arm64)"
+# Deliberately NOT the distro package — see RCLONE_VERSION above. Same
+# retry hardening as yq: a release-CDN outage took the renderer's Actions
+# out for hours on 2026-08-12, and a box that cannot install rclone cannot
+# upload anything.
+RCLONE_HAVE=$(rclone --version 2>/dev/null | head -1 || true)
+if ! grep -q "${RCLONE_VERSION}" <<<"$RCLONE_HAVE"; then
+  curl -sSfL --retry 6 --retry-all-errors --retry-delay 5 \
+    --connect-timeout 10 --max-time 180 \
+    -o /tmp/rclone.zip \
+    "https://github.com/rclone/rclone/releases/download/${RCLONE_VERSION}/rclone-${RCLONE_VERSION}-linux-arm64.zip"
+  rm -rf /tmp/rclone-extract && mkdir -p /tmp/rclone-extract
+  unzip -q -o /tmp/rclone.zip -d /tmp/rclone-extract
+  install -m 0755 /tmp/rclone-extract/rclone-*/rclone /usr/local/bin/rclone
+  rm -rf /tmp/rclone.zip /tmp/rclone-extract
+fi
+# /usr/local/bin precedes /usr/bin, so this shadows any distro rclone.
+hash -r 2>/dev/null || true
 
 echo "==> yq ${YQ_VERSION} (arm64)"
 # Pinned and retried: the renderer's GitHub Actions were taken out for
