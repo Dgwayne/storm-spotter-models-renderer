@@ -30,6 +30,19 @@
 set -euo pipefail
 
 MODEL="OBS"
+# Bucket path segment, separate from the model used for config lookup. Same
+# split as render_mrms_obs.sh: OBS_PREFIX moves where this writes without
+# touching what it reads. Unset behaves exactly as before.
+#
+# This script owns the manifest as much as the OBS one does — it rebuilds
+# it twice per tick and prunes. Two processes rebuilding v1/OBS/manifest.json
+# on different schedules is survivable (each rebuild derives from a fresh
+# listing) but it lets a fast-tick srcTimes patch land on top of a rebuild
+# and briefly revert QPE availability. Giving this the same prefix knob is
+# what lets the whole OBS model, QPE included, move to one box and one
+# writer.
+PREFIX="${OBS_PREFIX:-$MODEL}"
+LIVE_PREFIX="OBS"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG="${REPO_ROOT}/config/products.yml"
@@ -45,11 +58,18 @@ BBOX=$(yq -r ".models.${MODEL}.bbox_lonlat | join(\" \")" "$CONFIG")
 IMG_W=$(yq -r ".models.${MODEL}.image_size[0]" "$CONFIG")
 IMG_H=$(yq -r ".models.${MODEL}.image_size[1]" "$CONFIG")
 
+# Retention override, shadow-only by construction — a live prefix always
+# uses the config value, so forgetting to unset a shadow's shallow
+# retention can never prune production history.
+if [ -n "${OBS_RETAIN:-}" ] && [ "${PREFIX}" != "${LIVE_PREFIX}" ]; then
+  RETAIN="${OBS_RETAIN}"
+fi
+
 # ── Pre-fetch R2 listing (same trick as render_hrrr.sh) ────────────────
 EXISTING_KEYS_FILE=$(mktemp)
 trap 'rm -f "$EXISTING_KEYS_FILE"' EXIT
-echo "==> Pre-listing R2 contents under v1/${MODEL}/"
-if rclone lsf --recursive "r2:${R2_BUCKET}/v1/${MODEL}/" \
+echo "==> Pre-listing R2 contents under v1/${PREFIX}/"
+if rclone lsf --recursive "r2:${R2_BUCKET}/v1/${PREFIX}/" \
     --files-only 2>/dev/null > "$EXISTING_KEYS_FILE"; then
   echo "  $(wc -l < "$EXISTING_KEYS_FILE") existing keys cached"
 else
@@ -79,7 +99,7 @@ render_one() {
   local src_dir="${mrms_prefix}_Pass${pass}_00.00"
   local fname="MRMS_${src_dir}_${vdate}-${vhour}0000.grib2.gz"
   local url="https://noaa-mrms-pds.s3.amazonaws.com/CONUS/${src_dir}/${vdate}/${fname}"
-  local out_rel="v1/${MODEL}/${product}/${stamp}/F000.png"
+  local out_rel="v1/${PREFIX}/${product}/${stamp}/F000.png"
   local json_rel="${out_rel%.png}.json"
   local sentinel_rel="${out_rel%.png}.pass1"
 
@@ -191,7 +211,7 @@ PY
     : > "${work}/marker"
     rclone copyto "${work}/marker" "r2:${R2_BUCKET}/${sentinel_rel}" \
       --s3-no-check-bucket --no-traverse
-  elif has_key "${sentinel_rel#v1/${MODEL}/}"; then
+  elif has_key "${sentinel_rel#v1/${PREFIX}/}"; then
     rclone deletefile "r2:${R2_BUCKET}/${sentinel_rel}" 2>/dev/null || true
   fi
 
@@ -247,19 +267,19 @@ for offset in $(seq 0 "${HOURS_BACK}"); do
   # Publish the manifest as soon as the newest hour is rendered (same
   # early-manifest trick as render_hrrr.sh).
   if [ "${offset}" -eq 0 ]; then
-    echo "==> Publishing OBS manifest early (newest hour rendered)"
-    python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}" \
+    echo "==> Publishing ${PREFIX} manifest early (newest hour rendered)"
+    OBS_PREFIX="${PREFIX}" python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}" \
       || echo "  (early manifest build failed; will retry at end of tick)"
   fi
 done
 
 # ── Prune + final manifest ──────────────────────────────────────────────
 echo ""
-echo "==> Pruning OBS to last ${RETAIN} valid hours"
-python3 "${SCRIPT_DIR}/prune_old_runs.py" "${MODEL}" "${RETAIN}"
+echo "==> Pruning ${PREFIX} to last ${RETAIN} valid hours"
+OBS_PREFIX="${PREFIX}" python3 "${SCRIPT_DIR}/prune_old_runs.py" "${MODEL}" "${RETAIN}"
 
-echo "==> Rebuilding OBS manifest"
-python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}"
+echo "==> Rebuilding ${PREFIX} manifest"
+OBS_PREFIX="${PREFIX}" python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}"
 
 echo ""
 echo "==> OBS render complete"

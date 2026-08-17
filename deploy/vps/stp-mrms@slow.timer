@@ -1,0 +1,15 @@
+[Unit]
+Description=MRMS slow tier every 20 min (37 swath/accum products, >=30 min at source)
+
+[Timer]
+Unit=stp-mrms@slow.service
+# Offset off the 10s so this tier's authoritative manifest rebuild is not
+# starting in the same second as a fast patch. The flock makes an overlap
+# correct either way; staggering makes it rare.
+OnCalendar=*:3/20
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=false
+
+[Install]
+WantedBy=timers.target

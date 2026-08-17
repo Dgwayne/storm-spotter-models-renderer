@@ -1670,6 +1670,7 @@ products:
   mesh:
     display: "Hail Size (MESH)"
     mrms_dir: "MESH_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
     data_png: { min: 0.0, max: 5.0 }
     units_in: "mm"
@@ -1685,6 +1686,7 @@ products:
   mesh60:
     display: "Hail Swath 1-hr"
     mrms_dir: "MESH_Max_60min_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 5.0 }
     units_in: "mm"
     units_out: "in"
@@ -1699,6 +1701,7 @@ products:
   mesh240:
     display: "Hail Swath 4-hr"
     mrms_dir: "MESH_Max_240min_00.50"
+    cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 5.0 }
     units_in: "mm"
     units_out: "in"
@@ -1713,6 +1716,7 @@ products:
   mesh1440:
     display: "Hail Swath 24-hr"
     mrms_dir: "MESH_Max_1440min_00.50"
+    cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 5.0 }
     units_in: "mm"
     units_out: "in"
@@ -1727,6 +1731,7 @@ products:
   posh:
     display: "Prob. of Severe Hail"
     mrms_dir: "POSH_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 100.0 }
     units_in: "%"
     units_out: "%"
@@ -1741,6 +1746,7 @@ products:
   et18:
     display: "Echo Top - 18 dBZ"
     mrms_dir: "EchoTop_18_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 75.0 }
     units_in: "km"
     units_out: "kft"
@@ -1755,6 +1761,7 @@ products:
   et30:
     display: "Echo Top - 30 dBZ"
     mrms_dir: "EchoTop_30_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 75.0 }
     units_in: "km"
     units_out: "kft"
@@ -1769,6 +1776,7 @@ products:
   et50:
     display: "Echo Top - 50 dBZ"
     mrms_dir: "EchoTop_50_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 75.0 }
     units_in: "km"
     units_out: "kft"
@@ -1783,6 +1791,7 @@ products:
   et60:
     display: "Echo Top - 60 dBZ"
     mrms_dir: "EchoTop_60_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 75.0 }
     units_in: "km"
     units_out: "kft"
@@ -1798,6 +1807,7 @@ products:
   vil:
     display: "Vertically Integrated Liquid"
     mrms_dir: "VIL_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 100.0 }
     units_in: "kg/m^2"
     units_out: "kg/m²"
@@ -1811,6 +1821,7 @@ products:
   vild:
     display: "VIL Density"
     mrms_dir: "VIL_Density_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 8.0 }
     units_in: "g/m^3"
     units_out: "g/m³"
@@ -1824,6 +1835,7 @@ products:
   vii:
     display: "Vertically Integrated Ice"
     mrms_dir: "VII_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 60.0 }
     units_in: "kg/m^2"
     units_out: "kg/m²"
@@ -1838,6 +1850,7 @@ products:
   rot30:
     display: "Rotation Track 30-min"
     mrms_dir: "RotationTrack30min_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
     data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
@@ -1852,6 +1865,7 @@ products:
   rot60:
     display: "Rotation Track 1-hr"
     mrms_dir: "RotationTrack60min_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
     units_out: "s⁻¹"
@@ -1865,6 +1879,7 @@ products:
   rot240:
     display: "Rotation Track 4-hr"
     mrms_dir: "RotationTrack240min_00.50"
+    cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
     units_out: "s⁻¹"
@@ -1878,6 +1893,7 @@ products:
   rot1440:
     display: "Rotation Track 24-hr"
     mrms_dir: "RotationTrack1440min_00.50"
+    cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
     units_out: "s⁻¹"
@@ -1892,6 +1908,7 @@ products:
   soilsat:
     display: "Soil Saturation (CREST)"
     mrms_dir: "FLASH_CREST_MAXSOILSAT_00.00"
+    cadence_tier: mid      # source publishes ~10 min (measured 10.0 min)
     data_png: { min: 0.0, max: 100.0 }
     units_in: "%"
     units_out: "%"
@@ -1905,6 +1922,7 @@ products:
   unitq:
     display: "Unit Streamflow (CREST)"
     mrms_dir: "FLASH_CREST_MAXUNITSTREAMFLOW_00.00"
+    cadence_tier: mid      # source publishes ~10 min (measured 10.0 min)
     data_png: { min: 0.0, max: 40.0 }
     units_in: "m^3/s/km^2"
     units_out: "m³/s/km²"
@@ -1918,6 +1936,7 @@ products:
   ari01h:
     display: "Rainfall Recurrence 1-hr"
     mrms_dir: "FLASH_QPE_ARI01H_00.00"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 500.0 }
     units_in: "years"
     units_out: "yr"
@@ -1931,6 +1950,7 @@ products:
   arimax:
     display: "Rainfall Recurrence Max"
     mrms_dir: "FLASH_QPE_ARIMAX_00.00"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 500.0 }
     units_in: "years"
     units_out: "yr"
@@ -1944,6 +1964,7 @@ products:
   ffg01h:
     display: "QPE-to-FFG Ratio 1-hr"
     mrms_dir: "FLASH_QPE_FFG01H_00.00"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 4.0 }
     units_in: "ratio"
     units_out: "x FFG"
@@ -1957,6 +1978,7 @@ products:
   ffgmax:
     display: "QPE-to-FFG Ratio Max"
     mrms_dir: "FLASH_QPE_FFGMAX_00.00"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 4.0 }
     units_in: "ratio"
     units_out: "x FFG"
@@ -1972,6 +1994,7 @@ products:
   rate:
     display: "Precip Rate"
     mrms_dir: "PrecipRate_00.00"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 6.0 }
     units_in: "mm/hr"
     units_out: "in/hr"
@@ -1986,6 +2009,7 @@ products:
   rq15m:
     display: "QPE Radar-Only 15-min"
     mrms_dir: "RadarOnly_QPE_15M_00.00"
+    cadence_tier: mid      # source publishes ~10 min (measured 15.0 min)
     data_png: { min: 0.0, max: 3.0 }
     units_in: "mm"
     units_out: "in"
@@ -2000,6 +2024,7 @@ products:
   rq01h:
     display: "QPE Radar-Only 1-hour"
     mrms_dir: "RadarOnly_QPE_01H_00.00"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 6.0 }
     units_in: "mm"
     units_out: "in"
@@ -2014,6 +2039,7 @@ products:
   rq03h:
     display: "QPE Radar-Only 3-hour"
     mrms_dir: "RadarOnly_QPE_03H_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 8.0 }
     units_in: "mm"
     units_out: "in"
@@ -2028,6 +2054,7 @@ products:
   rq06h:
     display: "QPE Radar-Only 6-hour"
     mrms_dir: "RadarOnly_QPE_06H_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 10.0 }
     units_in: "mm"
     units_out: "in"
@@ -2042,6 +2069,7 @@ products:
   rq12h:
     display: "QPE Radar-Only 12-hour"
     mrms_dir: "RadarOnly_QPE_12H_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 15.0 }
     units_in: "mm"
     units_out: "in"
@@ -2056,6 +2084,7 @@ products:
   rq24h:
     display: "QPE Radar-Only 24-hour"
     mrms_dir: "RadarOnly_QPE_24H_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 20.0 }
     units_in: "mm"
     units_out: "in"
@@ -2070,6 +2099,7 @@ products:
   rq48h:
     display: "QPE Radar-Only 48-hour"
     mrms_dir: "RadarOnly_QPE_48H_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 25.0 }
     units_in: "mm"
     units_out: "in"
@@ -2084,6 +2114,7 @@ products:
   rq72h:
     display: "QPE Radar-Only 72-hour"
     mrms_dir: "RadarOnly_QPE_72H_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 30.0 }
     units_in: "mm"
     units_out: "in"
@@ -2098,6 +2129,7 @@ products:
   rq12z:
     display: "QPE Radar-Only Since 12Z"
     mrms_dir: "RadarOnly_QPE_Since12Z_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 20.0 }
     units_in: "mm"
     units_out: "in"
@@ -2112,6 +2144,7 @@ products:
   ms01h1:
     display: "QPE Multi-Sensor 1-hour Pass 1"
     mrms_dir: "MultiSensor_QPE_01H_Pass1_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 6.0 }
     units_in: "mm"
     units_out: "in"
@@ -2126,6 +2159,7 @@ products:
   ms01h2:
     display: "QPE Multi-Sensor 1-hour Pass 2"
     mrms_dir: "MultiSensor_QPE_01H_Pass2_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 6.0 }
     units_in: "mm"
     units_out: "in"
@@ -2140,6 +2174,7 @@ products:
   ms03h1:
     display: "QPE Multi-Sensor 3-hour Pass 1"
     mrms_dir: "MultiSensor_QPE_03H_Pass1_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 8.0 }
     units_in: "mm"
     units_out: "in"
@@ -2154,6 +2189,7 @@ products:
   ms03h2:
     display: "QPE Multi-Sensor 3-hour Pass 2"
     mrms_dir: "MultiSensor_QPE_03H_Pass2_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 8.0 }
     units_in: "mm"
     units_out: "in"
@@ -2168,6 +2204,7 @@ products:
   ms06h1:
     display: "QPE Multi-Sensor 6-hour Pass 1"
     mrms_dir: "MultiSensor_QPE_06H_Pass1_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 10.0 }
     units_in: "mm"
     units_out: "in"
@@ -2182,6 +2219,7 @@ products:
   ms06h2:
     display: "QPE Multi-Sensor 6-hour Pass 2"
     mrms_dir: "MultiSensor_QPE_06H_Pass2_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 10.0 }
     units_in: "mm"
     units_out: "in"
@@ -2196,6 +2234,7 @@ products:
   ms12h1:
     display: "QPE Multi-Sensor 12-hour Pass 1"
     mrms_dir: "MultiSensor_QPE_12H_Pass1_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 15.0 }
     units_in: "mm"
     units_out: "in"
@@ -2210,6 +2249,7 @@ products:
   ms12h2:
     display: "QPE Multi-Sensor 12-hour Pass 2"
     mrms_dir: "MultiSensor_QPE_12H_Pass2_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 15.0 }
     units_in: "mm"
     units_out: "in"
@@ -2224,6 +2264,7 @@ products:
   ms24h1:
     display: "QPE Multi-Sensor 24-hour Pass 1"
     mrms_dir: "MultiSensor_QPE_24H_Pass1_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 20.0 }
     units_in: "mm"
     units_out: "in"
@@ -2238,6 +2279,7 @@ products:
   ms24h2:
     display: "QPE Multi-Sensor 24-hour Pass 2"
     mrms_dir: "MultiSensor_QPE_24H_Pass2_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 20.0 }
     units_in: "mm"
     units_out: "in"
@@ -2252,6 +2294,7 @@ products:
   ms48h1:
     display: "QPE Multi-Sensor 48-hour Pass 1"
     mrms_dir: "MultiSensor_QPE_48H_Pass1_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 25.0 }
     units_in: "mm"
     units_out: "in"
@@ -2266,6 +2309,7 @@ products:
   ms48h2:
     display: "QPE Multi-Sensor 48-hour Pass 2"
     mrms_dir: "MultiSensor_QPE_48H_Pass2_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 25.0 }
     units_in: "mm"
     units_out: "in"
@@ -2280,6 +2324,7 @@ products:
   ms72h1:
     display: "QPE Multi-Sensor 72-hour Pass 1"
     mrms_dir: "MultiSensor_QPE_72H_Pass1_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 30.0 }
     units_in: "mm"
     units_out: "in"
@@ -2294,6 +2339,7 @@ products:
   ms72h2:
     display: "QPE Multi-Sensor 72-hour Pass 2"
     mrms_dir: "MultiSensor_QPE_72H_Pass2_00.00"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: 0.0, max: 30.0 }
     units_in: "mm"
     units_out: "in"
@@ -2308,6 +2354,7 @@ products:
   streamflow:
     display: "Streamflow (CREST)"
     mrms_dir: "FLASH_CREST_MAXSTREAMFLOW_00.00"
+    cadence_tier: mid      # source publishes ~10 min (measured 10.0 min)
     data_png: { min: 0.0, max: 3000.0 }
     units_in: "m^3/s"
     units_out: "m³/s"
@@ -2321,6 +2368,7 @@ products:
   sacsoil:
     display: "Soil Saturation (SAC)"
     mrms_dir: "FLASH_SAC_MAXSOILSAT_00.00"
+    cadence_tier: mid      # source publishes ~10 min (measured 10.0 min)
     data_png: { min: 0.0, max: 100.0 }
     units_in: "%"
     units_out: "%"
@@ -2334,6 +2382,7 @@ products:
   sacflow:
     display: "Streamflow (SAC)"
     mrms_dir: "FLASH_SAC_MAXSTREAMFLOW_00.00"
+    cadence_tier: mid      # source publishes ~10 min (measured 10.0 min)
     data_png: { min: 0.0, max: 3000.0 }
     units_in: "m^3/s"
     units_out: "m³/s"
@@ -2347,6 +2396,7 @@ products:
   sacunitq:
     display: "Unit Streamflow (SAC)"
     mrms_dir: "FLASH_SAC_MAXUNITSTREAMFLOW_00.00"
+    cadence_tier: mid      # source publishes ~10 min (measured 10.0 min)
     data_png: { min: 0.0, max: 40.0 }
     units_in: "m^3/s/km^2"
     units_out: "m³/s/km²"
@@ -2360,6 +2410,7 @@ products:
   hpflow:
     display: "Streamflow (Hydrophobic)"
     mrms_dir: "FLASH_HP_MAXSTREAMFLOW_00.00"
+    cadence_tier: mid      # source publishes ~10 min (measured 10.0 min)
     data_png: { min: 0.0, max: 3000.0 }
     units_in: "m^3/s"
     units_out: "m³/s"
@@ -2373,6 +2424,7 @@ products:
   hpunitq:
     display: "Unit Streamflow (Hydrophobic)"
     mrms_dir: "FLASH_HP_MAXUNITSTREAMFLOW_00.00"
+    cadence_tier: mid      # source publishes ~10 min (measured 10.0 min)
     data_png: { min: 0.0, max: 40.0 }
     units_in: "m^3/s/km^2"
     units_out: "m³/s/km²"
@@ -2386,6 +2438,7 @@ products:
   ari30m:
     display: "Rainfall Recurrence 30-min"
     mrms_dir: "FLASH_QPE_ARI30M_00.00"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 500.0 }
     units_in: "years"
     units_out: "yr"
@@ -2399,6 +2452,7 @@ products:
   ari03h:
     display: "Rainfall Recurrence 3-hr"
     mrms_dir: "FLASH_QPE_ARI03H_00.00"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 500.0 }
     units_in: "years"
     units_out: "yr"
@@ -2412,6 +2466,7 @@ products:
   ari06h:
     display: "Rainfall Recurrence 6-hr"
     mrms_dir: "FLASH_QPE_ARI06H_00.00"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 500.0 }
     units_in: "years"
     units_out: "yr"
@@ -2425,6 +2480,7 @@ products:
   ari12h:
     display: "Rainfall Recurrence 12-hr"
     mrms_dir: "FLASH_QPE_ARI12H_00.00"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 500.0 }
     units_in: "years"
     units_out: "yr"
@@ -2438,6 +2494,7 @@ products:
   ari24h:
     display: "Rainfall Recurrence 24-hr"
     mrms_dir: "FLASH_QPE_ARI24H_00.00"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 500.0 }
     units_in: "years"
     units_out: "yr"
@@ -2451,6 +2508,7 @@ products:
   ffg03h:
     display: "QPE-to-FFG Ratio 3-hr"
     mrms_dir: "FLASH_QPE_FFG03H_00.00"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 4.0 }
     units_in: "ratio"
     units_out: "x FFG"
@@ -2464,6 +2522,7 @@ products:
   ffg06h:
     display: "QPE-to-FFG Ratio 6-hr"
     mrms_dir: "FLASH_QPE_FFG06H_00.00"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 4.0 }
     units_in: "ratio"
     units_out: "x FFG"
@@ -2479,6 +2538,7 @@ products:
   rala:
     display: "Reflectivity At Lowest Altitude"
     mrms_dir: "MergedReflectivityAtLowestAltitude_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
     data_png: { min: -30.0, max: 80.0 }
     units_in: "dBZ"
@@ -2494,6 +2554,7 @@ products:
   lcrlow:
     display: "Reflectivity Low (0-24 kft)"
     mrms_dir: "LayerCompositeReflectivity_Low_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: -30.0, max: 80.0 }
     units_in: "dBZ"
     units_out: "dBZ"
@@ -2508,6 +2569,7 @@ products:
   lcrhigh:
     display: "Reflectivity High (24-60 kft)"
     mrms_dir: "LayerCompositeReflectivity_High_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: -30.0, max: 80.0 }
     units_in: "dBZ"
     units_out: "dBZ"
@@ -2522,6 +2584,7 @@ products:
   lcrsuper:
     display: "Reflectivity Super (33-60 kft)"
     mrms_dir: "LayerCompositeReflectivity_Super_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: -30.0, max: 80.0 }
     units_in: "dBZ"
     units_out: "dBZ"
@@ -2536,6 +2599,7 @@ products:
   refl0c:
     display: "Reflectivity (0C)"
     mrms_dir: "Reflectivity_0C_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: -30.0, max: 80.0 }
     units_in: "dBZ"
     units_out: "dBZ"
@@ -2550,6 +2614,7 @@ products:
   reflm5c:
     display: "Reflectivity (-5C)"
     mrms_dir: "Reflectivity_-5C_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: -30.0, max: 80.0 }
     units_in: "dBZ"
     units_out: "dBZ"
@@ -2564,6 +2629,7 @@ products:
   reflm10c:
     display: "Reflectivity (-10C)"
     mrms_dir: "Reflectivity_-10C_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: -30.0, max: 80.0 }
     units_in: "dBZ"
     units_out: "dBZ"
@@ -2578,6 +2644,7 @@ products:
   reflm15c:
     display: "Reflectivity (-15C)"
     mrms_dir: "Reflectivity_-15C_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: -30.0, max: 80.0 }
     units_in: "dBZ"
     units_out: "dBZ"
@@ -2592,6 +2659,7 @@ products:
   reflm20c:
     display: "Reflectivity (-20C)"
     mrms_dir: "Reflectivity_-20C_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: -30.0, max: 80.0 }
     units_in: "dBZ"
     units_out: "dBZ"
@@ -2606,6 +2674,7 @@ products:
   crefmax1h:
     display: "Composite Refl Hourly Max"
     mrms_dir: "CREF_1HR_MAX_00.50"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: -30.0, max: 80.0 }
     units_in: "dBZ"
     units_out: "dBZ"
@@ -2620,6 +2689,7 @@ products:
   brefmax1h:
     display: "Base Refl Hourly Max"
     mrms_dir: "BREF_1HR_MAX_00.50"
+    cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: -30.0, max: 80.0 }
     units_in: "dBZ"
     units_out: "dBZ"
@@ -2634,6 +2704,7 @@ products:
   reflhgt:
     display: "Reflectivity Height"
     mrms_dir: "HeightCompositeReflectivity_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 75.0 }
     units_in: "km"
     units_out: "kft"
@@ -2648,6 +2719,7 @@ products:
   shi:
     display: "Severe Hail Index"
     mrms_dir: "SHI_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 300.0 }
     units_in: "index"
     units_out: ""
@@ -2661,6 +2733,7 @@ products:
   mesh30:
     display: "Hail Swath 30-min"
     mrms_dir: "MESH_Max_30min_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 5.0 }
     units_in: "mm"
     units_out: "in"
@@ -2675,6 +2748,7 @@ products:
   mesh120:
     display: "Hail Swath 2-hr"
     mrms_dir: "MESH_Max_120min_00.50"
+    cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 5.0 }
     units_in: "mm"
     units_out: "in"
@@ -2689,6 +2763,7 @@ products:
   mesh360:
     display: "Hail Swath 6-hr"
     mrms_dir: "MESH_Max_360min_00.50"
+    cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 5.0 }
     units_in: "mm"
     units_out: "in"
@@ -2703,6 +2778,7 @@ products:
   vilsw120:
     display: "VIL Swath 2-hr"
     mrms_dir: "VIL_Max_120min_00.50"
+    cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 100.0 }
     units_in: "kg/m^2"
     units_out: "kg/m²"
@@ -2716,6 +2792,7 @@ products:
   vilsw1440:
     display: "VIL Swath 24-hr"
     mrms_dir: "VIL_Max_1440min_00.50"
+    cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 100.0 }
     units_in: "kg/m^2"
     units_out: "kg/m²"
@@ -2729,6 +2806,7 @@ products:
   rotnow:
     display: "Rotation (0-2 km) Instant"
     mrms_dir: "MergedAzShear_0-2kmAGL_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
     data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
@@ -2744,6 +2822,7 @@ products:
   rot120:
     display: "Rotation Track 2-hr"
     mrms_dir: "RotationTrack120min_00.50"
+    cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
     units_out: "s⁻¹"
@@ -2757,6 +2836,7 @@ products:
   rot360:
     display: "Rotation Track 6-hr"
     mrms_dir: "RotationTrack360min_00.50"
+    cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
     units_out: "s⁻¹"
@@ -2770,6 +2850,7 @@ products:
   rotmlnow:
     display: "Rotation (3-6 km) Instant"
     mrms_dir: "MergedAzShear_3-6kmAGL_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
     data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
@@ -2785,6 +2866,7 @@ products:
   rotml30:
     display: "Rotation ML Track 30-min"
     mrms_dir: "RotationTrackML30min_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
     data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
@@ -2799,6 +2881,7 @@ products:
   rotml60:
     display: "Rotation ML Track 1-hr"
     mrms_dir: "RotationTrackML60min_00.50"
+    cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
     units_out: "s⁻¹"
@@ -2812,6 +2895,7 @@ products:
   rotml120:
     display: "Rotation ML Track 2-hr"
     mrms_dir: "RotationTrackML120min_00.50"
+    cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
     units_out: "s⁻¹"
@@ -2825,6 +2909,7 @@ products:
   rotml240:
     display: "Rotation ML Track 4-hr"
     mrms_dir: "RotationTrackML240min_00.50"
+    cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
     units_out: "s⁻¹"
@@ -2838,6 +2923,7 @@ products:
   rotml360:
     display: "Rotation ML Track 6-hr"
     mrms_dir: "RotationTrackML360min_00.50"
+    cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
     units_out: "s⁻¹"
@@ -2851,6 +2937,7 @@ products:
   rotml1440:
     display: "Rotation ML Track 24-hr"
     mrms_dir: "RotationTrackML1440min_00.50"
+    cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 0.03 }
     units_in: "s^-1"
     units_out: "s⁻¹"

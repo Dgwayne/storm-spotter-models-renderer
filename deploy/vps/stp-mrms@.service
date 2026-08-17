@@ -1,0 +1,56 @@
+[Unit]
+Description=MRMS observation catalog render (%i tier)
+Documentation=https://github.com/Dgwayne/storm-spotter-models-renderer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+
+# The cutover switch lives in prefix.env and nothing else. Order matters
+# only in that a later file wins; these three sets are disjoint.
+EnvironmentFile=/etc/stp-renderer/renderer.env
+EnvironmentFile=/etc/stp-renderer/prefix.env
+EnvironmentFile=/etc/stp-renderer/tier-%i.env
+
+RuntimeDirectory=stp-renderer
+RuntimeDirectoryPreserve=yes
+StateDirectory=stp-renderer
+WorkingDirectory=/opt/stp-renderer
+
+# ProtectHome=read-only lets rclone READ ~/.config/rclone/rclone.conf but
+# not write beside it. Point its cache somewhere that is writable, or the
+# first backend that wants one fails on a read-only home.
+Environment=XDG_CACHE_HOME=/var/lib/stp-renderer/cache
+
+ExecStart=/usr/bin/env bash /opt/stp-renderer/deploy/vps/run-tier.sh %i
+
+# A tick must never outlive its own tier by much: the wrapper's flock makes
+# an overrun skip the next tick rather than stack, but a wedged curl should
+# not hold that lock for an hour. Well above the slow tier's measured
+# runtime, well below its 20-minute cadence.
+TimeoutStartSec=600
+
+# Credentials for a bucket the app serves from. Nothing here needs to write
+# outside its own state dir or read anyone else's home.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/stp-renderer /run/stp-renderer
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+
+# Renders are CPU-bound and bursty. On a 2 OCPU box the fast tier must not
+# be able to starve the slow tier's manifest rebuild into a timeout.
+Nice=5
+IOSchedulingClass=best-effort
+
+[Install]
+WantedBy=multi-user.target

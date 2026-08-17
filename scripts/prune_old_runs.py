@@ -13,10 +13,14 @@ from pathlib import Path
 
 import yaml
 
-from r2_listing import parse_tree, rclone_lsf_recursive, runs_by_product
+from r2_listing import parse_tree, prefix_for, rclone_lsf_recursive, runs_by_product
 
 MODEL = sys.argv[1]
 RETAIN = int(sys.argv[2])
+# Deletes are scoped to this prefix and nothing else, which is what makes a
+# shadow run safe: with OBS_PREFIX=OBS-shadow every purge below addresses
+# v1/OBS-shadow/..., so a shadowing box has no path to production data.
+PREFIX = prefix_for(MODEL)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 with (REPO_ROOT / "config" / "products.yml").open(encoding="utf-8") as f:
@@ -34,7 +38,7 @@ for product in products:
         continue
     to_delete = runs[:-RETAIN]
     for run in to_delete:
-        prefix = f"v1/{MODEL}/{product}/{run}/"
+        prefix = f"v1/{PREFIX}/{product}/{run}/"
         print(f"  prune {prefix}")
         subprocess.run(
             ["rclone", "purge", f"r2:{bucket}/{prefix}", "--s3-no-check-bucket"],

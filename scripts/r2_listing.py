@@ -15,6 +15,7 @@ R2 (see scratchpad test_list_equivalence.py).
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 
@@ -40,11 +41,28 @@ MPNG_RE = re.compile(r"M(\d{5})\.png")
 SRC_MARKER_RE = re.compile(r"F000\.src-(\d{6})")
 
 
+def prefix_for(model: str) -> str:
+    """Bucket path segment for a model — everything lives under v1/<prefix>/.
+
+    Normally the prefix IS the model name. OBS_PREFIX moves the MRMS
+    observation catalog somewhere else without touching any other model:
+    the VPS renders to v1/OBS-shadow/ while the GitHub pipeline keeps
+    serving v1/OBS/, and flipping this one variable is the whole cutover.
+
+    Deliberately scoped to OBS. These helpers are shared with every model
+    in the repo, and a stray `export OBS_PREFIX` in some other job's
+    environment must not be able to redirect an HRRR manifest.
+    """
+    if model == "OBS":
+        return os.environ.get("OBS_PREFIX") or model
+    return model
+
+
 def rclone_lsf_recursive(bucket: str, model: str) -> str | None:
-    """Raw stdout of one recursive listing of v1/<model>/, or None on error."""
+    """Raw stdout of one recursive listing of v1/<prefix>/, or None on error."""
     try:
         return subprocess.check_output(
-            ["rclone", "lsf", "--recursive", f"r2:{bucket}/v1/{model}/"],
+            ["rclone", "lsf", "--recursive", f"r2:{bucket}/v1/{prefix_for(model)}/"],
             text=True,
         )
     except subprocess.CalledProcessError:

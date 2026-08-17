@@ -1,0 +1,12 @@
+[Unit]
+Description=MRMS mid tier every 10 min (9 FLASH products, ~10 min at source)
+
+[Timer]
+Unit=stp-mrms@mid.service
+OnCalendar=*:0/10
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=false
+
+[Install]
+WantedBy=timers.target
