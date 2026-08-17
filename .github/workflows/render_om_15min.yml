@@ -1,13 +1,15 @@
 name: Render OM 15-min models
 
 on:
-  schedule:
-    # Backstop only — the Cloudflare cron-trigger Worker (:7/:37 slot,
-    # BOTH ticks) is the reliable dispatcher. These are hourly-cycle
-    # nowcast-flavored models (HRRR sub-hourly, AROME 15-min), so the
-    # 30-min dispatch cadence keeps each new run within one tick of
-    # Open-Meteo publishing it (~35-85 min after init).
-    - cron: '22 * * * *'
+  # NO `schedule:` HERE ON PURPOSE (removed 2026-08-17; was '22 * * * *').
+  # The cron-trigger Worker dispatches this workflow (cron-trigger/src/worker.js),
+  # and a native cron alongside it is not a harmless backstop. With
+  # `cancel-in-progress: false` GitHub keeps at most one running plus one
+  # PENDING run per concurrency group, so every extra tick CANCELS the pending
+  # run and sends a "Run failed / Some jobs were not successful" email.
+  # Measured over 3.5 h on 2026-08-17: 124 cancelled vs 49 successful runs,
+  # zero genuine failures, queue waits of 19 min median and 84 min worst.
+  # To restore a backstop, add it to the Worker instead, not here.
   workflow_dispatch:
     inputs:
       force_rerender:

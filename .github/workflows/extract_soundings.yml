@@ -15,8 +15,15 @@ name: Extract Soundings
 # touch only) when the CDN already serves the newest run.
 
 on:
-  schedule:
-    - cron: '50 * * * *'
+  # NO `schedule:` HERE ON PURPOSE (removed 2026-08-17; was '50 * * * *').
+  # The cron-trigger Worker dispatches this workflow (cron-trigger/src/worker.js),
+  # and a native cron alongside it is not a harmless backstop. With
+  # `cancel-in-progress: false` GitHub keeps at most one running plus one
+  # PENDING run per concurrency group, so every extra tick CANCELS the pending
+  # run and sends a "Run failed / Some jobs were not successful" email.
+  # Measured over 3.5 h on 2026-08-17: 124 cancelled vs 49 successful runs,
+  # zero genuine failures, queue waits of 19 min median and 84 min worst.
+  # To restore a backstop, add it to the Worker instead, not here.
   workflow_dispatch:
 
 concurrency:

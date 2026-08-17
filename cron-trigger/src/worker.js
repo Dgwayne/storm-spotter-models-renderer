@@ -49,55 +49,69 @@ const REPO = "storm-spotter-models-renderer";
 // second writer back on the manifest, which is the exact problem moving QPE
 // to the box was meant to remove.
 const CRON_TO_WORKFLOW = {
-  // Soundings (skew-T sites + point tiles, hourly f00-f18 scrubber) ride the
-  // HRRR slot's :35 tick only: HRRR f18 for the previous hour's cycle
-  // publishes ~:15-:30, so :35 extracts each new complete run minutes after
-  // it lands. Was GitHub-native-cron-only ('50 * * * *'), which is throttled
-  // — the same staleness trap as GOES/GFS/GeoColor before it.
+  // BURST STAGGERING (2026-08-17). The ":7,:37" slot had grown to NINE
+  // workflows, so twice an hour ~33 jobs were created in the same second
+  // against an account that executes ~8 concurrently. Measured that day:
+  // queue waits of 19 min median / 84 min worst, and one GEFS run took
+  // 2 h 18 m wall clock for 81 min of compute. A workflow that cannot
+  // finish inside its own dispatch interval gets its pending run cancelled
+  // by the next tick, which is what produced 124 cancelled vs 49 successful
+  // runs in 3.5 h (see deploy/vps/README.md for the full queue analysis).
+  //
+  // Nothing below changes any workflow's CADENCE. Each one keeps the same
+  // number of dispatches per hour; it just lands on a different minute, via
+  // the `minutes` filter. Peak simultaneous job creation drops ~33 -> ~16.
+  //
+  // Slot A. HRRR every 15 min (hourly runs, ~50-60 min publish latency).
+  // Soundings rides the :35 tick only: HRRR f18 for the previous cycle
+  // publishes ~:15-:30, so :35 extracts each new complete run just after
+  // it lands. ICON-D2 moved here from the :7/:37 slot, keeping its 30-min
+  // cadence on [20,50]; 3-hourly cycles publishing ~46-80 min after init
+  // make any 30-min pair equivalent.
   "5,20,35,50 * * * *": [
     "render_hrrr.yml",
     { wf: "extract_soundings.yml", minutes: [35] },
+    { wf: "render_icond2.yml", minutes: [20, 50] },
   ],
-  "10,25,40,55 * * * *": ["render_rrfs.yml"],
+  // Slot B. RRFS every 15 min (hourly runs, f84 on synoptic cycles).
+  // GEFS and the sub-hourly matrix moved here from :7/:37, each keeping a
+  // 30-min cadence on alternating ticks so they never collide with each
+  // other or with RRFS's own heavy 8-group fan-out on the same minute.
+  "10,25,40,55 * * * *": [
+    "render_rrfs.yml",
+    { wf: "render_gefs.yml", minutes: [25, 55] },
+    { wf: "render_om_15min.yml", minutes: [10, 40] },
+  ],
+  // Slot C. Satellite frames land in IEM's archive on the quarter-hours, so
+  // this catches each one a few minutes after it publishes. GeoColor shares
+  // the slot (GIBS' own latency is ~40-76 min, so 15-min dispatches are well
+  // inside it). This was the lightest slot, so GFS and AIFS moved here on
+  // opposite ticks; both are multi-hour-cycle models where the exact minute
+  // is irrelevant.
   "2,17,32,47 * * * *": [
     "render_goes.yml",
     "render_goes_geocolor.yml",
+    { wf: "render_gfs.yml", minutes: [17, 47] },
+    { wf: "render_aifs.yml", minutes: [2, 32] },
   ],
-  // Wildfire rides the NAM slot — the least loaded of the five, and this
-  // bake is short (three HTTP fetches + three small uploads, no gdal). WFIGS
-  // refreshes every 5 min upstream, so 15-min dispatches keep the layer
-  // within one refresh of the authoritative record. wildfire.yml also keeps
-  // an hourly GitHub-native cron as a backstop for the 2026-07-13 failure
-  // mode where this Worker's triggers silently stopped firing.
-  "0,15,30,45 * * * *": ["render_nam.yml", "wildfire.yml"],
-  // GFS rides the ECMWF slot: GitHub-native cron for render_gfs.yml was
-  // firing with gaps up to 4 h, compounding the old single-target render
-  // strategy into ~5-9 h of app-visible staleness. 30-min dispatches +
-  // the sweep rewrite in render_gfs.sh put new runs on the CDN within
-  // one tick of NOAA publishing.
-  // ICON-D2 (Open-Meteo om-source pilot) rides the same slot: 3-hourly
-  // cycles publishing ~46-80 min after init make 30-min dispatches ample.
-  // render_om_models.yml is the batch-2 om matrix (AIGFS/GFS013/UKMO/
-  // GDPS/HGEFS) — all 6-12 h cycle models, same cadence logic.
+  // Slot D. NAM every 15 min (4 cycles/day, idempotent sweep). Wildfire rides
+  // it because the bake is short (three HTTP fetches, no gdal) and WFIGS
+  // refreshes every 5 min upstream. The batch-2 om matrix moved here on
+  // [15,45] and the batch-5 matrix on [30]; both are 6-12 h cycle models.
+  "0,15,30,45 * * * *": [
+    "render_nam.yml",
+    "wildfire.yml",
+    { wf: "render_om_models.yml", minutes: [15, 45] },
+    { wf: "render_om_models3.yml", minutes: [30] },
+  ],
+  // Slot E. Deliberately left almost empty now. ECMWF open data publishes
+  // ~7-9 h after init, so twice-hourly is already far more often than it
+  // changes. The batch-3 matrix (13 models) fires once an hour on :37 and
+  // gets the slot to itself, which is the point: it is the single largest
+  // fan-out in the repo.
   "7,37 * * * *": [
     "render_ecmwf.yml",
-    "render_gfs.yml",
-    "render_aifs.yml",
-    "render_gefs.yml",
-    "render_icond2.yml",
-    "render_om_models.yml",
-    // Batch 3 (13-model matrix) fires once an hour, not twice: all its
-    // models cycle every 3-12 h, and halving the dispatch rate halves
-    // the queue pressure 13 parallel jobs put on the 20-runner cap.
     { wf: "render_om_models2.yml", minutes: [37] },
-    // Batch 5 (12-model matrix: projected grids + CAMS) takes the :07
-    // tick so the two hourly matrices alternate half-hours.
-    { wf: "render_om_models3.yml", minutes: [7] },
-    // Sub-hourly models (HRRR15 + AROMEFR15, minute-stamped frames):
-    // hourly cycles with ~35-85 min upstream latency, so BOTH ticks —
-    // a 30-min cadence catches each new run within one tick. The
-    // matrix is max-parallel 2, so runner-cap pressure stays nil.
-    "render_om_15min.yml",
   ],
 };
 

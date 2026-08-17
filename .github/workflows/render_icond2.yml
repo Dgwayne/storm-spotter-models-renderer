@@ -1,13 +1,15 @@
 name: Render ICON-D2
 
 on:
-  schedule:
-    # Twice hourly backstop — the Cloudflare cron-trigger Worker is the
-    # reliable dispatcher (see cron-trigger/; this workflow rides the
-    # :7/:37 slot with ECMWF/GFS/AIFS/GEFS). ICON-D2 runs every 3 h and
-    # publishes ~46-80 min after init, so 30-min dispatches catch each
-    # run within one tick.
-    - cron: '7,37 * * * *'
+  # NO `schedule:` HERE ON PURPOSE (removed 2026-08-17; was '7,37 * * * *').
+  # The cron-trigger Worker dispatches this workflow (cron-trigger/src/worker.js),
+  # and a native cron alongside it is not a harmless backstop. With
+  # `cancel-in-progress: false` GitHub keeps at most one running plus one
+  # PENDING run per concurrency group, so every extra tick CANCELS the pending
+  # run and sends a "Run failed / Some jobs were not successful" email.
+  # Measured over 3.5 h on 2026-08-17: 124 cancelled vs 49 successful runs,
+  # zero genuine failures, queue waits of 19 min median and 84 min worst.
+  # To restore a backstop, add it to the Worker instead, not here.
   workflow_dispatch:
     inputs:
       force_rerender:
