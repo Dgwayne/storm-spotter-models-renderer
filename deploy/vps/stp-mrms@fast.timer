@@ -1,13 +1,33 @@
 [Unit]
-Description=MRMS fast tier every 2 min (41 products, ~2 min at source)
+Description=MRMS fast tier every 4 min (41 products, ~2 min at source)
 
 [Timer]
 Unit=stp-mrms@fast.service
-OnCalendar=*:0/2
+# WAS *:0/2 until 2026-08-17. Slowed to 4 min so the whole box fits inside
+# the Always Free ceiling of 2 OCPU / 12 GB, which Oracle halved from
+# 4 OCPU / 24 GB on 2026-06-15. This instance is on a 30-day Free Trial that
+# ends 2026-09-16; an A1 instance over the Always Free size is disabled at
+# trial end and deleted 30 days later, so it has to shrink or start billing.
+#
+# Measured, not guessed. `systemctl set-property 'system-stp\x2dmrms.slice'
+# CPUQuota=200%` is an exact 2-core simulation (all four tiers already share
+# that slice). At a 2-minute cadence the fast tier diverged under that cap:
+# 74 -> 121 -> 138 -> 181 s against a 120 s budget, work arriving faster than
+# it drained. The tiers run concurrently and contend for CPU, so halving the
+# most frequent one halves the dominant load.
+#
+# Freshness cost is small and uniform: MRMS publishes these products about
+# every 2 min, so rendering every 4 adds ~2 min of average staleness. That is
+# still far inside the freshness monitor's 20-minute OBS limit, and nowhere
+# near the 21-41 min this pipeline saw on GitHub Actions before the migration.
+# Per-tick work does NOT grow with the interval: these are latest-frame
+# products, so a longer gap renders the newest file, not a backlog.
+OnCalendar=*:0/4
 # THE ONE THAT MATTERS: systemd's default AccuracySec is 60 s, which it
-# spends coalescing timers to save wakeups. On a 2-minute cadence that is
-# up to half the budget given away for nothing, and it is invisible — the
-# timer still reports as firing "every 2 minutes".
+# spends coalescing timers to save wakeups. On a 4-minute cadence that is
+# up to a quarter of the budget given away for nothing (it was half at the
+# old 2-minute cadence), and it is invisible — the timer still reports as
+# firing "every 4 minutes".
 AccuracySec=1s
 RandomizedDelaySec=0
 # No catch-up burst after a reboot or a suspend: MRMS frames are

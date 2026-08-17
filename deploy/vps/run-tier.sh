@@ -67,7 +67,7 @@ export OBS_JOBS="${OBS_JOBS:-4}"
 export OBS_SINGLE_PASS="${OBS_SINGLE_PASS:-1}"
 # Close the hourly-rollover hole: without this the app keeps showing the
 # previous hour until the next full sweep, which at a 20-minute sweep would
-# hand back most of what the 2-minute tier just bought.
+# hand back most of what the 4-minute fast tier just bought.
 export OBS_PATCH_CREATE_RUNS=1
 # Shadow keeps few runs so its listing stays one page — see OBS_RETAIN in
 # render_mrms_obs.sh, which ignores this entirely for the live prefix.

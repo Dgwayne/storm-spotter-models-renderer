@@ -1,7 +1,51 @@
-# MRMS render box (Oracle Always Free, ARM64)
+# MRMS render box (Oracle Cloud Ampere A1, ARM64)
 
 The MRMS observation catalog and the MultiSensor QPE accumulations render
 here, not on GitHub Actions.
+
+> ## ⚠ ACCOUNT STATUS: FREE TRIAL, NOT ALWAYS FREE
+>
+> This box was originally documented as "Always Free". It is not, and the
+> difference has a deadline attached.
+>
+> `stp-mrms-render` is **4 OCPU / 24 GB**, created 2026-08-17 07:09:58Z on a
+> **30-day Free Trial** ($300 credit, console shows "Days remaining 30 of 30").
+> Oracle halved the Always Free Ampere A1 allowance from 4 OCPU / 24 GB to
+> **2 OCPU / 12 GB on 2026-06-15**, without announcement. This box is exactly
+> twice the Always Free ceiling, so it does not survive the trial as-is.
+>
+> Oracle's docs, verbatim: *"If you have more OCI Ampere A1 Compute instances
+> provisioned than are available for an Always Free tenancy, all existing OCI
+> Ampere A1 Compute instances are disabled and then deleted after 30 days,
+> unless you upgrade to a paid account."* Note **all** instances, not just the
+> excess.
+>
+> | date | event |
+> |---|---|
+> | 2026-09-16 | trial ends, box **disabled** |
+> | ~2026-10-16 | box **deleted permanently** |
+>
+> **No bill is possible in the meantime.** A Free Trial tenancy cannot be
+> charged; Oracle disables resources rather than invoicing. A payment
+> obligation begins only on an explicit *Upgrade to Pay As You Go*.
+>
+> **The plan: resize to 2 OCPU / 12 GB before 2026-09-16 and stay free.** The
+> `fast` tier was slowed 2 min -> 4 min on 2026-08-17 to make the box fit
+> inside 2 cores (see the tier table below). Resizing is an in-place shape
+> edit plus a reboot, and it preserves the boot volume, VNIC and the public
+> IP. Upgrading to PAYG and keeping 4 OCPU is the alternative at about
+> **$27/month** (2,920 OCPU-hr + 17,520 GB-hr against a documented 1,500 /
+> 9,000 allowance, at $0.01/OCPU-hr + $0.0015/GB-hr).
+>
+> **Do not size this box from load average or CPU-second arithmetic.** Both
+> said 2 cores would fit and both were wrong. Simulate it exactly instead:
+> ```
+> sudo systemctl set-property 'system-stp\x2dmrms.slice' CPUQuota=200%   # test
+> sudo systemctl set-property 'system-stp\x2dmrms.slice' CPUQuota=        # revert
+> ```
+> All four tiers already share that slice, so the cap is a true 2-core box.
+> At the old 2-minute cadence the fast tier diverged under it: 74 -> 121 ->
+> 138 -> 181 s against a 120 s budget.
 
 **Cutover: done 2026-08-17 08:46Z.** Measured immediately after, against
 NOAA's newest published file:
@@ -44,7 +88,7 @@ bytes; rendering slower throws away freshness that was there for the taking.
 
 | tier | timer | products | source cadence |
 |---|---|---|---|
-| `fast` | 2 min | 41 | 2.0 min — rotation, MESH, POSH, SHI, all 4 echo tops, VIL/VILD/VII, RALA, isothermal reflectivity, rate, ARI, FFG |
+| `fast` | 4 min | 41 | 2.0 min — rotation, MESH, POSH, SHI, all 4 echo tops, VIL/VILD/VII, RALA, isothermal reflectivity, rate, ARI, FFG |
 | `mid` | 10 min | 9 | 10 min (FLASH soil sat / streamflow), plus `rq15m` at 15 |
 | `slow` | 20 min | 37 | 30-71 min — the swaths, 3-72h QPE accums, all multi-sensor |
 | `qpe` | 15 min | 5 | MultiSensor Pass1 ~:16, Pass2 ~:58 after each valid hour |
@@ -68,6 +112,28 @@ Measured runtimes, worst observed:
 | mid | 25s | 600s | 96% |
 | slow | 81s | 1200s | 93% |
 | qpe | 302s cold | 900s | 66% |
+
+**After the 2026-08-17 resize to 2 OCPU / 12 GB** (measured under
+`CPUQuota=200%`, four consecutive ticks, zero skips):
+
+| tier | elapsed | cadence | headroom |
+|---|---|---|---|
+| fast | 88-94s | **240s** | **61%** |
+| mid | 36s | 600s | 94% |
+| slow | 56s | 1200s | 95% |
+| qpe | 43s | 900s | 95% |
+
+Halving the cores cost the fast tier only ~40% more wall time, not 2x, because
+the render already runs `OBS_JOBS=4` and is partly I/O bound on NOAA fetches.
+The old 2-minute cadence failed not because a single tick was too slow but
+because five of them per ten minutes, plus mid/slow/qpe, exceeded what two
+cores can serialise. At four minutes that drops to 2.5 ticks and it fits.
+
+**The freshness cost is far smaller than the halved cadence suggests.**
+Measured live lag against NOAA's newest file right after the change: 0.0 to
+4.0 min, mostly 2.0, which is what the 4 OCPU / 2-minute configuration was
+already delivering. Polling interval is not the dominant term; NOAA's own
+publish latency plus ~1.5 min of render time is.
 
 ## Install
 
