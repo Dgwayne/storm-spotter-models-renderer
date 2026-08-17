@@ -29,7 +29,13 @@ DRY_RUN=""
 
 REPO_DIR="${REPO_DIR:-/opt/stp-renderer}"
 ETC_DIR="/etc/stp-renderer"
-LOCK_DIR="${LOCK_DIR:-/run/stp-renderer}"
+# Locks live under the state dir, not /run. /run/stp-renderer only exists
+# because systemd's RuntimeDirectory creates it for the service, so a
+# hand-run cannot make it — and after a reboot neither can the first tick
+# if it beats the service. The state dir is owned by the run user, already
+# in the unit's ReadWritePaths, and a stale lock file is harmless: flock is
+# advisory and the kernel drops it when the fd closes.
+LOCK_DIR="${LOCK_DIR:-/var/lib/stp-renderer/locks}"
 
 # systemd supplies these via EnvironmentFile; a hand-run does not.
 if [ -z "${R2_BUCKET:-}" ]; then

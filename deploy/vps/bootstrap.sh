@@ -66,7 +66,7 @@ chown -R "${RUN_USER}:${RUN_USER}" "${REPO_DIR}"
 
 echo "==> Directories"
 install -d -m 0755 -o "${RUN_USER}" -g "${RUN_USER}" \
-  "${STATE_DIR}" "${STATE_DIR}/state" "${STATE_DIR}/cache"
+  "${STATE_DIR}" "${STATE_DIR}/state" "${STATE_DIR}/cache" "${STATE_DIR}/locks"
 install -d -m 0755 "${ETC_DIR}"
 
 # THE SWITCH. Shadow by default: a fresh box can never write to the live
