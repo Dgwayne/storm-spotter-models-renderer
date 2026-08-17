@@ -128,6 +128,13 @@ OBS_TIER=slow
 # are scoped to OBS_PREFIX, so while shadowing this cannot reach the live
 # prefix even in principle.
 EOF
+cat > "${ETC_DIR}/tier-qpe.env" <<'EOF'
+# Not a cadence tier: this runs render_mrms_qpe.sh (the 5 MultiSensor
+# accumulations with the Pass1/Pass2 cycle), which the observation catalog
+# script does not cover. No OBS_TIER, and no OBS_SKIP_PRUNE — it owns its
+# own prune and manifest rebuild, serialised against the other tiers by
+# OBS_LOCK_FILE.
+EOF
 chmod 0644 "${ETC_DIR}"/tier-*.env
 
 if [ ! -f "${ETC_DIR}/renderer.env" ]; then
@@ -140,7 +147,7 @@ chmod 0600 "${ETC_DIR}/renderer.env"
 
 echo "==> systemd units"
 install -m 0644 "${REPO_DIR}/deploy/vps/stp-mrms@.service" /etc/systemd/system/
-for tier in fast mid slow; do
+for tier in fast mid slow qpe; do
   install -m 0644 "${REPO_DIR}/deploy/vps/stp-mrms@${tier}.timer" /etc/systemd/system/
 done
 # Substitute the run user into the template rather than hardcoding ubuntu.
@@ -200,7 +207,8 @@ Next:
   1. put the B2 credentials in ${ETC_DIR}/renderer.env
   2. sudo -u ${RUN_USER} bash ${REPO_DIR}/deploy/vps/run-tier.sh fast --dry-run
   3. start the timers:
-       sudo systemctl enable --now stp-mrms@fast.timer stp-mrms@mid.timer stp-mrms@slow.timer
+       sudo systemctl enable --now stp-mrms@fast.timer stp-mrms@mid.timer \
+                                   stp-mrms@slow.timer stp-mrms@qpe.timer
 
 Rendering to prefix: v1/${CURRENT_PREFIX}/   <-- shadow until you flip it
 EOF

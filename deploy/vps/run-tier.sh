@@ -21,9 +21,23 @@ set -euo pipefail
 
 TIER="${1:-}"
 case "$TIER" in
-  fast|mid|slow) ;;
-  *) echo "usage: $0 <fast|mid|slow> [--dry-run]" >&2; exit 2 ;;
+  fast|mid|slow|qpe) ;;
+  *) echo "usage: $0 <fast|mid|slow|qpe> [--dry-run]" >&2; exit 2 ;;
 esac
+# qpe is the MultiSensor Pass1/Pass2 accumulation script, not a cadence tier
+# of the observation catalog. It rides this wrapper for the lock, the env
+# loading and the TICK line; it owns its own prune and manifest rebuild.
+#
+# It has to live on the same box as the rest. It rebuilds
+# v1/<prefix>/manifest.json twice per tick, and a second process doing that
+# on its own schedule lets a fast-tick srcTimes patch land on top of a
+# rebuild and briefly revert QPE availability. One box, one writer, one
+# manifest lock.
+if [ "$TIER" = qpe ]; then
+  RENDER_SCRIPT="scripts/render_mrms_qpe.sh"
+else
+  RENDER_SCRIPT="scripts/render_mrms_obs.sh"
+fi
 DRY_RUN=""
 [ "${2:-}" = "--dry-run" ] && DRY_RUN=1
 
@@ -63,8 +77,14 @@ if [ -n "$DRY_RUN" ]; then
   echo "tier=${TIER} prefix=${OBS_PREFIX:-OBS} jobs=${OBS_JOBS} single_pass=${OBS_SINGLE_PASS:-0}"
   echo "state=${OBS_STATE_DIR} retain=${OBS_RETAIN} skip_prune=${OBS_SKIP_PRUNE:-0}"
   echo "bucket=${R2_BUCKET:-<unset>} endpoint=${R2_ENDPOINT:-<unset>}"
-  yq -r ".products | to_entries | map(select(.value.cadence_tier == \"${TIER}\")) | length" \
-    "${REPO_DIR}/config/products.yml" | xargs -I{} echo "products in tier: {}"
+  if [ "$TIER" = qpe ]; then
+    yq -r '.products | to_entries | map(select(.value.mrms_product)) | length' \
+      "${REPO_DIR}/config/products.yml" | xargs -I{} echo "QPE products: {}"
+  else
+    yq -r ".products | to_entries | map(select(.value.cadence_tier == \"${TIER}\")) | length" \
+      "${REPO_DIR}/config/products.yml" | xargs -I{} echo "products in tier: {}"
+  fi
+  echo "script: ${RENDER_SCRIPT}"
   exit 0
 fi
 
@@ -79,7 +99,7 @@ STATUS=ok
 LOG=$(mktemp)
 trap 'rm -f "$LOG"' EXIT
 
-if bash "${REPO_DIR}/scripts/render_mrms_obs.sh" 2>&1 | tee "$LOG"; then
+if bash "${REPO_DIR}/${RENDER_SCRIPT}" 2>&1 | tee "$LOG"; then
   :
 else
   STATUS=failed

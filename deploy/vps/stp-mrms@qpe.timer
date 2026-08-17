@@ -1,0 +1,20 @@
+[Unit]
+Description=MRMS MultiSensor QPE accumulations every 15 min (5 products, Pass1/Pass2)
+
+[Timer]
+Unit=stp-mrms@qpe.service
+# Pass1 publishes ~16 min after each valid hour, Pass2 ~58 min, so a
+# 15-minute sweep catches the Pass1 bridge within a minute of landing and
+# settles the hour with Pass2. Same cadence render_mrms_qpe.yml used.
+#
+# Odd minutes on purpose: the fast tier fires on every even minute, and
+# while the per-tier flock makes an overlap correct either way, there is no
+# reason to spend both on the same 4 cores when a one-minute offset avoids
+# most of it.
+OnCalendar=*:07/15
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=false
+
+[Install]
+WantedBy=timers.target
