@@ -1,13 +1,23 @@
 name: Render MRMS QPE (OBS)
 
 on:
-  schedule:
-    # Every 15 minutes, staggered off the HRRR (:05) and RRFS (:10) ticks.
-    # MRMS Pass1 publishes ~:16 after each valid hour and Pass2 ~:58, so the
-    # :17 tick catches the Pass1 bridge within a minute and the :02 tick
-    # settles the hour with Pass2. GitHub cron is best-effort; the
-    # cron-trigger Worker dispatches this workflow on the reliable schedule.
-    - cron: '2,17,32,47 * * * *'
+  # RETIRED 2026-08-17: QPE renders on the always-on box (deploy/vps/) as the
+  # stp-mrms@qpe timer, on the same 15-minute cadence.
+  #
+  # QPE had to move with the observation catalog rather than stay here. This
+  # workflow rebuilds v1/OBS/manifest.json TWICE per tick and prunes, so
+  # leaving it scheduled would mean two independent writers of one manifest:
+  # the box every 20 min plus a srcTimes patch every 2, and this every 15. Not
+  # corrupting — each rebuild derives from a fresh listing — but a patch
+  # landing on a rebuild reverts QPE availability until the next one, which
+  # reads as the Observed Precip layer flickering.
+  #
+  # Kept as the rollback target: `gh workflow run render_mrms_qpe.yml`
+  # re-asserts v1/OBS/ by hand, and reverting the cutover commit restores
+  # this trigger and the Worker's dispatch entry together.
+  #
+  # schedule:
+  #   - cron: '2,17,32,47 * * * *'
   workflow_dispatch:
     inputs:
       force_rerender:

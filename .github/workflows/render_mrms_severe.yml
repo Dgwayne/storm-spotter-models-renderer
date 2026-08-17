@@ -1,14 +1,21 @@
 name: Render MRMS Severe (fast subset)
 
 on:
-  schedule:
-    # Decorative — GitHub's own scheduler drops most sub-hourly ticks, which
-    # is the entire reason the cron-trigger Worker exists. The real cadence
-    # comes from CRON_TO_WORKFLOW in cron-trigger/src/worker.js, where this
-    # workflow rides the :00/:15/:30/:45, :05/:20/:35/:50 and :10/:25/:40/:55
-    # slots — their union is every 5 minutes, with no 6th cron trigger (the
-    # Cloudflare free plan caps at 5, and all 5 are already spoken for).
-    - cron: '*/5 * * * *'
+  # RETIRED 2026-08-17: these six products now render on the always-on box
+  # (deploy/vps/README.md) at a 2-minute cadence instead of a 5-minute one
+  # that could not get runners.
+  #
+  # The schedule is commented out rather than the file deleted, so this stays
+  # the rollback target: `gh workflow run render_mrms_severe.yml` re-renders
+  # the subset by hand, and reverting the cutover commit restores both this
+  # trigger and the Worker's dispatch entries.
+  #
+  # It must stay OFF while the box owns v1/OBS/. GitHub's scheduler drops
+  # most sub-hourly ticks but not all of them, and one stray run would put a
+  # second writer on the manifest.
+  #
+  # schedule:
+  #   - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       force_rerender:
