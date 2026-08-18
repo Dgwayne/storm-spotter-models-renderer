@@ -128,17 +128,19 @@ OBS_TIER=slow
 # are scoped to OBS_PREFIX, so while shadowing this cannot reach the live
 # prefix even in principle.
 #
-# HALVED from the default 4 on 2026-08-18. mrms_render_one.py deliberately
-# holds the whole GRIB->PNG chain in numpy rather than spilling intermediate
-# GTiffs to disk (that is what makes 2 OCPU viable), which costs ~2.5 GB per
-# job, so 4 jobs peaks ~5.2 GB. Two tiers overlapping at 4 jobs exceeded the
-# 12 GB box and OOM-killed renders. This tier is the one that can absorb it:
-# 112s mean / 310s worst against a 1200s budget, and all 37 of its products
-# publish on a strict 30 or 60 min cadence (measured against noaa-mrms-pds
-# 2026-08-18, median == min for every product), so the extra ~2 min is 3-6%
-# of the publish interval. Do NOT do this to the fast tier: it runs 103s of
-# a 180s budget and would go over.
-OBS_JOBS=2
+# DO NOT set OBS_JOBS=2 here. Tried it 2026-08-18 to cut peak RSS after the
+# 12 GB OOM kills, and REVERTED within 20 minutes because it made the tier
+# that matters worse:
+#   - slow went 112s -> 320s (TRIPLED, not doubled as predicted), because
+#     the 37 per-product S3 freshness checks lose parallelism too, and they
+#     are fixed cost regardless of how many products actually render (the
+#     measured tick was rendered=7 and still took 320s).
+#   - that longer window overlapped far more fast ticks. One fast tick went
+#     88s -> 290s, the next 271s, and TWO 3-minute slots were lost outright.
+#     et18 live lag went 2.1 min -> 6.1 min.
+# Memory pressure was traded for contention duration, and contention duration
+# is the expensive one. The swapfile above is the correct fix for the OOM:
+# it turns a transient overshoot into a little paging instead of a lost tick.
 EOF
 cat > "${ETC_DIR}/tier-qpe.env" <<'EOF'
 # Not a cadence tier: this runs render_mrms_qpe.sh (the 5 MultiSensor

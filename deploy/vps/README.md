@@ -117,11 +117,19 @@ an average:
 | swaths + tracks (`mesh*`, `rot*`, `rotml*`, `vilsw*`) | 14 | exactly **30.0 min** |
 | QPE accums + hourly max (`rq*`, `ms*`, `crefmax1h`, `brefmax1h`) | 23 | exactly **60.0 min** |
 
-**Zero products publish faster than the 20-minute tier cadence**, which is why
-`OBS_JOBS=2` on this tier is safe: it adds ~2 min of render time to data that
-does not change again for 30 or 60. It also means the 20-minute timer is
-already 1.5x more frequent than the fastest thing it renders, so 25 min would
-still catch every publish within one tick if ticks ever need trimming.
+**Zero products publish faster than the 20-minute tier cadence.** The
+20-minute timer is already 1.5x more frequent than the fastest thing it
+renders, so 25 min would still catch every publish within one tick if ticks
+ever need trimming.
+
+⚠️ That headroom made `OBS_JOBS=2` look free on this tier, and it was not.
+Tried and reverted 2026-08-18: the tier tripled (112s -> 320s) rather than
+doubled, because the 37 per-product S3 freshness checks lose parallelism too
+and are fixed cost regardless of how many products render. The longer window
+then overlapped the fast tier, costing one 290s tick, one 271s tick and two
+lost 3-minute slots, and pushing et18 lag from 2.1 to 6.1 min. **On a 2-core
+box the scarce resource is not memory or budget headroom, it is how long a
+tier occupies the cores while another tier needs them.**
 
 `qpe` is not a cadence tier — it runs `render_mrms_qpe.sh`, a different
 script with the Pass1/Pass2 gauge-correction cycle. It lives here rather
