@@ -127,6 +127,18 @@ OBS_TIER=slow
 # The slow tier owns the authoritative rebuild + retention prune. Deletes
 # are scoped to OBS_PREFIX, so while shadowing this cannot reach the live
 # prefix even in principle.
+#
+# HALVED from the default 4 on 2026-08-18. mrms_render_one.py deliberately
+# holds the whole GRIB->PNG chain in numpy rather than spilling intermediate
+# GTiffs to disk (that is what makes 2 OCPU viable), which costs ~2.5 GB per
+# job, so 4 jobs peaks ~5.2 GB. Two tiers overlapping at 4 jobs exceeded the
+# 12 GB box and OOM-killed renders. This tier is the one that can absorb it:
+# 112s mean / 310s worst against a 1200s budget, and all 37 of its products
+# publish on a strict 30 or 60 min cadence (measured against noaa-mrms-pds
+# 2026-08-18, median == min for every product), so the extra ~2 min is 3-6%
+# of the publish interval. Do NOT do this to the fast tier: it runs 103s of
+# a 180s budget and would go over.
+OBS_JOBS=2
 EOF
 cat > "${ETC_DIR}/tier-qpe.env" <<'EOF'
 # Not a cadence tier: this runs render_mrms_qpe.sh (the 5 MultiSensor
@@ -144,6 +156,24 @@ if [ ! -f "${ETC_DIR}/renderer.env" ]; then
   echo "       credentials in it before starting any timer."
 fi
 chmod 0600 "${ETC_DIR}/renderer.env"
+
+echo "==> swap (OOM cushion)"
+# 12 GB with no swap OOM-killed renders on 2026-08-17/18: peak RSS is bursty
+# and a kill loses the whole tick, while a little paging only makes it slow.
+# Low swappiness keeps this an emergency cushion, not routine paging.
+if ! swapon --show=NAME --noheadings 2>/dev/null | grep -q '^/swapfile$'; then
+  fallocate -l 4G /swapfile
+  chmod 600 /swapfile
+  mkswap -q /swapfile
+  swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  echo "    created 4G /swapfile"
+else
+  echo "    /swapfile already present"
+fi
+printf 'vm.swappiness=10
+' > /etc/sysctl.d/99-stp-swappiness.conf
+sysctl -q -w vm.swappiness=10
 
 echo "==> systemd units"
 install -m 0644 "${REPO_DIR}/deploy/vps/stp-mrms@.service" /etc/systemd/system/

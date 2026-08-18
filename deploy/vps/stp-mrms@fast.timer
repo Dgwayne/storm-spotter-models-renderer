@@ -22,9 +22,21 @@ Unit=stp-mrms@fast.service
 # ~0.5 min, which is smaller than the sawtooth's own 0.0-4.1 min swing. The
 # operator reports a perceptible difference on device and chose to keep it.
 #
-# WATCH: `status=skipped reason=previous-tick-still-running` in the journal.
-# At 85% of budget that is the first thing that will appear if anything gets
-# slower. Reverting is a one-character edit back to *:0/4.
+# WATCH (corrected 2026-08-18): an earlier version of this comment said to
+# grep for `status=skipped reason=previous-tick-still-running`. That string
+# NEVER FIRES for an overrun. systemd refuses to start a second copy of a
+# oneshot unit that is still active, so run-tier.sh never runs and never logs
+# its flock message. In 24 h of real overruns it appeared zero times.
+#
+# The signals that DO fire:
+#   1. a start time not on a 3-minute boundary (systemd releases the held
+#      trigger the moment the long tick finishes), e.g.
+#        journalctl -u 'stp-mrms@fast' -o short-iso | grep Starting
+#      12 such lost slots were observed on 2026-08-18.
+#   2. `Failed with result 'oom-kill'` (see the OBS_JOBS note in bootstrap.sh)
+#   3. elapsed > 180 in the TICK line; 9 of 470 ticks did this in 24 h.
+#
+# Reverting the cadence is a one-character edit back to *:0/4.
 #
 # WAS *:0/2 until 2026-08-17. Slowed so the whole box fits inside
 # the Always Free ceiling of 2 OCPU / 12 GB, which Oracle halved from

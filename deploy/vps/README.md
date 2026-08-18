@@ -8,7 +8,7 @@ here, not on GitHub Actions.
 > This box was originally documented as "Always Free". It is not, and the
 > difference has a deadline attached.
 >
-> `stp-mrms-render` is **4 OCPU / 24 GB**, created 2026-08-17 07:09:58Z on a
+> `stp-mrms-render` was created **4 OCPU / 24 GB** on 2026-08-17 07:09:58Z on a
 > **30-day Free Trial** ($300 credit, console shows "Days remaining 30 of 30").
 > Oracle halved the Always Free Ampere A1 allowance from 4 OCPU / 24 GB to
 > **2 OCPU / 12 GB on 2026-06-15**, without announcement. This box is exactly
@@ -29,13 +29,23 @@ here, not on GitHub Actions.
 > charged; Oracle disables resources rather than invoicing. A payment
 > obligation begins only on an explicit *Upgrade to Pay As You Go*.
 >
-> **The plan: resize to 2 OCPU / 12 GB before 2026-09-16 and stay free.** The
-> `fast` tier was slowed 2 min -> 4 min, then set to 3 min, on 2026-08-17 to make the box fit
-> inside 2 cores (see the tier table below). Resizing is an in-place shape
-> edit plus a reboot, and it preserves the boot volume, VNIC and the public
-> IP. Upgrading to PAYG and keeping 4 OCPU is the alternative at about
-> **$27/month** (2,920 OCPU-hr + 17,520 GB-hr against a documented 1,500 /
-> 9,000 allowance, at $0.01/OCPU-hr + $0.0015/GB-hr).
+> ## ✅ RESOLVED 2026-08-17 20:20Z: resized to 2 OCPU / 12 GB
+>
+> The box now sits exactly on the Always Free ceiling, so **nothing is
+> disabled on 2026-09-16 and nothing bills**. The `fast` tier was slowed
+> 2 min -> 4 min -> 3 min to fit. Resizing was an in-place shape edit plus a
+> reboot and preserved the boot volume, VNIC and public IP; the timers are
+> `enabled` so they came back on their own.
+>
+> Margin note: 2 OCPU x 744 h = 1,488 of 1,500 free OCPU-hours and 12 GB x
+> 744 h = 8,928 of 9,000 free GB-hours. That is ~1% of headroom, so **this
+> one box consumes essentially the whole A1 allowance** — a second A1
+> instance, or any bump to either number, bills from hour one. Memory above
+> 12 GB costs ~$1.12/GB/month; a third core would be ~$7.32/month.
+>
+> ⚠️ **12 GB is NOT generous, it is the binding constraint.** See the OOM
+> section below: sizing this box from idle memory or the OCI mean-utilization
+> graph said 12 GB was ample and both were wrong.
 >
 > **Do not size this box from load average or CPU-second arithmetic.** Both
 > said 2 cores would fit and both were wrong. Simulate it exactly instead:
@@ -90,11 +100,28 @@ bytes; rendering slower throws away freshness that was there for the taking.
 |---|---|---|---|
 | `fast` | 3 min | 41 | 2.0 min — rotation, MESH, POSH, SHI, all 4 echo tops, VIL/VILD/VII, RALA, isothermal reflectivity, rate, ARI, FFG |
 | `mid` | 10 min | 9 | 10 min (FLASH soil sat / streamflow), plus `rq15m` at 15 |
-| `slow` | 20 min | 37 | 30-71 min — the swaths, 3-72h QPE accums, all multi-sensor |
+| `slow` | 20 min | 37 | exactly 30 or 60 min (measured, see below) — the swaths, 3-72h QPE accums, all multi-sensor |
 | `qpe` | 15 min | 5 | MultiSensor Pass1 ~:16, Pass2 ~:58 after each valid hour |
 
 The 37 slow ones cannot be improved: their source only publishes every
 30-71 minutes. WeatherWise hits the same wall.
+
+**MEASURED 2026-08-18** against `noaa-mrms-pds` (~19 h of published files per
+product, script pattern in the `newest_key` helper of `render_mrms_obs.sh`).
+The cadences are stricter than "30-71 min" suggests, and **median == min for
+every single product**, i.e. perfectly regular with no fast bursts hiding in
+an average:
+
+| group | products | publish gap |
+|---|---|---|
+| swaths + tracks (`mesh*`, `rot*`, `rotml*`, `vilsw*`) | 14 | exactly **30.0 min** |
+| QPE accums + hourly max (`rq*`, `ms*`, `crefmax1h`, `brefmax1h`) | 23 | exactly **60.0 min** |
+
+**Zero products publish faster than the 20-minute tier cadence**, which is why
+`OBS_JOBS=2` on this tier is safe: it adds ~2 min of render time to data that
+does not change again for 30 or 60. It also means the 20-minute timer is
+already 1.5x more frequent than the fastest thing it renders, so 25 min would
+still catch every publish within one tick if ticks ever need trimming.
 
 `qpe` is not a cadence tier — it runs `render_mrms_qpe.sh`, a different
 script with the Pass1/Pass2 gauge-correction cycle. It lives here rather
@@ -129,7 +156,8 @@ The old 2-minute cadence failed not because a single tick was too slow but
 because five of them per ten minutes, plus mid/slow/qpe, exceeded what two
 cores can serialise. At three minutes that drops to 3.3 ticks and it fits,
 though at 85% of budget rather than 59%. Four minutes is the conservative
-setting if the tier ever starts logging status=skipped.
+setting if ticks start landing off the 3-minute boundary (see the timer unit
+for why `status=skipped` is NOT the signal to grep for).
 
 **The freshness cost is far smaller than the cadence change suggests.**
 et18 live lag sampled every 45 s over 9 samples at the 3-minute cadence:
