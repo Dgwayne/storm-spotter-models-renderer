@@ -14,6 +14,10 @@ work/
 *.tif
 *.png
 !config/color_tables/*.png  # in case you want to commit legend previews
+# Avatar art is source, not render output: it is what gets published to
+# avatars/v1/ in B2. (Note that gitignore has no inline comments, so the
+# color_tables line above is inert - its `#` onward is part of the pattern.)
+!avatars/v1/*.png
 
 # Local rclone config
 rclone.conf
