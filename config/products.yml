@@ -2007,9 +2007,13 @@ products:
   ffg01h:
     display: "QPE-to-FFG Ratio 1-hr"
     mrms_dir: "FLASH_QPE_FFG01H_00.00"
+    # FLASH publishes QPE-as-PERCENT-of-guidance (verified against the
+    # GRIB: values 5..220 in 5-unit steps), while units_out/data_png are
+    # a RATIO. Without this every wet pixel pinned to the top bin.
+    scale: 0.01
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 4.0 }
-    units_in: "ratio"
+    units_in: "percent"
     units_out: "x FFG"
     clr: "ffg.clr"
     pal: ""
@@ -2021,9 +2025,13 @@ products:
   ffgmax:
     display: "QPE-to-FFG Ratio Max"
     mrms_dir: "FLASH_QPE_FFGMAX_00.00"
+    # FLASH publishes QPE-as-PERCENT-of-guidance (verified against the
+    # GRIB: values 5..220 in 5-unit steps), while units_out/data_png are
+    # a RATIO. Without this every wet pixel pinned to the top bin.
+    scale: 0.01
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 4.0 }
-    units_in: "ratio"
+    units_in: "percent"
     units_out: "x FFG"
     clr: "ffg.clr"
     pal: ""
@@ -2551,9 +2559,13 @@ products:
   ffg03h:
     display: "QPE-to-FFG Ratio 3-hr"
     mrms_dir: "FLASH_QPE_FFG03H_00.00"
+    # FLASH publishes QPE-as-PERCENT-of-guidance (verified against the
+    # GRIB: values 5..220 in 5-unit steps), while units_out/data_png are
+    # a RATIO. Without this every wet pixel pinned to the top bin.
+    scale: 0.01
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 4.0 }
-    units_in: "ratio"
+    units_in: "percent"
     units_out: "x FFG"
     clr: "qpe.clr"
     pal: ""
@@ -2565,9 +2577,13 @@ products:
   ffg06h:
     display: "QPE-to-FFG Ratio 6-hr"
     mrms_dir: "FLASH_QPE_FFG06H_00.00"
+    # FLASH publishes QPE-as-PERCENT-of-guidance (verified against the
+    # GRIB: values 5..220 in 5-unit steps), while units_out/data_png are
+    # a RATIO. Without this every wet pixel pinned to the top bin.
+    scale: 0.01
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 4.0 }
-    units_in: "ratio"
+    units_in: "percent"
     units_out: "x FFG"
     clr: "qpe.clr"
     pal: ""
@@ -2749,9 +2765,13 @@ products:
     mrms_dir: "HeightCompositeReflectivity_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 75.0 }
-    units_in: "km"
+    units_in: "m"
     units_out: "kft"
-    scale: 3.28084
+    # HeightCompositeReflectivity is METRES (verified against the GRIB:
+    # 16-bit, quantum 1, values 500..19000 in 250 m steps), NOT km as
+    # units_in claimed. The km->kft factor ran on metres and made every
+    # value 1000x too big, so all 337k valid px pinned to the top bin.
+    scale: 0.00328084
     clr: "qpe.clr"
     pal: ""
     group: "Reflectivity Layers"
