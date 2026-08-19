@@ -22,6 +22,17 @@
 #                   hours on 2026-07-27 until the crosshair inspector needed
 #                   grids at every scrubbed hour; kept for the next product
 #                   whose grid is only ever read at one hour.
+#   data_png:       {min, max} - publish the frame as a value-encoded gray+alpha
+#                   PNG instead of a colored one: gray 1..255 = min..max linear
+#                   in DISPLAY units, 0/alpha-0 = nodata. The app decodes it and
+#                   colorizes client-side with the product's legend bins, so this
+#                   min/max is the ONLY thing bounding what a value can be.
+#                   PICK max AS 254 x THE SOURCE'S QUANTUM when the source is
+#                   integer-packed: that makes gray = 1 + raw, an exact lossless
+#                   round trip that cannot clip. A max chosen from 'what values
+#                   look reasonable' silently flattens every stronger value onto
+#                   the top legend bin - see the rotation family, where 0.03
+#                   clipped 9 of 14 products.
 #   gpu_data:       {min, max} — when present, ALSO bake a value-encoded data
 #                   PNG next to the colored one (F###.data.png): gray 1..255 =
 #                   min..max linear in DISPLAY units, 0/alpha-0 = nodata. The
@@ -1853,11 +1864,14 @@ products:
     # MRMS azimuthal shear is packed as 8-bit integers in units of
     # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
     # the raw 0..58 integers were read as s^-1, so every non-zero pixel
-    # blew past data_png.max 0.03 and painted the top legend bin.
+    # blew past data_png.max and painted the top legend bin.
     scale: 0.001
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
-    data_png: { min: 0.0, max: 0.03 }
+    # 254 x the source's 1 milli-s^-1 quantum, so gray = 1 + raw:
+    # exact round trip, no clipping. 0.03 clipped the strongest
+    # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
+    data_png: { min: 0.0, max: 0.254 }
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -1873,10 +1887,13 @@ products:
     # MRMS azimuthal shear is packed as 8-bit integers in units of
     # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
     # the raw 0..58 integers were read as s^-1, so every non-zero pixel
-    # blew past data_png.max 0.03 and painted the top legend bin.
+    # blew past data_png.max and painted the top legend bin.
     scale: 0.001
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
-    data_png: { min: 0.0, max: 0.03 }
+    # 254 x the source's 1 milli-s^-1 quantum, so gray = 1 + raw:
+    # exact round trip, no clipping. 0.03 clipped the strongest
+    # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
+    data_png: { min: 0.0, max: 0.254 }
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -1892,10 +1909,13 @@ products:
     # MRMS azimuthal shear is packed as 8-bit integers in units of
     # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
     # the raw 0..58 integers were read as s^-1, so every non-zero pixel
-    # blew past data_png.max 0.03 and painted the top legend bin.
+    # blew past data_png.max and painted the top legend bin.
     scale: 0.001
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
-    data_png: { min: 0.0, max: 0.03 }
+    # 254 x the source's 1 milli-s^-1 quantum, so gray = 1 + raw:
+    # exact round trip, no clipping. 0.03 clipped the strongest
+    # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
+    data_png: { min: 0.0, max: 0.254 }
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -1911,10 +1931,13 @@ products:
     # MRMS azimuthal shear is packed as 8-bit integers in units of
     # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
     # the raw 0..58 integers were read as s^-1, so every non-zero pixel
-    # blew past data_png.max 0.03 and painted the top legend bin.
+    # blew past data_png.max and painted the top legend bin.
     scale: 0.001
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
-    data_png: { min: 0.0, max: 0.03 }
+    # 254 x the source's 1 milli-s^-1 quantum, so gray = 1 + raw:
+    # exact round trip, no clipping. 0.03 clipped the strongest
+    # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
+    data_png: { min: 0.0, max: 0.254 }
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -2829,11 +2852,14 @@ products:
     # MRMS azimuthal shear is packed as 8-bit integers in units of
     # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
     # the raw 0..58 integers were read as s^-1, so every non-zero pixel
-    # blew past data_png.max 0.03 and painted the top legend bin.
+    # blew past data_png.max and painted the top legend bin.
     scale: 0.001
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
-    data_png: { min: 0.0, max: 0.03 }
+    # 254 x the source's 1 milli-s^-1 quantum, so gray = 1 + raw:
+    # exact round trip, no clipping. 0.03 clipped the strongest
+    # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
+    data_png: { min: 0.0, max: 0.254 }
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     sentinel_lt: -1.0
@@ -2850,10 +2876,13 @@ products:
     # MRMS azimuthal shear is packed as 8-bit integers in units of
     # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
     # the raw 0..58 integers were read as s^-1, so every non-zero pixel
-    # blew past data_png.max 0.03 and painted the top legend bin.
+    # blew past data_png.max and painted the top legend bin.
     scale: 0.001
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
-    data_png: { min: 0.0, max: 0.03 }
+    # 254 x the source's 1 milli-s^-1 quantum, so gray = 1 + raw:
+    # exact round trip, no clipping. 0.03 clipped the strongest
+    # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
+    data_png: { min: 0.0, max: 0.254 }
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -2869,10 +2898,13 @@ products:
     # MRMS azimuthal shear is packed as 8-bit integers in units of
     # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
     # the raw 0..58 integers were read as s^-1, so every non-zero pixel
-    # blew past data_png.max 0.03 and painted the top legend bin.
+    # blew past data_png.max and painted the top legend bin.
     scale: 0.001
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
-    data_png: { min: 0.0, max: 0.03 }
+    # 254 x the source's 1 milli-s^-1 quantum, so gray = 1 + raw:
+    # exact round trip, no clipping. 0.03 clipped the strongest
+    # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
+    data_png: { min: 0.0, max: 0.254 }
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -2888,11 +2920,14 @@ products:
     # MRMS azimuthal shear is packed as 8-bit integers in units of
     # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
     # the raw 0..58 integers were read as s^-1, so every non-zero pixel
-    # blew past data_png.max 0.03 and painted the top legend bin.
+    # blew past data_png.max and painted the top legend bin.
     scale: 0.001
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
-    data_png: { min: 0.0, max: 0.03 }
+    # 254 x the source's 1 milli-s^-1 quantum, so gray = 1 + raw:
+    # exact round trip, no clipping. 0.03 clipped the strongest
+    # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
+    data_png: { min: 0.0, max: 0.254 }
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     sentinel_lt: -1.0
@@ -2909,11 +2944,14 @@ products:
     # MRMS azimuthal shear is packed as 8-bit integers in units of
     # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
     # the raw 0..58 integers were read as s^-1, so every non-zero pixel
-    # blew past data_png.max 0.03 and painted the top legend bin.
+    # blew past data_png.max and painted the top legend bin.
     scale: 0.001
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
-    data_png: { min: 0.0, max: 0.03 }
+    # 254 x the source's 1 milli-s^-1 quantum, so gray = 1 + raw:
+    # exact round trip, no clipping. 0.03 clipped the strongest
+    # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
+    data_png: { min: 0.0, max: 0.254 }
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -2929,10 +2967,13 @@ products:
     # MRMS azimuthal shear is packed as 8-bit integers in units of
     # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
     # the raw 0..58 integers were read as s^-1, so every non-zero pixel
-    # blew past data_png.max 0.03 and painted the top legend bin.
+    # blew past data_png.max and painted the top legend bin.
     scale: 0.001
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
-    data_png: { min: 0.0, max: 0.03 }
+    # 254 x the source's 1 milli-s^-1 quantum, so gray = 1 + raw:
+    # exact round trip, no clipping. 0.03 clipped the strongest
+    # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
+    data_png: { min: 0.0, max: 0.254 }
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -2948,10 +2989,13 @@ products:
     # MRMS azimuthal shear is packed as 8-bit integers in units of
     # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
     # the raw 0..58 integers were read as s^-1, so every non-zero pixel
-    # blew past data_png.max 0.03 and painted the top legend bin.
+    # blew past data_png.max and painted the top legend bin.
     scale: 0.001
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
-    data_png: { min: 0.0, max: 0.03 }
+    # 254 x the source's 1 milli-s^-1 quantum, so gray = 1 + raw:
+    # exact round trip, no clipping. 0.03 clipped the strongest
+    # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
+    data_png: { min: 0.0, max: 0.254 }
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -2967,10 +3011,13 @@ products:
     # MRMS azimuthal shear is packed as 8-bit integers in units of
     # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
     # the raw 0..58 integers were read as s^-1, so every non-zero pixel
-    # blew past data_png.max 0.03 and painted the top legend bin.
+    # blew past data_png.max and painted the top legend bin.
     scale: 0.001
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
-    data_png: { min: 0.0, max: 0.03 }
+    # 254 x the source's 1 milli-s^-1 quantum, so gray = 1 + raw:
+    # exact round trip, no clipping. 0.03 clipped the strongest
+    # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
+    data_png: { min: 0.0, max: 0.254 }
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -2986,10 +3033,13 @@ products:
     # MRMS azimuthal shear is packed as 8-bit integers in units of
     # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
     # the raw 0..58 integers were read as s^-1, so every non-zero pixel
-    # blew past data_png.max 0.03 and painted the top legend bin.
+    # blew past data_png.max and painted the top legend bin.
     scale: 0.001
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
-    data_png: { min: 0.0, max: 0.03 }
+    # 254 x the source's 1 milli-s^-1 quantum, so gray = 1 + raw:
+    # exact round trip, no clipping. 0.03 clipped the strongest
+    # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
+    data_png: { min: 0.0, max: 0.254 }
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -3005,10 +3055,13 @@ products:
     # MRMS azimuthal shear is packed as 8-bit integers in units of
     # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
     # the raw 0..58 integers were read as s^-1, so every non-zero pixel
-    # blew past data_png.max 0.03 and painted the top legend bin.
+    # blew past data_png.max and painted the top legend bin.
     scale: 0.001
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
-    data_png: { min: 0.0, max: 0.03 }
+    # 254 x the source's 1 milli-s^-1 quantum, so gray = 1 + raw:
+    # exact round trip, no clipping. 0.03 clipped the strongest
+    # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
+    data_png: { min: 0.0, max: 0.254 }
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
