@@ -1850,10 +1850,15 @@ products:
   rot30:
     display: "Rotation Track 30-min"
     mrms_dir: "RotationTrack30min_00.50"
+    # MRMS azimuthal shear is packed as 8-bit integers in units of
+    # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
+    # the raw 0..58 integers were read as s^-1, so every non-zero pixel
+    # blew past data_png.max 0.03 and painted the top legend bin.
+    scale: 0.001
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
     data_png: { min: 0.0, max: 0.03 }
-    units_in: "s^-1"
+    units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
     pal: ""
@@ -1865,9 +1870,14 @@ products:
   rot60:
     display: "Rotation Track 1-hr"
     mrms_dir: "RotationTrack60min_00.50"
+    # MRMS azimuthal shear is packed as 8-bit integers in units of
+    # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
+    # the raw 0..58 integers were read as s^-1, so every non-zero pixel
+    # blew past data_png.max 0.03 and painted the top legend bin.
+    scale: 0.001
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 0.03 }
-    units_in: "s^-1"
+    units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
     pal: ""
@@ -1879,9 +1889,14 @@ products:
   rot240:
     display: "Rotation Track 4-hr"
     mrms_dir: "RotationTrack240min_00.50"
+    # MRMS azimuthal shear is packed as 8-bit integers in units of
+    # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
+    # the raw 0..58 integers were read as s^-1, so every non-zero pixel
+    # blew past data_png.max 0.03 and painted the top legend bin.
+    scale: 0.001
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 0.03 }
-    units_in: "s^-1"
+    units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
     pal: ""
@@ -1893,9 +1908,14 @@ products:
   rot1440:
     display: "Rotation Track 24-hr"
     mrms_dir: "RotationTrack1440min_00.50"
+    # MRMS azimuthal shear is packed as 8-bit integers in units of
+    # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
+    # the raw 0..58 integers were read as s^-1, so every non-zero pixel
+    # blew past data_png.max 0.03 and painted the top legend bin.
+    scale: 0.001
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 0.03 }
-    units_in: "s^-1"
+    units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
     pal: ""
@@ -2806,13 +2826,18 @@ products:
   rotnow:
     display: "Rotation (0-2 km) Instant"
     mrms_dir: "MergedAzShear_0-2kmAGL_00.50"
+    # MRMS azimuthal shear is packed as 8-bit integers in units of
+    # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
+    # the raw 0..58 integers were read as s^-1, so every non-zero pixel
+    # blew past data_png.max 0.03 and painted the top legend bin.
+    scale: 0.001
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
     data_png: { min: 0.0, max: 0.03 }
-    units_in: "s^-1"
+    units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     sentinel_lt: -1.0
-    clr: "qpe.clr"
+    clr: "rot.clr"
     pal: ""
     group: "Rotation"
     point_values: true
@@ -2822,11 +2847,16 @@ products:
   rot120:
     display: "Rotation Track 2-hr"
     mrms_dir: "RotationTrack120min_00.50"
+    # MRMS azimuthal shear is packed as 8-bit integers in units of
+    # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
+    # the raw 0..58 integers were read as s^-1, so every non-zero pixel
+    # blew past data_png.max 0.03 and painted the top legend bin.
+    scale: 0.001
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 0.03 }
-    units_in: "s^-1"
+    units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
-    clr: "qpe.clr"
+    clr: "rot.clr"
     pal: ""
     group: "Rotation"
     point_values: true
@@ -2836,11 +2866,16 @@ products:
   rot360:
     display: "Rotation Track 6-hr"
     mrms_dir: "RotationTrack360min_00.50"
+    # MRMS azimuthal shear is packed as 8-bit integers in units of
+    # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
+    # the raw 0..58 integers were read as s^-1, so every non-zero pixel
+    # blew past data_png.max 0.03 and painted the top legend bin.
+    scale: 0.001
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 0.03 }
-    units_in: "s^-1"
+    units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
-    clr: "qpe.clr"
+    clr: "rot.clr"
     pal: ""
     group: "Rotation"
     point_values: true
@@ -2850,13 +2885,18 @@ products:
   rotmlnow:
     display: "Rotation (3-6 km) Instant"
     mrms_dir: "MergedAzShear_3-6kmAGL_00.50"
+    # MRMS azimuthal shear is packed as 8-bit integers in units of
+    # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
+    # the raw 0..58 integers were read as s^-1, so every non-zero pixel
+    # blew past data_png.max 0.03 and painted the top legend bin.
+    scale: 0.001
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
     data_png: { min: 0.0, max: 0.03 }
-    units_in: "s^-1"
+    units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     sentinel_lt: -1.0
-    clr: "qpe.clr"
+    clr: "rot.clr"
     pal: ""
     group: "Rotation"
     point_values: true
@@ -2866,12 +2906,17 @@ products:
   rotml30:
     display: "Rotation ML Track 30-min"
     mrms_dir: "RotationTrackML30min_00.50"
+    # MRMS azimuthal shear is packed as 8-bit integers in units of
+    # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
+    # the raw 0..58 integers were read as s^-1, so every non-zero pixel
+    # blew past data_png.max 0.03 and painted the top legend bin.
+    scale: 0.001
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
     data_png: { min: 0.0, max: 0.03 }
-    units_in: "s^-1"
+    units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
-    clr: "qpe.clr"
+    clr: "rot.clr"
     pal: ""
     group: "Rotation"
     point_values: true
@@ -2881,11 +2926,16 @@ products:
   rotml60:
     display: "Rotation ML Track 1-hr"
     mrms_dir: "RotationTrackML60min_00.50"
+    # MRMS azimuthal shear is packed as 8-bit integers in units of
+    # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
+    # the raw 0..58 integers were read as s^-1, so every non-zero pixel
+    # blew past data_png.max 0.03 and painted the top legend bin.
+    scale: 0.001
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 0.03 }
-    units_in: "s^-1"
+    units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
-    clr: "qpe.clr"
+    clr: "rot.clr"
     pal: ""
     group: "Rotation"
     point_values: true
@@ -2895,11 +2945,16 @@ products:
   rotml120:
     display: "Rotation ML Track 2-hr"
     mrms_dir: "RotationTrackML120min_00.50"
+    # MRMS azimuthal shear is packed as 8-bit integers in units of
+    # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
+    # the raw 0..58 integers were read as s^-1, so every non-zero pixel
+    # blew past data_png.max 0.03 and painted the top legend bin.
+    scale: 0.001
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 0.03 }
-    units_in: "s^-1"
+    units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
-    clr: "qpe.clr"
+    clr: "rot.clr"
     pal: ""
     group: "Rotation"
     point_values: true
@@ -2909,11 +2964,16 @@ products:
   rotml240:
     display: "Rotation ML Track 4-hr"
     mrms_dir: "RotationTrackML240min_00.50"
+    # MRMS azimuthal shear is packed as 8-bit integers in units of
+    # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
+    # the raw 0..58 integers were read as s^-1, so every non-zero pixel
+    # blew past data_png.max 0.03 and painted the top legend bin.
+    scale: 0.001
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 0.03 }
-    units_in: "s^-1"
+    units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
-    clr: "qpe.clr"
+    clr: "rot.clr"
     pal: ""
     group: "Rotation"
     point_values: true
@@ -2923,11 +2983,16 @@ products:
   rotml360:
     display: "Rotation ML Track 6-hr"
     mrms_dir: "RotationTrackML360min_00.50"
+    # MRMS azimuthal shear is packed as 8-bit integers in units of
+    # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
+    # the raw 0..58 integers were read as s^-1, so every non-zero pixel
+    # blew past data_png.max 0.03 and painted the top legend bin.
+    scale: 0.001
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 0.03 }
-    units_in: "s^-1"
+    units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
-    clr: "qpe.clr"
+    clr: "rot.clr"
     pal: ""
     group: "Rotation"
     point_values: true
@@ -2937,11 +3002,16 @@ products:
   rotml1440:
     display: "Rotation ML Track 24-hr"
     mrms_dir: "RotationTrackML1440min_00.50"
+    # MRMS azimuthal shear is packed as 8-bit integers in units of
+    # 0.001 s^-1 (GRIB2 DRT: R=-24/0, E=0, D=0, quantum 1). Without this
+    # the raw 0..58 integers were read as s^-1, so every non-zero pixel
+    # blew past data_png.max 0.03 and painted the top legend bin.
+    scale: 0.001
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 0.03 }
-    units_in: "s^-1"
+    units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
-    clr: "qpe.clr"
+    clr: "rot.clr"
     pal: ""
     group: "Rotation"
     point_values: true
