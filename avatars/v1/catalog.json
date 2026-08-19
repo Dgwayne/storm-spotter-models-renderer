@@ -1,0 +1,34 @@
+{
+  "avatars": [
+    {
+      "id": 200,
+      "key": "betatester",
+      "name": "Beta Tester",
+      "tagline": "Helped test Spotter Tools Pro"
+    },
+    {
+      "id": 201,
+      "key": "wifey",
+      "name": "Wifey",
+      "tagline": "One of a kind"
+    },
+    {
+      "id": 202,
+      "key": "tyler",
+      "name": "Tyler",
+      "tagline": "Idea Man"
+    },
+    {
+      "id": 203,
+      "key": "reviewer",
+      "name": "Reviewer",
+      "tagline": "Thanks for reviewing Spotter Tools Pro"
+    },
+    {
+      "id": 204,
+      "key": "rcww",
+      "name": "RCWW",
+      "tagline": "Racine County Weather Watch"
+    }
+  ]
+}

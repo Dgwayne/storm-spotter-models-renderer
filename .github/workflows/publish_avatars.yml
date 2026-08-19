@@ -1,0 +1,121 @@
+name: Publish avatars
+
+# Manual utility: push `avatars/v1/` to B2 so a new premium avatar goes live
+# without an app release and without clicking through the Backblaze web UI.
+# The app fetches `avatars/v1/catalog.json` + `<key>.png` from
+# models.dgwaynes.com at launch and merges them into the premium avatar set
+# (see the spotter-tools-pro repo, `avatar-catalog/README.md`).
+#
+# This repo already holds the B2 credentials as secrets, which is the whole
+# reason publishing lives here rather than in the app repo (that one is
+# private, so a public workflow cannot read its files).
+#
+# NOT cron-dispatched - no stp-models-cron CRON_TO_WORKFLOW entry needed.
+#
+# Two deliberate choices:
+#
+#   * `rclone copy`, never `sync`. Copy never deletes, so a partial or
+#     stale checkout of `avatars/v1/` can never wipe a live avatar out from
+#     under a user who has already selected it.
+#
+#   * NO `--header-upload "Cache-Control: ..."`. `catalog.json` is served
+#     header-less on purpose: the dgwaynes.com zone's "Cache JSON feeds"
+#     rule is set to "use cache-control header if present, bypass cache if
+#     not", so a header-less catalog is never edge-cached and a change is
+#     live the instant it lands in B2 - no Cloudflare purge step. The file
+#     is ~700 bytes and B2 egress to Cloudflare is free, so the cost of
+#     bypassing cache is a rounding error. Adding a Cache-Control header
+#     here would silently reintroduce the purge requirement.
+#     PNGs are immutable per key (new art always gets a NEW key), so they
+#     cache at the edge by extension with no staleness risk.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sanity-check the catalog before uploading
+        # A malformed or truncated catalog.json takes every remote avatar
+        # away from every user at once (it is fetched whole, and any parse
+        # failure resolves to an empty list). Cheap to validate here.
+        run: |
+          python3 - <<'PY'
+          import json, sys, pathlib
+          p = pathlib.Path("avatars/v1/catalog.json")
+          cat = json.loads(p.read_text(encoding="utf-8"))
+          avatars = cat["avatars"]
+          seen_ids, seen_keys = set(), set()
+          for a in avatars:
+              i, k = a["id"], a["key"]
+              if not (200 <= i <= 998):
+                  sys.exit(f"::error::id {i} ({k}) outside the 200-998 remote range")
+              if k != k.lower():
+                  sys.exit(f"::error::key '{k}' must be lowercase (grants match case-sensitively)")
+              if i in seen_ids:
+                  sys.exit(f"::error::duplicate id {i}")
+              if k in seen_keys:
+                  sys.exit(f"::error::duplicate key '{k}'")
+              if not pathlib.Path(f"avatars/v1/{k}.png").is_file():
+                  sys.exit(f"::error::catalog lists '{k}' but avatars/v1/{k}.png is missing")
+              seen_ids.add(i)
+              seen_keys.add(k)
+          print(f"catalog OK: {len(avatars)} avatars, all art present")
+          for a in avatars:
+              print(f"  {a['id']:>3}  {a['key']:<12} {a['name']}")
+          PY
+
+      - name: Install rclone
+        run: |
+          curl -sSfL https://rclone.org/install.sh | sudo bash >/dev/null 2>&1 || sudo apt-get install -y rclone
+          rclone --version | head -1
+
+      - name: Configure rclone
+        # No `acl = private`: B2's S3 layer rejects that canned ACL, and B2
+        # has no per-object ACLs anyway (bucket-level Public governs).
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [b2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Upload to B2
+        # --ignore-times: always re-upload rather than compare. The set is a
+        # handful of tiny files and B2 Class A (write) ops are free, so
+        # determinism beats a size/modtime check that B2 is awkward about.
+        env:
+          BUCKET: ${{ secrets.B2_BUCKET }}
+        run: |
+          set -euo pipefail
+          rclone copy avatars/v1/ "b2:${BUCKET}/avatars/v1/" \
+            --s3-no-check-bucket --ignore-times --progress --stats-one-line
+          echo "--- live in bucket ---"
+          rclone lsf "b2:${BUCKET}/avatars/v1/"
+
+      - name: Verify over the CDN
+        # Fetch the way the APP does (compressed), which is what caught the
+        # 2026-07-15 false-gzip incident: plain bytes stamped
+        # `Content-Encoding: gzip` made every client's decode fail and the
+        # catalog came back empty, while a plain server-side curl looked fine.
+        run: |
+          set -euo pipefail
+          BASE="https://models.dgwaynes.com/avatars/v1"
+          echo "=== catalog.json as the app fetches it ==="
+          BODY="$(curl -fsS --compressed "$BASE/catalog.json")"
+          echo "$BODY" | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'parsed OK: {len(d[\"avatars\"])} avatars')"
+          echo "=== art reachable ==="
+          for k in $(echo "$BODY" | python3 -c "import json,sys; print(' '.join(a['key'] for a in json.load(sys.stdin)['avatars']))"); do
+            CODE="$(curl -fsS -o /dev/null -w '%{http_code}' "$BASE/$k.png")"
+            echo "  $k.png -> $CODE"
+          done
