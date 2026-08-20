@@ -4066,7 +4066,10 @@ models:
     source_type: "openmeteo_spatial"
     om_model_path: "knmi_harmonie_arome_europe"
     om_cycle_hours: 1
-    om_cycles_back: 3
+    # Measured upload latency 2.6 h against a 3 h window — ~25 min of
+    # margin, one slow upstream day from the UKV never-renders failure.
+    # 5 keeps visible published runs (≈3) under retain_runs, no thrash.
+    om_cycles_back: 5
     display: "HARMONIE 2km"
     picker_group: "Europe"
     picker_order: 56
@@ -4129,7 +4132,13 @@ models:
     source_type: "openmeteo_spatial"
     om_model_path: "ukmo_uk_deterministic_2km"
     om_cycle_hours: 1
-    om_cycles_back: 3
+    # Open-Meteo uploads each UKV run at init+4h15m (measured across four
+    # consecutive runs 2026-08-20), so a 3-cycle window could NEVER see a
+    # published run — UKV had zero frames in the bucket and an empty
+    # manifest in the app. 6 covers the latency with ~1.7 h margin while
+    # keeping visible published runs (≈2) under retain_runs=4, clear of
+    # the render/prune-thrash trap (window wider than retention).
+    om_cycles_back: 6
     display: "UKV 2km"
     picker_group: "Europe"
     picker_order: 58
