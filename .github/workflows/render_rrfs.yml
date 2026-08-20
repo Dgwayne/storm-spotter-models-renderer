@@ -137,9 +137,25 @@ jobs:
 
   plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     outputs:
-      matrix: ${{ steps.groups.outputs.matrix }}
+      matrix: ${{ steps.gate.outputs.matrix }}
+      has_work: ${{ steps.gate.outputs.has_work }}
+      published: ${{ steps.gate.outputs.published }}
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+      # rclone remote "r2" via env instead of a conf file — the gate and
+      # the manifest touch shell out to `rclone lsf r2:...`.
+      RCLONE_CONFIG_R2_TYPE: s3
+      RCLONE_CONFIG_R2_PROVIDER: Other
+      RCLONE_CONFIG_R2_REGION: us-west-004
+      RCLONE_CONFIG_R2_NO_CHECK_BUCKET: 'true'
+      RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+      RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
     steps:
       - uses: actions/checkout@v4
 
@@ -169,30 +185,50 @@ jobs:
           path: ~/.tools/yq
           key: yq-v4.53.3-linux-amd64
 
-      - name: Build render-group matrix
-        id: groups
+      - name: Restore rclone (cache)
+        id: rclonecache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.tools/rclone
+          key: rclone-v1.67.0-linux-amd64
+
+      - name: Install rclone (static binary)
         run: |
           set -e
-          covered=$(yq -r '.models.RRFS.render_groups[][]' config/products.yml | sort)
-          declared=$(yq -r '.models.RRFS.products[]' config/products.yml | sort)
-          dupes=$(printf '%s\n' "$covered" | uniq -d)
-          if [ -n "$dupes" ]; then
-            echo "::error::products listed in more than one render group:"
-            echo "$dupes"
-            exit 1
+          if [ ! -x "$HOME/.tools/rclone" ]; then
+            mkdir -p "$HOME/.tools"
+            curl -sSfL --retry 6 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 120               -o /tmp/rclone.zip               https://downloads.rclone.org/v1.67.0/rclone-v1.67.0-linux-amd64.zip
+            unzip -j -q /tmp/rclone.zip '*/rclone' -d "$HOME/.tools"
           fi
-          if ! diff <(printf '%s\n' "$covered") <(printf '%s\n' "$declared"); then
-            echo "::error::render_groups do not exactly cover models.RRFS.products (diff above: < only-in-groups, > only-in-products)"
-            exit 1
-          fi
-          matrix=$(yq -o=json -I=0 \
-            '[.models.RRFS.render_groups | to_entries[] | {"group": .key, "products": (.value | join(" "))}]' \
-            config/products.yml)
-          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
-          echo "matrix: ${matrix}"
+          sudo install -m 0755 "$HOME/.tools/rclone" /usr/local/bin/rclone
+          # PyYAML for the gate + manifest touch; preinstalled on the
+          # runner image, pip is the rare fallback.
+          python3 -c "import yaml" 2>/dev/null || python3 -m pip install --user --quiet --retries 10 pyyaml
+
+      - name: Save rclone (cache)
+        if: steps.rclonecache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.tools/rclone
+          key: rclone-v1.67.0-linux-amd64
+
+      - name: Plan pending work (gate)
+        id: gate
+        env:
+          FORCE_RERENDER: ${{ inputs.force_rerender && '1' || '' }}
+        run: python3 scripts/plan_model_work.py RRFS
+
+      # Idle tick: no render/finalize jobs, but keep the manifest's
+      # generatedAt moving — the freshness monitor (and anything else
+      # reading generatedAt as a liveness signal) predates the gate, when
+      # every tick rebuilt the manifest.
+      - name: Touch manifest (idle tick)
+        if: steps.gate.outputs.has_work != 'true'
+        run: python3 scripts/build_manifest.py RRFS
 
   render:
     needs: plan
+    if: ${{ needs.plan.outputs.has_work == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     name: render (${{ matrix.group }})
@@ -209,6 +245,7 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
       FORCE_RERENDER: ${{ inputs.force_rerender && '1' || '' }}
       PRODUCT_FILTER: ${{ matrix.products }}
+      PUBLISHED_FH_SPEC: ${{ needs.plan.outputs.published }}
       SKIP_FINALIZE: '1'
 
     defaults:
@@ -298,10 +335,10 @@ jobs:
         run: bash scripts/render_rrfs.sh
 
   finalize:
-    needs: render
+    needs: [plan, render]
     # Run on partial group failure too (default behavior would skip us);
     # only a cancelled workflow skips finalize.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.plan.outputs.has_work == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:

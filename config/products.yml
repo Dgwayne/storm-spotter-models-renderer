@@ -1300,7 +1300,11 @@ products:
     # ⚠ LFTX is a temperature-typed field (K): if GDAL's CF normalization
     # subtracts 273.15 the raw stats will sit near -280 — check the logged
     # raw.tif stats on first render and add `convert: "A + 273.15"` if so.
-    wgrib2_match: ":LFTX:500-1000 mb:"
+    # Level string differs per model: HRRR/RRFS/NAM publish "500-1000 mb",
+    # GFS pgrb2.0p25 publishes "surface" (the old 500-1000-only match meant
+    # GFS liftedIdx never rendered a single frame). Exactly one alternative
+    # exists per file, and the leading colon keeps 4LFTX from matching.
+    wgrib2_match: ":LFTX:(500-1000 mb|surface):"
     units_in: "K"
     units_out: "°C"
     convert: ""
@@ -3563,6 +3567,13 @@ models:
     # at 07Z) — the newest-cycle sweep just idx-404s until it lands.
     # Steps are 3-hourly to f144 then 6-hourly to f240 (f147 404, f150
     # 200 — verified 2026-08-06); segments carry the full 10-day range.
+    # Gate-only knob (scripts/plan_model_work.py): 10fg is absent from the
+    # open-data messages at f93-f144 on every run (verified against bucket
+    # state 2026-08-19: gust10m renders ≤f90 and ≥f150, never between,
+    # while siblings render fine there). Without this the plan gate sees
+    # permanent pending work and fans the render out every tick.
+    plan_fh_skip:
+      gust10m: [[93, 144]]
     products:
       - capeMU
       - t2m
@@ -3667,6 +3678,10 @@ models:
     # CAPE/CIN only as 180-0 mb ML (own entries); VVEL only at 850 mb;
     # TCDC is a 6-h AVERAGE with no f00 message (one red slot at f00 —
     # cosmetic); APCP is clean 6-h buckets (precip6h), no running total.
+    # Gate-only knob (scripts/plan_model_work.py): that missing TCDC f00
+    # would otherwise read as permanent pending work every tick.
+    plan_fh_mins:
+      tcc: 6
     products:
       - t2m
       - rh2m

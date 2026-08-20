@@ -69,6 +69,27 @@ for product in $PRODUCTS; do
   FH_MINS[$product]=$(yq -r ".products.${product}.fh_min // \"\"" "$CONFIG")
 done
 
+# ── Plan-gate published-fh filter ───────────────────────────────────
+# PUBLISHED_FH_SPEC ("RUNSTAMP:fh,fh;RUNSTAMP:fh,...") is exported by the
+# workflow's plan job (scripts/plan_model_work.py): the (run, fh) tuples
+# whose source idx was published upstream with at least one product frame
+# still missing. When set, everything else is either already rendered
+# (the bucket-listing grep catches it anyway) or not yet published — and
+# skipping unpublished tuples here saves ~1 s of decode-spawn overhead
+# each (hundreds per tick while a run's tail publishes). Unset (manual
+# runs, FORCE_RERENDER) = no filter; the sweep behaves exactly as before.
+declare -A PUB_FH
+if [ -n "${PUBLISHED_FH_SPEC:-}" ]; then
+  IFS=';' read -ra _spec_entries <<< "${PUBLISHED_FH_SPEC}"
+  for _entry in "${_spec_entries[@]}"; do
+    [ -n "${_entry}" ] || continue
+    _run="${_entry%%:*}"
+    IFS=',' read -ra _fhs <<< "${_entry#*:}"
+    for _h in "${_fhs[@]}"; do PUB_FH["${_run} ${_h}"]=1; done
+  done
+  echo "==> Published-fh filter active: ${#PUB_FH[@]} (run, fh) tuples"
+fi
+
 # ── Pre-fetch R2 listing for fast idempotent skips ────────────────
 # Without this, every (run × product × fh) tuple would `rclone lsf`
 # a single key — ~150 ms each, ~150 KB worth of Class B ops per
@@ -106,6 +127,10 @@ for offset in $(seq 0 "${HOURS_BACK}"); do
 
   for product in $PRODUCTS; do
     for fh in $(seq 0 "${FH_END}"); do
+      # Plan-gate published filter (see PUBLISHED_FH_SPEC parse above).
+      if [ -n "${PUBLISHED_FH_SPEC:-}" ] && [ -z "${PUB_FH["${RUN_DATE}${RUN_HOUR} ${fh}"]:-}" ]; then
+        continue
+      fi
       # ── Per-product fh cap/floor (meso products: analysis frames) ─
       if [ -n "${FH_CAPS[$product]}" ] && [ "${fh}" -gt "${FH_CAPS[$product]}" ]; then
         continue
