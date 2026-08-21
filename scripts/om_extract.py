@@ -76,6 +76,19 @@ def grid_frame(meta_path: str, rows: int, cols: int):
         raise SystemExit(f"om_extract: no BBOX in {meta_path} crs_wkt")
     lat_first, lon_first, lat_last, lon_last = (float(v) for v in m.groups())
 
+    # Open-Meteo writes the STORAGE-ORDER corner points into the WKT's
+    # USAGE BBOX node, but WKT2 defines BBOX[south, west, north, east]
+    # and GDAL rejects south > north ("Invalid BBOX node"), which aborts
+    # the whole CRS import — every north-first model (CAMS Europe) died
+    # here on every frame while its manifest kept a fresh generatedAt.
+    # The corners are already parsed above; the USAGE node is pure
+    # metadata, so normalize it before the import.
+    if lat_first > lat_last:
+        wkt = wkt.replace(
+            m.group(0),
+            f"BBOX[{lat_last},{lon_first},{lat_first},{lon_last}]",
+        )
+
     srs = osr.SpatialReference()
     srs.ImportFromWkt(wkt)
     srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)

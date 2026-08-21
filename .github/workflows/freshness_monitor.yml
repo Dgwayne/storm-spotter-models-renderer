@@ -46,18 +46,28 @@ jobs:
             local name="$1" url="$2" max_min="$3"
             # Cache-bust: models.dgwaynes.com edge-caches manifest.json
             # (Cache-Control max-age=14400) — a cached copy could false-alarm.
-            local gen
-            gen=$(curl -sf --max-time 30 -H "Cache-Control: no-cache" \
+            local meta
+            meta=$(curl -sf --max-time 30 -H "Cache-Control: no-cache" \
                   "$url?_mon=$(date +%s)" \
-                  | python3 -c "import json,sys; print(json.load(sys.stdin)['generatedAt'])") || {
+                  | python3 -c "import json,sys; d=json.load(sys.stdin); r=d.get('runs'); print(d['generatedAt'], len(r) if isinstance(r, list) else -1)") || {
               echo "::error::$name manifest fetch/parse failed"
               fail=1
               return
             }
+            local gen="${meta% *}" runs="${meta##* }"
             local age=$(( ( $(date -u +%s) - $(date -u -d "$gen" +%s) ) / 60 ))
-            echo "$name: generatedAt=$gen age=${age}m (limit ${max_min}m)"
+            echo "$name: generatedAt=$gen age=${age}m runs=${runs} (limit ${max_min}m)"
             if [ "$age" -gt "$max_min" ]; then
               echo "::error::$name manifest is ${age} min old (limit ${max_min} min) — check the stp-models-cron Worker (a 'wrangler deploy' from cron-trigger/ re-arms a stalled scheduler)"
+              fail=1
+            fi
+            # An EMPTY runs list with a fresh generatedAt is the UKV/CAMSEU
+            # failure class: every om sweep touches the manifest even when it
+            # renders nothing, so an empty model looks alive on age alone
+            # (UKV sat blank 6 days; CAMS-EU never rendered a frame). runs=-1
+            # means this manifest schema has no runs list — not checked.
+            if [ "$runs" = "0" ]; then
+              echo "::error::$name manifest has ZERO runs — model publishes an empty catalog while generatedAt stays fresh; check the model's render job log for per-frame failures"
               fail=1
             fi
           }
