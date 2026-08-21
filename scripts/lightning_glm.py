@@ -251,8 +251,10 @@ def _flashes_from_granule(
             else:
                 off = np.full(lat.shape, np.nan)
     except Exception as exc:
+        # None (not empty arrays) so the sidecar cache never freezes a
+        # transient parse failure as a permanently-empty granule.
         print(f"  parse failed {path.name}: {exc}", file=sys.stderr)
-        return np.array([]), np.array([]), np.array([])
+        return None
     epoch = float(granule_epoch) + off
     # Offsets should land within ~25 s of the granule start; anything else
     # (masked NaN, or a file encoding absolute J2000 seconds) falls back to
@@ -263,11 +265,52 @@ def _flashes_from_granule(
     return lat[good], lon[good], epoch[good]
 
 
+# Bump when _flashes_from_granule's extraction changes — stale sidecars
+# then reparse instead of serving the old scheme.
+_PARSE_CACHE_VERSION = 1
+
+
+def _flashes_from_granule_cached(
+    path: Path, granule_epoch: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Memoized _flashes_from_granule via an .npz sidecar beside the granule.
+
+    Granule files are immutable, yet every ~20 s pass re-parsed the WHOLE
+    rolling window (~hundreds of netCDF opens) to rebuild the feed — that
+    redundant parsing was nearly all of the ~14 s pass time. With sidecars a
+    pass parses only the 1-3 genuinely new granules and loads the rest in
+    milliseconds, so the loop can tick every few seconds and flashes reach
+    the map ~8-12 s sooner on average. Parse FAILURES are never cached (see
+    _flashes_from_granule), and a torn/version-stale sidecar reparses.
+    """
+    side = Path(str(path) + ".flashes.npz")
+    if side.exists():
+        try:
+            with np.load(side) as z:
+                if int(z["v"]) == _PARSE_CACHE_VERSION:
+                    return z["lat"], z["lon"], z["epoch"]
+        except Exception:
+            side.unlink(missing_ok=True)
+    res = _flashes_from_granule(path, granule_epoch)
+    if res is None:
+        return np.array([]), np.array([]), np.array([])
+    lat, lon, epoch = res
+    try:
+        tmp = Path(f"{side}.{os.getpid()}.tmp")
+        with open(tmp, "wb") as f:
+            np.savez(f, v=_PARSE_CACHE_VERSION, lat=lat, lon=lon, epoch=epoch)
+        tmp.replace(side)  # atomic: a killed pass never leaves a torn sidecar
+    except Exception:
+        pass  # cache is an optimization — never let it fail a pass
+    return lat, lon, epoch
+
+
 def _prune_cache(cutoff_epoch: int) -> None:
-    """Drop cached granules older than the window so /tmp stays bounded."""
+    """Drop cached granules (and their parse sidecars) older than the window
+    so /tmp stays bounded."""
     if not CACHE_DIR.exists():
         return
-    for f in CACHE_DIR.glob("*.nc"):
+    for f in list(CACHE_DIR.glob("*.nc")) + list(CACHE_DIR.glob("*.flashes.npz")):
         e = _start_epoch_from_key(f.name)
         if e is None or e < cutoff_epoch:
             f.unlink(missing_ok=True)
@@ -337,7 +380,7 @@ def main() -> int:
             path = _ensure_granule(bucket, key)
             if path is None:
                 continue
-            lat, lon, fep = _flashes_from_granule(path, epoch)
+            lat, lon, fep = _flashes_from_granule_cached(path, epoch)
             if lat.size == 0:
                 continue
             # East/West split (or fallback keep_all) AND the US service-area

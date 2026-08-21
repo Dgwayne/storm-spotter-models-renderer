@@ -112,9 +112,11 @@ jobs:
               FAILS=$((FAILS + 1))
               echo "  pass ${PASS} failed (${FAILS} total)"
             fi
-            # GLM granules publish every 20 s; ~7 s sleep + pass work
-            # (~8-15 s) catches each granule soon after it lands without
-            # hammering the buckets.
-            [ "$(date -u +%s)" -lt "$END" ] && sleep 7 || true
+            # GLM granules publish every 20 s. With the parse-sidecar cache
+            # (lightning_glm.py) a warm pass is ~2-4 s, so ~4 s sleep gives a
+            # ~6-8 s tick — each granule reaches the feed seconds after it
+            # lands. Listing stays ~2 buckets x 2-3 prefixes per pass, well
+            # within AWS open-data etiquette.
+            [ "$(date -u +%s)" -lt "$END" ] && sleep 4 || true
           done
           echo "==> loop done after ${PASS} passes (${FAILS} failures)"
