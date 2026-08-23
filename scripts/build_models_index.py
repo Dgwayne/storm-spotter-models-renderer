@@ -76,3 +76,39 @@ subprocess.check_call(
     ]
 )
 print(f"models.json uploaded ({len(entries)} models)")
+
+# ── Soundings picker index (v1/soundings/index.json) ────────────────
+# Same server-driven contract as models.json, for the sounding model
+# dropdown. Sourced from the `sounding_models` roster in products.yml so
+# adding/pulling a sounding model is a config edit + push, no release.
+sound = []
+for e in cfg.get("sounding_models") or []:
+    key = e.get("key")
+    if not key:
+        continue
+    sound.append({
+        "key": key,
+        "display": e.get("display", key.upper()),
+        "prefix": e.get("prefix", ""),
+        "order": e.get("order", 999),
+    })
+sound.sort(key=lambda e: e["order"])
+for e in sound:
+    del e["order"]
+
+if sound:
+    sidx = Path("/tmp/soundings_index.json")
+    sidx.write_text(json.dumps({
+        "schemaVersion": 1,
+        "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "models": sound,
+    }, indent=2))
+    subprocess.check_call([
+        "rclone", "copyto", str(sidx),
+        f"r2:{bucket}/v1/soundings/index.json",
+        "--s3-no-check-bucket", "--no-traverse",
+        "--header-upload", "Cache-Control: public, max-age=300",
+    ])
+    print(f"soundings/index.json uploaded ({len(sound)} models)")
+else:
+    print("no sounding_models roster in products.yml; soundings index skipped")

@@ -49,6 +49,32 @@
 # sfc), e.g. "^2t:sfc:" or "^(u|v):pl:500$". Matched messages are fetched
 # in param-alphabetical order, which keeps U before V for composite_uv.
 
+# ── Soundings model picker (server-driven, v1/soundings/index.json) ──
+# THE remote control for the app's sounding model dropdown: add an entry
+# and the model appears on installed apps at next launch; delete one and
+# it disappears, with any user still holding that selection redirected to
+# the first entry. No app release either way.
+#
+# `prefix` is the CDN subdirectory under v1/soundings/ ('' = HRRR at the
+# root, kept flat for back-compat with the dealiaser and released apps).
+# Entries here are DECOUPLED from extract_soundings.py's MODELS list on
+# purpose: RRFS still has (frozen) data on the CDN while its extraction
+# is disabled for the NOMADS bridge, and pulling it from the picker
+# should not require touching the extractor.
+sounding_models:
+  - key: hrrr
+    display: "HRRR"
+    prefix: ""
+    order: 10
+  - key: rrfs
+    display: "RRFS"
+    prefix: "rrfs/"
+    order: 20
+  - key: gfs
+    display: "GFS"
+    prefix: "gfs/"
+    order: 30
+
 products:
   refc:
     display: "Composite Reflectivity"
