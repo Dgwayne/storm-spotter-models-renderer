@@ -69,6 +69,9 @@ SWEEP_RUNS = {
     "GEFS": ("cycle", 2, 6),
     "AIFS": ("cycle", 2, 6),
     "ECMWF": ("cycle", 2, 12),
+    "RAP": ("hourly", 4, None),
+    "HREFPMMN": ("cycle", 2, 6),
+    "HREFPROB": ("cycle", 2, 6),
 }
 
 PROBE_TIMEOUT_S = 8

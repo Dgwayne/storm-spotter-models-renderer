@@ -3095,6 +3095,105 @@ products:
     point_decimals: 3
     point_grid: [512, 512]
 
+  # ── HREF ensemble probability products (HREFPROB pseudo-model) ─────
+  # Source idx lines end ":prob >N:" (metric thresholds); the trailing
+  # colon in each match pins the exact threshold (>40: never matches
+  # >400:). All are neighborhood probabilities in percent, rendered on
+  # the shared prob ramp. fh_min 1: ensemble products have no f00.
+  probRefc40:
+    display: "Storm Prob (40+ dBZ)"
+    group: "Probabilities/Storms"
+    wgrib2_match: ":REFC:entire atmosphere.*:prob >40:"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "prob.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+    fh_min: 1
+  probUh25:
+    display: "Rotating Storm Prob"
+    group: "Probabilities/Severe"
+    wgrib2_match: ":MXUPHL:5000-2000 m above ground:.*:prob >25:"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "prob.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+    fh_min: 1
+  probUh75:
+    display: "Strong Rotation Prob"
+    group: "Probabilities/Severe"
+    wgrib2_match: ":MXUPHL:5000-2000 m above ground:.*:prob >75:"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "prob.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+    fh_min: 1
+  probRain05:
+    display: "Heavy Rain Prob (0.5\"/hr)"
+    group: "Probabilities/Precipitation"
+    wgrib2_match: ":APCP:surface:{fh_minus_1}-{fh} hour acc.*:prob >12.7:"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "prob.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+  probRain1:
+    display: "Extreme Rain Prob (1\"/hr)"
+    group: "Probabilities/Precipitation"
+    wgrib2_match: ":APCP:surface:{fh_minus_1}-{fh} hour acc.*:prob >25.4:"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "prob.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+  probWind40:
+    display: "Damaging Wind Prob (40+ kt)"
+    group: "Probabilities/Severe"
+    wgrib2_match: ":WIND:10 m above ground:.*:prob >20.6:"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "prob.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+    fh_min: 1
+  probSnow1h:
+    display: "Heavy Snow Prob"
+    group: "Probabilities/Winter"
+    wgrib2_match: ":WEASD:surface:{fh_minus_1}-{fh} hour acc.*:prob >2.54:"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "prob.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+  probCape2k:
+    display: "High Instability Prob"
+    group: "Probabilities/Severe"
+    wgrib2_match: ":CAPE:90-0 mb above ground:.*:prob >2000:"
+    units_in: "%"
+    units_out: "%"
+    convert: ""
+    clr: "prob.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+    fh_min: 1
+
 models:
   HRRR:
     products:
@@ -4942,3 +5041,75 @@ models:
     # after init) minute 0 is in the past anyway.
     forecast_minutes_default: { start: 15, end: 360, step: 15 }
     retain_runs: 4
+
+  # ── RAP 13km (Rapid Refresh) ──────────────────────────────────────
+  # Hourly CONUS mesoscale sibling of the HRRR (RAP is its parent
+  # model). awp130pgrb = grid 130, 13 km Lambert CONUS, on AWS open
+  # data WITH .idx — the plain HRRR pattern throughout. 55 of the
+  # shared product codes match its f06 idx exactly (verified
+  # 2026-08-23); only HRRR-specialties (uh25/stp/lclHgt/shear1/
+  # smokeint) are absent. Extended f51 runs at 03/09/15/21z.
+  RAP:
+    display: "RAP 13km"
+    picker_group: "CONUS"
+    picker_order: 14
+    s3_bucket: "noaa-rap-pds"
+    s3_key_template: "rap.{date}/rap.t{run:02d}z.awp130pgrbf{fh:02d}.grib2"
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [2048, 2048]
+    forecast_hours_default: { start: 0, end: 21, step: 1 }
+    forecast_hours_synoptic: { start: 0, end: 51, step: 1, runs: [3, 9, 15, 21] }
+    retain_runs: 5
+    products:
+      [refc, refd1km, t2m, td2m, wind10m, gust10m, mslp, sfccape, sbcin,
+       precip1h, precipTotal, tcc, lcc, mcc, hcc, irsat, smokesfc, ltng,
+       srh1, srh3, ehi1, ehi3, mlcape, mucape, mlcin, shear6, scp,
+       cape3km, liftedIdx, lapse75, stormMotion, pwat, echoTops, ptype,
+       frzLvl, rh2m, vis, snod, asnow, frzr, precip3h, precip6h,
+       shearSfc500, wind925, wind850, wind700, wind500, wind300, wind250,
+       wind200, rh925, rh850, rh700, rh500, vort500, vv700]
+    render_groups:
+      core:     [refc, refd1km, t2m, td2m, wind10m, gust10m, mslp, rh2m]
+      severe-a: [sfccape, sbcin, mlcape, mucape, mlcin, cape3km, liftedIdx]
+      severe-b: [srh1, srh3, ehi1, ehi3, shear6, shearSfc500, scp, stormMotion]
+      sky:      [tcc, lcc, mcc, hcc, irsat, vis, echoTops, lapse75]
+      precip:   [precip1h, precip3h, precip6h, precipTotal, pwat, ptype, frzLvl]
+      winter:   [snod, asnow, frzr, smokesfc, ltng]
+      upper-wind: [wind925, wind850, wind700, wind500, wind300, wind250, wind200]
+      upper-dyn:  [rh925, rh850, rh700, rh500, vort500, vv700]
+
+  # ── HREF ensemble (High-Resolution Ensemble Forecast) ─────────────
+  # NOMADS-only (no AWS bucket), but NOMADS serves .idx for the
+  # ensprod files (verified 2026-08-23) so byte-range subsetting works
+  # directly — no mirror bridge. Two pseudo-models, one per source
+  # file, mirroring the one-key-template-per-model architecture:
+  # pmmn = probability-matched mean (the "ensemble radar"), prob =
+  # neighborhood probabilities. 00/06/12/18z cycles to f48, no f00.
+  # ⚠ NOMADS retains ~2 days — retain_runs must stay ≤ 7.
+  # HREF's operational successor (REFS, the RRFS ensemble) arrives
+  # with the 2026-10-06 transition — same bridge-then-cutover story
+  # as RRFS deterministic; see [[rrfs-model]] checklist.
+  HREFPMMN:
+    display: "HREF PMM 3km"
+    picker_group: "Ensembles"
+    picker_order: 30
+    base_url: "https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod"
+    s3_key_template: "href.{date}/ensprod/href.t{run:02d}z.conus.pmmn.f{fh:02d}.grib2"
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [2048, 2048]
+    forecast_hours_default: { start: 1, end: 48, step: 1 }
+    retain_runs: 4
+    products: [refc, refd1km, echoTops, uh25, precip1h]
+
+  HREFPROB:
+    display: "HREF Prob 3km"
+    picker_group: "Ensembles"
+    picker_order: 31
+    base_url: "https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod"
+    s3_key_template: "href.{date}/ensprod/href.t{run:02d}z.conus.prob.f{fh:02d}.grib2"
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [2048, 2048]
+    forecast_hours_default: { start: 1, end: 48, step: 1 }
+    retain_runs: 4
+    products: [probRefc40, probUh25, probUh75, probRain05, probRain1,
+               probWind40, probSnow1h, probCape2k]

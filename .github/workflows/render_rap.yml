@@ -1,0 +1,327 @@
+name: Render RAP
+
+on:
+  # NO `schedule:` HERE ON PURPOSE (removed 2026-08-17; was '5,20,35,50 * * * *').
+  # The cron-trigger Worker dispatches this workflow (cron-trigger/src/worker.js),
+  # and a native cron alongside it is not a harmless backstop. With
+  # `cancel-in-progress: false` GitHub keeps at most one running plus one
+  # PENDING run per concurrency group, so every extra tick CANCELS the pending
+  # run and sends a "Run failed / Some jobs were not successful" email.
+  # Measured over 3.5 h on 2026-08-17: 124 cancelled vs 49 successful runs,
+  # zero genuine failures, queue waits of 19 min median and 84 min worst.
+  # To restore a backstop, add it to the Worker instead, not here.
+  workflow_dispatch:
+    inputs:
+      force_rerender:
+        description: 'Re-render frames even when already on R2 (bypass idempotency check). Used to recover from a pipeline-bug-produced corrupt batch.'
+        type: boolean
+        default: false
+
+concurrency:
+  group: render-rap
+  cancel-in-progress: false
+
+# Fan-out structure (introduced 2026-08-05 to hold the tick inside the cron
+# cadence as the product catalog grows; gated 2026-08-19 because ungated
+# idle fan-outs across six model workflows saturated the 20 free runner
+# slots and queued real renders 20-60 min):
+#   plan     — scripts/plan_model_work.py: one bucket listing + targeted
+#              source-idx probes decide which render groups have pending
+#              published-but-unrendered frames. Idle tick = this one small
+#              job (plus a manifest touch so generatedAt stays a liveness
+#              signal); no render/finalize jobs at all. Also validates that
+#              render_groups exactly cover the product list.
+#   render   — one job per group WITH WORK, PRODUCT_FILTER-scoped,
+#              SKIP_FINALIZE=1, PUBLISHED_FH_SPEC-filtered so unpublished
+#              forecast hours never pay decode-spawn overhead. Each group
+#              still publishes an early manifest after the newest run
+#              renders (build_manifest.py snapshots a fresh bucket
+#              listing, so concurrent publishes are all valid).
+#   finalize — single post-fan-out job: prune to retain_runs, then the
+#              authoritative manifest rebuild. Runs even when a group fails
+#              (a red group just leaves its frames missing; the manifest
+#              must still move forward for the app).
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.gate.outputs.matrix }}
+      has_work: ${{ steps.gate.outputs.has_work }}
+      published: ${{ steps.gate.outputs.published }}
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+      # rclone remote "r2" via env instead of a conf file — the gate and
+      # the manifest touch shell out to `rclone lsf r2:...`.
+      RCLONE_CONFIG_R2_TYPE: s3
+      RCLONE_CONFIG_R2_PROVIDER: Other
+      RCLONE_CONFIG_R2_REGION: us-west-004
+      RCLONE_CONFIG_R2_NO_CHECK_BUCKET: 'true'
+      RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+      RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore yq (cache)
+        id: yqcache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.tools/yq
+          key: yq-v4.53.3-linux-amd64
+
+      - name: Install yq (Go binary)
+        run: |
+          set -e
+          if [ ! -x "$HOME/.tools/yq" ]; then
+            mkdir -p "$HOME/.tools"
+            curl -sSfL --retry 6 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 40 \
+              -o "$HOME/.tools/yq" \
+              https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64
+            chmod +x "$HOME/.tools/yq"
+          fi
+          sudo install -m 0755 "$HOME/.tools/yq" /usr/local/bin/yq
+
+      - name: Save yq (cache)
+        if: steps.yqcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.tools/yq
+          key: yq-v4.53.3-linux-amd64
+
+      - name: Restore rclone (cache)
+        id: rclonecache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.tools/rclone
+          key: rclone-v1.67.0-linux-amd64
+
+      - name: Install rclone (static binary)
+        run: |
+          set -e
+          if [ ! -x "$HOME/.tools/rclone" ]; then
+            mkdir -p "$HOME/.tools"
+            curl -sSfL --retry 6 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 120 \
+              -o /tmp/rclone.zip \
+              https://downloads.rclone.org/v1.67.0/rclone-v1.67.0-linux-amd64.zip
+            unzip -j -q /tmp/rclone.zip '*/rclone' -d "$HOME/.tools"
+          fi
+          sudo install -m 0755 "$HOME/.tools/rclone" /usr/local/bin/rclone
+          # PyYAML for the gate + manifest touch; preinstalled on the
+          # runner image, pip is the rare fallback.
+          python3 -c "import yaml" 2>/dev/null || python3 -m pip install --user --quiet --retries 10 pyyaml
+
+      - name: Save rclone (cache)
+        if: steps.rclonecache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.tools/rclone
+          key: rclone-v1.67.0-linux-amd64
+
+      - name: Plan pending work (gate)
+        id: gate
+        env:
+          FORCE_RERENDER: ${{ inputs.force_rerender && '1' || '' }}
+        run: python3 scripts/plan_model_work.py RAP
+
+      # Idle tick: no render/finalize jobs, but keep the manifest's
+      # generatedAt moving — the freshness monitor (and anything else
+      # reading generatedAt as a liveness signal) predates the gate, when
+      # every tick rebuilt the manifest.
+      - name: Touch manifest (idle tick)
+        if: steps.gate.outputs.has_work != 'true'
+        run: python3 scripts/build_manifest.py RAP
+
+  render:
+    needs: plan
+    if: ${{ needs.plan.outputs.has_work == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    name: render (${{ matrix.group }})
+    strategy:
+      # One group failing must not cancel the others — each group's frames
+      # are independent, and the finalize job reconciles whatever landed.
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+      FORCE_RERENDER: ${{ inputs.force_rerender && '1' || '' }}
+      PRODUCT_FILTER: ${{ matrix.products }}
+      PUBLISHED_FH_SPEC: ${{ needs.plan.outputs.published }}
+      SKIP_FINALIZE: '1'
+
+    defaults:
+      run:
+        shell: bash -el {0}    # ensures conda env is activated for every step
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore micromamba binary (cache)
+        id: mmbin
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Set up micromamba (wgrib2 + gdal + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: renderer
+          create-args: >-
+            python=3.11
+            wgrib2
+            gdal
+            libgdal-netcdf
+            libgdal-grib
+            libgdal-jp2openjpeg
+            rclone
+            pyyaml
+            curl
+          cache-environment: true
+          init-shell: bash
+          download-micromamba: ${{ steps.mmbin.outputs.cache-hit != 'true' }}
+          micromamba-binary-path: ~/micromamba-bin/micromamba
+
+      - name: Save micromamba binary (cache)
+        if: steps.mmbin.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Restore yq (cache)
+        id: yqcache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.tools/yq
+          key: yq-v4.53.3-linux-amd64
+
+      - name: Install yq (Go binary)
+        run: |
+          set -e
+          if [ ! -x "$HOME/.tools/yq" ]; then
+            mkdir -p "$HOME/.tools"
+            curl -sSfL --retry 6 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 40 \
+              -o "$HOME/.tools/yq" \
+              https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64
+            chmod +x "$HOME/.tools/yq"
+          fi
+          sudo install -m 0755 "$HOME/.tools/yq" /usr/local/bin/yq
+          yq --version
+          wgrib2 --version || true
+          gdalinfo --version
+          rclone --version | head -1
+
+      - name: Save yq (cache)
+        if: steps.yqcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.tools/yq
+          key: yq-v4.53.3-linux-amd64
+
+      - name: Configure rclone for Cloudflare R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Render RAP (${{ matrix.group }})
+        run: bash scripts/render_rap.sh
+
+  finalize:
+    needs: [plan, render]
+    # Run on partial group failure too (default behavior would skip us);
+    # only a cancelled workflow — or an idle tick (no work gated) — skips
+    # finalize.
+    if: ${{ !cancelled() && needs.plan.outputs.has_work == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore micromamba binary (cache)
+        id: mmbin
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Set up micromamba (wgrib2 + gdal + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: renderer
+          create-args: >-
+            python=3.11
+            wgrib2
+            gdal
+            libgdal-netcdf
+            libgdal-grib
+            libgdal-jp2openjpeg
+            rclone
+            pyyaml
+            curl
+          cache-environment: true
+          init-shell: bash
+          download-micromamba: ${{ steps.mmbin.outputs.cache-hit != 'true' }}
+          micromamba-binary-path: ~/micromamba-bin/micromamba
+
+      - name: Save micromamba binary (cache)
+        if: steps.mmbin.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Configure rclone for Cloudflare R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Prune + rebuild manifest
+        run: |
+          set -e
+          RETAIN=$(python3 - <<'EOF'
+          import yaml
+          cfg = yaml.safe_load(open("config/products.yml"))
+          print(cfg["models"]["RAP"].get("retain_runs", 5))
+          EOF
+          )
+          echo "==> Pruning RAP to last ${RETAIN} runs"
+          python3 scripts/prune_old_runs.py RAP "${RETAIN}"
+          echo "==> Rebuilding RAP manifest"
+          python3 scripts/build_manifest.py RAP

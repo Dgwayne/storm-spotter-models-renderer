@@ -81,6 +81,10 @@ const CRON_TO_WORKFLOW = {
     "render_rrfs.yml",
     { wf: "render_gefs.yml", minutes: [25, 55] },
     { wf: "render_om_15min.yml", minutes: [10, 40] },
+    // HREF ensemble pair: 4 cycles/day to f48, hourly dispatch is ample.
+    // Box is primary; these are the gated fallback legs.
+    { wf: "render_hrefpmmn.yml", minutes: [55] },
+    { wf: "render_hrefprob.yml", minutes: [10] },
   ],
   // Slot C. Satellite frames land in IEM's archive on the quarter-hours, so
   // this catches each one a few minutes after it publishes. GeoColor shares
@@ -101,6 +105,10 @@ const CRON_TO_WORKFLOW = {
   "0,15,30,45 * * * *": [
     "render_nam.yml",
     "wildfire.yml",
+    // RAP: hourly CONUS model (HRRR's parent), full q15 slot. Gated
+    // like every model workflow, and the box is primary — these ticks
+    // idle at the plan gate while the Dell keeps the bucket full.
+    "render_rap.yml",
     { wf: "render_om_models.yml", minutes: [15, 45] },
     // Batch 5 (12 models: projected grids + CAMS) is the single largest
     // consumer in the whole repo. Measured over 4.2 h on 2026-08-17 it burned

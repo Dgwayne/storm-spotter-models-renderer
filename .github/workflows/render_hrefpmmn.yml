@@ -1,0 +1,189 @@
+name: Render HREFPMMN
+
+on:
+  # NO `schedule:` HERE ON PURPOSE (removed 2026-08-17; was '7,37 * * * *').
+  # The cron-trigger Worker dispatches this workflow (cron-trigger/src/worker.js),
+  # and a native cron alongside it is not a harmless backstop. With
+  # `cancel-in-progress: false` GitHub keeps at most one running plus one
+  # PENDING run per concurrency group, so every extra tick CANCELS the pending
+  # run and sends a "Run failed / Some jobs were not successful" email.
+  # Measured over 3.5 h on 2026-08-17: 124 cancelled vs 49 successful runs,
+  # zero genuine failures, queue waits of 19 min median and 84 min worst.
+  # To restore a backstop, add it to the Worker instead, not here.
+  workflow_dispatch:
+    inputs:
+      force_rerender:
+        description: 'Re-render frames even when already on R2 (bypass idempotency check). Used to recover from a pipeline-bug-produced corrupt batch.'
+        type: boolean
+        default: false
+
+concurrency:
+  group: render-hrefpmmn
+  cancel-in-progress: false
+
+# Gate: HREF publishes 4 cycles/day (00/06/12/18z) from NOMADS with idx —
+# the plan gate decides in ~1 min whether anything is pending; idle
+# ticks stop at the gate. The box is primary; this is the fallback leg.
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      has_work: ${{ steps.gate.outputs.has_work }}
+      published: ${{ steps.gate.outputs.published }}
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+      # rclone remote "r2" via env instead of a conf file — the gate and
+      # the manifest touch shell out to `rclone lsf r2:...`.
+      RCLONE_CONFIG_R2_TYPE: s3
+      RCLONE_CONFIG_R2_PROVIDER: Other
+      RCLONE_CONFIG_R2_REGION: us-west-004
+      RCLONE_CONFIG_R2_NO_CHECK_BUCKET: 'true'
+      RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+      RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore rclone (cache)
+        id: rclonecache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.tools/rclone
+          key: rclone-v1.67.0-linux-amd64
+
+      - name: Install rclone (static binary)
+        run: |
+          set -e
+          if [ ! -x "$HOME/.tools/rclone" ]; then
+            mkdir -p "$HOME/.tools"
+            curl -sSfL --retry 6 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 120 \
+              -o /tmp/rclone.zip \
+              https://downloads.rclone.org/v1.67.0/rclone-v1.67.0-linux-amd64.zip
+            unzip -j -q /tmp/rclone.zip '*/rclone' -d "$HOME/.tools"
+          fi
+          sudo install -m 0755 "$HOME/.tools/rclone" /usr/local/bin/rclone
+          # PyYAML for the gate + manifest touch; preinstalled on the
+          # runner image, pip is the rare fallback.
+          python3 -c "import yaml" 2>/dev/null || python3 -m pip install --user --quiet --retries 10 pyyaml
+
+      - name: Save rclone (cache)
+        if: steps.rclonecache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.tools/rclone
+          key: rclone-v1.67.0-linux-amd64
+
+      - name: Plan pending work (gate)
+        id: gate
+        env:
+          FORCE_RERENDER: ${{ inputs.force_rerender && '1' || '' }}
+        run: python3 scripts/plan_model_work.py HREFPMMN
+
+      # Idle tick: keep the manifest's generatedAt moving — the freshness
+      # monitor reads it as a liveness signal.
+      - name: Touch manifest (idle tick)
+        if: steps.gate.outputs.has_work != 'true'
+        run: python3 scripts/build_manifest.py HREFPMMN
+
+  render:
+    needs: plan
+    if: ${{ needs.plan.outputs.has_work == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+      FORCE_RERENDER: ${{ inputs.force_rerender && '1' || '' }}
+      PUBLISHED_FH_SPEC: ${{ needs.plan.outputs.published }}
+
+    defaults:
+      run:
+        shell: bash -el {0}    # ensures conda env is activated for every step
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore micromamba binary (cache)
+        id: mmbin
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Set up micromamba (wgrib2 + gdal + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: renderer
+          create-args: >-
+            python=3.11
+            wgrib2
+            gdal
+            libgdal-netcdf
+            libgdal-grib
+            rclone
+            pyyaml
+            curl
+          cache-environment: true
+          init-shell: bash
+          download-micromamba: ${{ steps.mmbin.outputs.cache-hit != 'true' }}
+          micromamba-binary-path: ~/micromamba-bin/micromamba
+
+      - name: Save micromamba binary (cache)
+        if: steps.mmbin.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Restore yq (cache)
+        id: yqcache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.tools/yq
+          key: yq-v4.53.3-linux-amd64
+
+      - name: Install yq (Go binary)
+        run: |
+          set -e
+          if [ ! -x "$HOME/.tools/yq" ]; then
+            mkdir -p "$HOME/.tools"
+            curl -sSfL --retry 6 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 40 \
+              -o "$HOME/.tools/yq" \
+              https://github.com/mikefarah/yq/releases/download/v4.53.3/yq_linux_amd64
+            chmod +x "$HOME/.tools/yq"
+          fi
+          sudo install -m 0755 "$HOME/.tools/yq" /usr/local/bin/yq
+          yq --version
+          wgrib2 --version || true
+          gdalinfo --version
+          rclone --version | head -1
+
+      - name: Save yq (cache)
+        if: steps.yqcache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.tools/yq
+          key: yq-v4.53.3-linux-amd64
+
+      - name: Configure rclone for Cloudflare R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Render HREFPMMN
+        run: bash scripts/render_hrefpmmn.sh
