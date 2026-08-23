@@ -165,6 +165,7 @@ jobs:
           # or failing extracts — not a late NOAA run. 180 = one missed hour
           # + a full ~25-min extract + slack.
           check SOUNDINGS "https://models.dgwaynes.com/v1/soundings/manifest.json" 180
+          check SOUNDGFS  "https://models.dgwaynes.com/v1/soundings/gfs/manifest.json" 600
           # Wildfire rides the :00/:15/:30/:45 Worker slot with an hourly
           # GitHub-native backstop, so a healthy feed is never over ~60 min
           # old even with the Worker down. 120 = one missed hourly backstop

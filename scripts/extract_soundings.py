@@ -98,6 +98,31 @@ MODELS = [
             "hrrr.{d}/conus/hrrr.t{h}z.wrfprsf{fh:02d}.grib2",
         ],
     },
+    # GFS 0.25 deg — the COVERAGE model: HRRR is CONUS-only, so AK / HI /
+    # PR / offshore / tropics had no soundings at all. GFS publishes
+    # HOURLY files to f120, so the shared FHOURS 0-18 works unchanged.
+    # Two per-model quirks handled below:
+    #   - pgrb2 has no upper-level DPT (only RH) -> dpt_from_rh derives
+    #     dewpoint via Magnus from TMP + RH at each level.
+    #   - the global 0.25 grid at the default TILE_STRIDE would space
+    #     tap-anywhere columns ~220 km apart, far outside the app's 60 km
+    #     IDW gate -> tile_stride 2 (~55 km) and tile_bbox crops the tile
+    #     domain to North America + adjacent oceans so the tile count
+    #     stays ~HRRR-sized instead of global.
+    {
+        "key": "gfs",
+        "name": "GFS",
+        "prefix": "gfs/",
+        "files": [
+            "https://noaa-gfs-bdp-pds.s3.amazonaws.com/"
+            "gfs.{d}/{h}/atmos/gfs.t{h}z.pgrb2.0p25.f{fh:03d}",
+        ],
+        "isobaric_vars": ("UGRD", "VGRD", "HGT", "TMP", "RH"),
+        "dpt_from_rh": True,
+        "tile_stride": 2,
+        "stride_km": 55,
+        "tile_bbox": (-170.0, 15.0, -50.0, 72.0),  # lonW, latS, lonE, latN
+    },
 ]
 
 # Point-sounding tiles: subsample the 3 km HRRR grid every TILE_STRIDE pixels
@@ -115,6 +140,7 @@ MODELS = [
 # R2 Class A pricing that the old 24 was sized for is gone).
 TILE_STRIDE = 8
 TILE_COLS = 16
+STRIDE_KM = TILE_STRIDE * 3  # per-model override via MODELS "stride_km"
 
 
 def classify(var: str, lvl: str):
@@ -139,6 +165,34 @@ def _to_c(v: float) -> float:
     """conda-forge gdal returns HRRR TMP/DPT in Celsius already; only subtract
     273.15 when the value is clearly Kelvin (>100). Robust either way."""
     return v - 273.15 if v > 100.0 else v
+
+
+def _td_from_t_rh(t, rh):
+    """Dewpoint (deg C) from temperature + relative humidity via Magnus
+    (same 6.112/17.67/243.5 constants as the om td2m derivation). Works on
+    floats and numpy arrays; `t` may be Kelvin or Celsius (normalized like
+    _to_c). RH clipped to [1, 100] so ln() never sees zero."""
+    import numpy as np
+    t_c = np.where(np.asarray(t, dtype=float) > 100.0,
+                   np.asarray(t, dtype=float) - 273.15,
+                   np.asarray(t, dtype=float))
+    rh_c = np.clip(np.asarray(rh, dtype=float), 1.0, 100.0)
+    ln_term = np.log(rh_c / 100.0) + 17.67 * t_c / (t_c + 243.5)
+    td = 243.5 * ln_term / (17.67 - ln_term)
+    return float(td) if td.ndim == 0 else td.astype(np.float32)
+
+
+def _derive_dpt(per_site: list, grids: dict) -> None:
+    """Fill DPT:<mb> from TMP+RH for models that publish no upper-level
+    dewpoint (GFS pgrb2). Values stored in deg C — _to_c passes them
+    through untouched downstream."""
+    for d in per_site:
+        for mb in LEVELS:
+            if f"DPT:{mb}" not in d and f"TMP:{mb}" in d and f"RH:{mb}" in d:
+                d[f"DPT:{mb}"] = _td_from_t_rh(d[f"TMP:{mb}"], d[f"RH:{mb}"])
+    for mb in LEVELS:
+        if f"DPT:{mb}" not in grids and f"TMP:{mb}" in grids and f"RH:{mb}" in grids:
+            grids[f"DPT:{mb}"] = _td_from_t_rh(grids[f"TMP:{mb}"], grids[f"RH:{mb}"])
 
 
 def _head_ok(url: str) -> bool:
@@ -600,7 +654,7 @@ def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir,
             n += 1
     (out_dir / "tiles.json").write_text(json.dumps({
         "schemaVersion": 1, "model": model, "run": run_iso,
-        "strideKm": TILE_STRIDE * 3, "hours": good_hours,
+        "strideKm": STRIDE_KM, "hours": good_hours,
         "tiles": index,
     }, separators=(",", ":")))
     sizes = sorted(p.stat().st_size for p in tiles_dir.glob("*.json"))
@@ -615,6 +669,13 @@ def process_model(model: dict, sites, out_root: Path, work_root: Path) -> int:
     of site profiles written; 0 = model failed / nothing published; -1 = the
     CDN already serves the newest run (healthy no-op, manifest touched)."""
     name = model["name"]
+    # Per-model knobs land in the module globals the helpers read
+    # (classify -> ISOBARIC_VARS, extract_all/grid_latlon -> TILE_STRIDE,
+    # build_tiles -> STRIDE_KM). Single-threaded, set fresh per model.
+    global ISOBARIC_VARS, TILE_STRIDE, STRIDE_KM
+    ISOBARIC_VARS = tuple(model.get("isobaric_vars", ("UGRD", "VGRD", "HGT", "TMP", "DPT")))
+    TILE_STRIDE = int(model.get("tile_stride", 8))
+    STRIDE_KM = int(model.get("stride_km", TILE_STRIDE * 3))
     run_dt = find_latest_run(model)
     if run_dt is None:
         print(f"==> {name}: no run with all forecast hours published; skip")
@@ -672,7 +733,25 @@ def process_model(model: dict, sites, out_root: Path, work_root: Path) -> int:
                     grids.update(g)
             if lats is None:
                 lats, lons = grid_latlon(grib)
+                if model.get("tile_bbox") is not None:
+                    import numpy as np
+                    w0, s0, e0, n0 = model["tile_bbox"]
+                    lon_n = np.where(lons > 180.0, lons - 360.0, lons)
+                    inside = (lats >= s0) & (lats <= n0) & (lon_n >= w0) & (lon_n <= e0)
+                    ys = np.where(inside.any(axis=1))[0]
+                    xs2 = np.where(inside.any(axis=0))[0]
+                    crop = (slice(ys.min(), ys.max() + 1),
+                            slice(xs2.min(), xs2.max() + 1))
+                    lats, lons = lats[crop], lon_n[crop]
+                    model["_crop"] = crop
+                    print(f"  [tiles] {name}: cropped tile grid to "
+                          f"{lats.shape} for bbox {model['tile_bbox']}")
             grib.unlink(missing_ok=True)
+        if model.get("dpt_from_rh"):
+            _derive_dpt(merged, grids)
+        if model.get("_crop") is not None and grids:
+            c = model["_crop"]
+            grids = {k: a[c] for k, a in grids.items()}
         if grids:
             grids_by_hour[fh] = grids
         if fh == 0 and merged:
