@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# MRMS observation catalog — latest-frame products (hail / echo tops /
+# MRMS observation catalog â€” latest-frame products (hail / echo tops /
 # VIL / rotation tracks / FLASH flooding) for the app's Observations
 # (MRMS) layer.
 #
 # These differ from the QPE products (render_mrms_qpe.sh) in every way
 # that script hardcodes:
-#   * sub-hourly publishes: 2-min radar mosaics, 10-min FLASH — filenames
+#   * sub-hourly publishes: 2-min radar mosaics, 10-min FLASH â€” filenames
 #     carry arbitrary -HHMMSS stamps, never -HH0000;
 #   * no Pass1/Pass2 gauge-correction cycle (that's MultiSensor QPE only);
-#   * per-product unit scaling (mm→in, km→kft, or pass-through).
+#   * per-product unit scaling (mmâ†’in, kmâ†’kft, or pass-through).
 #
 # Strategy: each tick, for every OBS product that declares `mrms_dir`
 # (the full CONUS/ prefix on noaa-mrms-pds), list the S3 day directory,
 # take the NEWEST object, and render it into the hourly "run" slot
-# v1/OBS/<code>/<YYYYMMDDHH>/F000.png — overwriting within the hour as
+# v1/OBS/<code>/<YYYYMMDDHH>/F000.png â€” overwriting within the hour as
 # fresher files land. Hourly 10-digit stamps keep build_manifest.py,
 # prune_old_runs.py, and the app's frame plumbing unchanged; the newest
 # frame is never older than the tick cadence + product cadence.
@@ -24,46 +24,46 @@
 # those markers to publish each product's REAL valid time (srcTimes), since
 # the hourly run stamp alone can't distinguish 19:02 data from 19:58.
 #
-# ── Env knobs ──────────────────────────────────────────────────────────
+# â”€â”€ Env knobs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Every one of these is optional and defaults to the pre-VPS behaviour, so
 # an invocation with none of them set behaves exactly as the GitHub
 # workflows have always run it.
 #
-#   OBS_PREFIX     — the R2/B2 path prefix this run writes to, WITHOUT the
+#   OBS_PREFIX     â€” the R2/B2 path prefix this run writes to, WITHOUT the
 #                    leading v1/. Default "OBS" (live). THIS VARIABLE IS THE
 #                    CUTOVER SWITCH: the VPS shadows on "OBS-shadow" and
 #                    goes live by changing this one value, so no other file
 #                    has to be edited when the switch is thrown. The MODEL
 #                    used for config lookup stays OBS regardless.
-#   OBS_TIER       — render only products whose `cadence_tier` in
+#   OBS_TIER       â€” render only products whose `cadence_tier` in
 #                    products.yml matches: fast (~2 min at source, 41
 #                    products), mid (~10 min, 9), slow (>=30 min, 37).
 #                    Unset renders every mrms_dir product, as before.
-#   OBS_JOBS       — how many products render concurrently. Default 1,
+#   OBS_JOBS       â€” how many products render concurrently. Default 1,
 #                    which reproduces the old serial loop exactly. The VPS
 #                    runs 4; the loop body is per-product independent
 #                    (own temp dir, own uploads), so the only shared state
 #                    is the read-only config and the results dir.
-#   OBS_STATE_DIR  — directory holding local idempotency state, one file
+#   OBS_STATE_DIR  â€” directory holding local idempotency state, one file
 #                    per product: "<runStamp> <HHMMSS>". When set, the tick
 #                    answers "already rendered?" from local disk and needs
 #                    NO bucket listing and NO CDN manifest read at all. On
 #                    a box we control this is both cheaper and more
 #                    accurate than either remote source.
-#   OBS_RETAIN     — prune retention override, honoured ONLY when
+#   OBS_RETAIN     â€” prune retention override, honoured ONLY when
 #                    OBS_PREFIX is not the live prefix. A shadow run keeps
 #                    a handful of runs so its listing stays one page; the
 #                    guard means forgetting to unset it at cutover can
 #                    never prune live history down to the shadow depth.
-#   OBS_SKIP_PRUNE — skip the retention prune (and, with it, any delete
+#   OBS_SKIP_PRUNE â€” skip the retention prune (and, with it, any delete
 #                    against the bucket). Set on every shadow unit.
-#   OBS_FAST_ONLY  — LEGACY, GitHub only: render only the six products
+#   OBS_FAST_ONLY  â€” LEGACY, GitHub only: render only the six products
 #                    flagged `fast_cadence: true`. Predates cadence_tier
-#                    and is deliberately NOT redefined in terms of it —
+#                    and is deliberately NOT redefined in terms of it â€”
 #                    render_mrms_severe.yml is the live fallback until the
 #                    cutover holds, and it must keep selecting exactly the
 #                    same six products it does today. Retire both together.
-#   FORCE_RERENDER — bypass the idempotency check entirely.
+#   FORCE_RERENDER â€” bypass the idempotency check entirely.
 set -euo pipefail
 
 MODEL="OBS"
@@ -78,22 +78,18 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG="${REPO_ROOT}/config/products.yml"
 COLOR_TABLES="${REPO_ROOT}/config/color_tables"
 
-ALL_# ⚠ RETRY, do not simplify: a bare `yq` here has been observed returning
-# EMPTY on a loaded box (box 1 sits at load 21/16 with several render
-# groups reading this same file concurrently). An empty PRODUCTS made the
-# PRODUCT_FILTER loop below reject every VALID code with
-# "not in models.<M>.products" and exit 1, silently costing that group its
-# whole tick. Data survived only because the next tick redid it. Retry the
-# read, then hard-fail loudly if it is still empty — "I could not read the
-# config" must never masquerade as "your config is wrong".
-PRODUCTS=""
+# Retry, do not simplify: a bare `yq` has been observed returning EMPTY on a
+# loaded box (several render groups reading this same file concurrently),
+# which downstream looks like "the config is wrong" rather than "the read
+# failed". Retry, then fail loudly with the real reason.
+ALL_PRODUCTS=""
 for _try in 1 2 3; do
-  PRODUCTS=$(yq -r ".models.${MODEL}.products[]" "$CONFIG" 2>/dev/null || true)
-  [ -n "$PRODUCTS" ] && break
+  ALL_PRODUCTS=$(yq -r ".models.${MODEL}.products[]" "$CONFIG" 2>/dev/null || true)
+  [ -n "$ALL_PRODUCTS" ] && break
   echo "WARN: empty product list for ${MODEL} (attempt ${_try}/3); retrying" >&2
   sleep 2
 done
-if [ -z "$PRODUCTS" ]; then
+if [ -z "$ALL_PRODUCTS" ]; then
   echo "FATAL: could not read models.${MODEL}.products from ${CONFIG} after 3 attempts" >&2
   exit 1
 fi
@@ -109,12 +105,12 @@ fi
 
 echo "==> MRMS observation catalog: prefix=v1/${PREFIX}/ tier=${OBS_TIER:-all} jobs=${JOBS}"
 
-# ── Idempotency state ──────────────────────────────────────────────────
+# â”€â”€ Idempotency state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Three sources, in descending order of both accuracy and cheapness:
 #
-#   1. OBS_STATE_DIR — local disk. Zero network, always exactly describes
+#   1. OBS_STATE_DIR â€” local disk. Zero network, always exactly describes
 #      what this box last uploaded.
-#   2. the CDN manifest (fast ticks) — Cloudflare serves it, B2 never sees
+#   2. the CDN manifest (fast ticks) â€” Cloudflare serves it, B2 never sees
 #      the read. Up to 60 s stale, so a product can re-render once for
 #      nothing; uploads are free, so that is the cheap side of the trade.
 #   3. one recursive bucket listing (full sweep).
@@ -178,13 +174,13 @@ manifest_src() {
 }
 
 # Newest .grib2.gz key under CONUS/<dir>/<date>/ (S3 lists ascending; a
-# 2-min product day is ~720 objects — one 1000-key page). Empty if none.
+# 2-min product day is ~720 objects â€” one 1000-key page). Empty if none.
 # The || true absorbs the grep no-match exit status: right after 00Z the
 # new day's directory is empty for slower products, and under
 # `set -euo pipefail` the bare pipeline would kill the whole script from
 # inside the callers' command substitutions (nightly 00:00-01:00 UTC
 # failure runs) before their [ -z ] yesterday-fallback could fire. A
-# transient curl failure is absorbed the same way — empty means "none".
+# transient curl failure is absorbed the same way â€” empty means "none".
 newest_key() {
   local dir="$1" date="$2"
   { curl -sf "https://noaa-mrms-pds.s3.amazonaws.com/?list-type=2&prefix=CONUS/${dir}/${date}/&max-keys=1000" \
@@ -192,7 +188,7 @@ newest_key() {
     | grep '\.grib2\.gz$' | tail -1; } || true
 }
 
-# ── Per-product render ─────────────────────────────────────────────────
+# â”€â”€ Per-product render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Everything below runs in a background subshell under `set -e`, one per
 # product, up to OBS_JOBS at a time. It touches no shared mutable state:
 # each call gets its own temp dir, and its outcome reaches the parent as
@@ -210,7 +206,7 @@ render_one() {
   trap - EXIT
   exec > "$log" 2>&1
 
-  # Newest published object — today first, yesterday around 00Z.
+  # Newest published object â€” today first, yesterday around 00Z.
   local TODAY YESTERDAY key
   TODAY=$(date -u +%Y%m%d)
   YESTERDAY=$(date -u -d "yesterday" +%Y%m%d)
@@ -221,7 +217,7 @@ render_one() {
     return 0
   fi
 
-  # MRMS_<dir>_<YYYYMMDD>-<HHMMSS>.grib2.gz → run stamp + source stamp.
+  # MRMS_<dir>_<YYYYMMDD>-<HHMMSS>.grib2.gz â†’ run stamp + source stamp.
   local fname src_stamp vdate vtime vhour stamp
   fname="${key##*/}"
   src_stamp=$(echo "${fname}" | grep -oE '[0-9]{8}-[0-9]{6}' | head -1)
@@ -255,7 +251,7 @@ render_one() {
     fi
   fi
 
-  echo "[${product}] newest=${src_stamp} → run ${stamp}Z"
+  echo "[${product}] newest=${src_stamp} â†’ run ${stamp}Z"
 
   # Read the product's render parameters only now that we know we are going
   # to render it. These are ten yq invocations, and the overwhelmingly
@@ -286,8 +282,8 @@ render_one() {
   gunzip -f "${gz}"
   grib="${work}/in.grib2"
 
-  # GRIB → warped PNG (+ optional value grid). One GDAL process when
-  # OBS_SINGLE_PASS is on, the historical five otherwise — see
+  # GRIB â†’ warped PNG (+ optional value grid). One GDAL process when
+  # OBS_SINGLE_PASS is on, the historical five otherwise â€” see
   # mrms_render_one.py for what the single pass replaces and why the two
   # are byte-for-byte interchangeable.
   # Single pass covers the DATA-PNG path, which is every one of the 87
@@ -328,7 +324,7 @@ render_one() {
     --header-upload "Cache-Control: public, max-age=300"
   echo "  uploaded ${out_rel} ($(stat -c%s "${work}/F000.png" 2>/dev/null || echo '?') bytes)"
 
-  # Source marker: still written on every tick — it is what build_manifest.py
+  # Source marker: still written on every tick â€” it is what build_manifest.py
   # reads to publish srcTimes, so the full sweep stays authoritative either
   # way. Superseded markers are cleaned up when we know which one to remove:
   # local state names it exactly (one deletefile, no listing), and the full
@@ -366,7 +362,7 @@ render_gdal_classic() {
   local work="$1" grib="$2" scale="$3" sentinel_lt="$4"
   local dmin="$5" dmax="$6" clr_file="$7"
 
-  # GRIB → Float32 GTiff (applies any packing scale/offset).
+  # GRIB â†’ Float32 GTiff (applies any packing scale/offset).
   gdal_translate -q -of GTiff -ot Float32 -b 1 "${grib}" "${work}/native.tif"
 
   # Longitude guard: 0-360 grids shift west by 360 (same as QPE script).
@@ -389,7 +385,7 @@ subprocess.check_call(["gdal_edit.py", "-a_ullr",
 PY
   fi
 
-  # MRMS sentinel negatives (-1 missing / -3 no coverage) → NoData, then
+  # MRMS sentinel negatives (-1 missing / -3 no coverage) â†’ NoData, then
   # per-product unit scale. Every catalog product is non-negative in
   # display units, so the A<0 mask is safe across the board.
   # sentinel_lt: products whose REAL values go negative (dBZ, raw
@@ -398,7 +394,7 @@ PY
   gdal_calc.py --quiet -A "${work}/native.tif" --outfile="${work}/raw.tif" \
     --calc="where(A<(${sentinel_lt}),-9999,A*${scale})" --NoDataValue=-9999 --type=Float32 --overwrite
 
-  # DATA products warp with NEAREST — the app's crisp renderer
+  # DATA products warp with NEAREST â€” the app's crisp renderer
   # interpolates in data space client-side, and cubic here would
   # pre-blur real values (and invent overshoot ones).
   local resample="cubic"
@@ -409,14 +405,14 @@ PY
     "${work}/raw.tif" "${work}/merc.tif"
 
   if [ -n "${dmin}" ]; then
-    # ── DATA PNG (gray + alpha) ────────────────────────────────────
+    # â”€â”€ DATA PNG (gray + alpha) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # gray 1..255 = dmin..dmax linear (0 reserved for nodata), alpha
     # 255 = valid. The app decodes values back and runs the same
-    # crisp data-space renderer the live reflectivity uses —
+    # crisp data-space renderer the live reflectivity uses â€”
     # colorized client-side with the product's legend bins.
     # ONE multi-band gdal_calc with --hideNoData: masked-array
     # handling silently zeroed a separate constant-valued alpha calc
-    # (verified live 2026-07-12) — hideNoData feeds the raw -9999s to
+    # (verified live 2026-07-12) â€” hideNoData feeds the raw -9999s to
     # the expressions so the where() guards do exactly what they say.
     gdal_calc.py --quiet -A "${work}/merc.tif" --outfile="${work}/ga.tif" \
       --calc="where(A==-9999,0,minimum(255,maximum(1,1+round((A-(${dmin}))*254.0/((${dmax})-(${dmin}))))))" \
@@ -430,14 +426,14 @@ PY
   fi
 }
 
-# ── Product selection ──────────────────────────────────────────────────
+# â”€â”€ Product selection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 SELECTED=()
 for product in $ALL_PRODUCTS; do
   mrms_dir=$(yq -r ".products.${product}.mrms_dir // \"\"" "$CONFIG")
   # QPE products (mrms_product / Pass cycle) belong to render_mrms_qpe.sh.
   [ -z "${mrms_dir}" ] && continue
 
-  # Legacy GitHub severe subset — deliberately still the six fast_cadence
+  # Legacy GitHub severe subset â€” deliberately still the six fast_cadence
   # products, not the 41 in the fast tier (see OBS_FAST_ONLY above).
   if [ -n "${OBS_FAST_ONLY:-}" ]; then
     fast=$(yq -r ".products.${product}.fast_cadence // false" "$CONFIG")
@@ -445,7 +441,7 @@ for product in $ALL_PRODUCTS; do
   fi
 
   # Tier selection. Filtering here rather than rebuilding the product list
-  # keeps one code path — and the tier lives in products.yml, so retuning
+  # keeps one code path â€” and the tier lives in products.yml, so retuning
   # which products ride which timer never touches a systemd unit.
   if [ -n "${OBS_TIER:-}" ]; then
     tier=$(yq -r ".products.${product}.cadence_tier // \"slow\"" "$CONFIG")
@@ -456,7 +452,7 @@ for product in $ALL_PRODUCTS; do
 done
 echo "==> ${#SELECTED[@]} products selected"
 
-# ── Render, up to JOBS at a time ───────────────────────────────────────
+# â”€â”€ Render, up to JOBS at a time â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 running=0
 for entry in "${SELECTED[@]}"; do
   render_one "${entry%%:*}" "${entry#*:}" &
@@ -478,7 +474,7 @@ for entry in "${SELECTED[@]}"; do
   [ -s "${log}" ] && cat "${log}"
 done
 
-# ── Collect outcomes ───────────────────────────────────────────────────
+# â”€â”€ Collect outcomes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 FAST_PATCH_ARGS=()
 FAST_RUN_STAMP=""
 RENDERED_ANY=false
@@ -492,20 +488,20 @@ for entry in "${SELECTED[@]}"; do
   FAST_RUN_STAMP="${r_stamp}"
 done
 
-# ── Prune + manifest (only when something changed — the QPE script
-# already rebuilds the manifest every tick regardless) ──────────────────
+# â”€â”€ Prune + manifest (only when something changed â€” the QPE script
+# already rebuilds the manifest every tick regardless) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #
 # Which path a tick takes is about COST, not about which tier ran: a full
 # rebuild lists the whole prefix, so only the tick that also prunes should
 # pay for it. Ticks that skip the prune patch the published manifest
-# instead — read over the CDN, written back as a free Class A write, no
+# instead â€” read over the CDN, written back as a free Class A write, no
 # LIST calls at all.
 #
 # OBS_LOCK_FILE serialises the manifest step across tiers. On GitHub the
 # tiers are separate workflows on disjoint minutes and there is no shared
 # filesystem to lock on, so it stays unset and nothing changes. On one box
 # running three timers, a 2-minute patch and a 20-minute rebuild WILL
-# overlap, and both do read-modify-write on the same object — without the
+# overlap, and both do read-modify-write on the same object â€” without the
 # lock the rebuild's fresh `available` map can land on top of a patch, or
 # vice versa. The render itself is deliberately outside the lock: only the
 # manifest is contended.
