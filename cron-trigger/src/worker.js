@@ -94,6 +94,9 @@ const CRON_TO_WORKFLOW = {
   // is irrelevant.
   "2,17,32,47 * * * *": [
     "render_goes.yml",
+    // Wind Field (RTMA U/V particles) — same story as render_rtma.yml:
+    // native cron only ('3 * * * *'), same ~55-min loop shape, so hourly.
+    { wf: "wind.yml", minutes: [2] },
     "render_goes_geocolor.yml",
     { wf: "render_gfs.yml", minutes: [17, 47] },
     { wf: "render_aifs.yml", minutes: [2, 32] },
@@ -127,6 +130,15 @@ const CRON_TO_WORKFLOW = {
   // fan-out in the repo.
   "7,37 * * * *": [
     "render_ecmwf.yml",
+    // RTMA surface analysis — the "Observations (Surface)" map layer.
+    // Was GitHub-native-cron-only ('8 * * * *') and hit the documented
+    // drop: runs at 22:35, 23:32, then NOTHING for two hours, leaving the
+    // layer serving 00:15Z data while 00:45Z was already upstream (30 min
+    // of self-inflicted lag on a layer whose subtitle promises 15-min
+    // updates). HOURLY only ([7]): the workflow is a ~55-min self-restarting
+    // loop with cancel-in-progress, so a faster dispatch would just kill
+    // and restart the loop instead of letting it work.
+    { wf: "render_rtma.yml", minutes: [7] },
     { wf: "render_om_models2.yml", minutes: [37] },
   ],
 };
