@@ -907,6 +907,13 @@ products:
     pal: "hrrr_refc.pal"
     # Same smooth gradient + palette as composite reflectivity.
     interpolate_color: true
+    # Same encode range as refc — same quantity, same table. Without this
+    # the app falls back to the colored PNG on a plain GL raster layer
+    # (4-tap bilinear over ALREADY-COLORED pixels), which reads as "low
+    # resolution" next to refc's shader path (16-tap Catmull-Rom over
+    # VALUES, then the LUT per screen pixel). Storm-scale fields are where
+    # that difference is visible; broad smooth fields hide it.
+    gpu_data: { min: -30.0, max: 80.0 }
 
   irsat:
     display: "Simulated IR Satellite"
@@ -1064,6 +1071,13 @@ products:
     convert: ""
     clr: "uh.clr"
     pal: ""
+    # max = uh.clr's top stop. Everything above 330 already paints the top
+    # colour, so clipping the encode there costs no visible distinction,
+    # and the numeric readout comes from the F###.json grid, not this PNG.
+    # Stays BINNED (no interpolate_color): the shader Catmull-Roms the
+    # VALUES and then does a NEAREST LUT lookup, so the SPC-style bands
+    # keep hard edges while the staircase along those edges goes away.
+    gpu_data: { min: 0.0, max: 330.0 }
     point_values: true
 
   snod:
@@ -1506,6 +1520,14 @@ products:
     convert: "A * 0.00328084"
     clr: "etops.clr"
     pal: ""
+    # NO gpu_data yet, deliberately. echoTops already has a colour ramp in
+    # SHIPPED apps, so adding it here would flip existing installs onto the
+    # GPU path with no release: in that mode the app fetches the value PNG
+    # INSTEAD of the coloured one, and this product's coloured frame is only
+    # ~110 KB, so a continuous gray channel would likely raise per-frame
+    # bytes for users on cell with no way to opt out. Add it alongside an
+    # app release that can be tested, not before. Range when it lands:
+    # { min: 0.0, max: 70.0 } (etops.clr tops out at 65 kft).
     point_values: true
     also_meso: true
     # Denser value grid than the model default (128): the cell-picker
