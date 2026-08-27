@@ -30,8 +30,19 @@ name: Lightning (GLM)
 # This is a data pipeline for the app, not a hosted server.
 
 on:
-  schedule:
-    - cron: '0 */2 * * *'    # every 2 h — reliable; starts the next loop
+  # CUTOVER 2026-08-27: the DGWayneserver box (Task Scheduler entry
+  # STP-Prod-LIGHTNING, a bounded 10-min loop re-fired every 5 min, flock
+  # makes overlap a no-op) is now the steady-state writer of flashes.json.
+  # This cron is commented out because it started a 2h30m loop
+  # UNCONDITIONALLY, which would make Actions a second writer racing the
+  # box for the same key. GitHub is now PURE FALLBACK: the stp-models-cron
+  # Worker's lightning dead-man dispatches this workflow only when the feed
+  # is >300s stale AND no run is queued/in progress, so if the box loses
+  # power or ISP, Actions resumes by itself within one Worker tick.
+  # To hand the feed back to Actions, uncomment this cron and disable the
+  # box task: Disable-ScheduledTask -TaskName STP-Prod-LIGHTNING
+  # schedule:
+  #   - cron: '0 */2 * * *'
   workflow_dispatch:
 
 jobs:
