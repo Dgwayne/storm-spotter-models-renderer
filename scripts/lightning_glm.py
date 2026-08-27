@@ -69,6 +69,38 @@ WEST_BUCKETS = ["noaa-goes18", "noaa-goes17"]
 # lon < cutoff (better toward the Pacific / AK / HI).
 CUTOFF_LON = -106.0
 
+# ── Parallax de-shift ────────────────────────────────────────────────
+# GLM navigates each flash to an assumed "lightning ellipsoid" height. When
+# the true optical-emission height is higher than that assumption, the
+# plotted point sits too far from the sub-satellite point along the look
+# direction — a SYSTEMATIC offset (same direction every time at a given
+# spot) that grows with view angle, so it's biggest over the western US and
+# ~zero near each bird's nadir. We measure the residual with GLM stereo:
+# the same flash seen by BOTH birds, navigated twice to the same assumed
+# height, disagrees by d = dh·(tanZ_E·û_E − tanZ_W·û_W); one dot product per
+# pair recovers dh (the height error). A single fitted dh collapsed the raw
+# ~10 km East/West disagreement by ~64% over 3701 pairs on 2026-08-27, and
+# cut the plotted-position error near Lovington NM from ~4.5 km to ~0.6 km
+# vs the stereo ground point. This shifts each served flash back toward its
+# bird's sub-point by dh·tanZ. Safe by construction: it only slides a bolt
+# along the axis the parallax pushed it out on, so an atypically low storm
+# is neutral, never meaningfully worse. Retune DEPARALLAX_DH_KM as more
+# stereo pairs accumulate (see ~/stp-stereo on the render box); set
+# DEPARALLAX_ENABLED=False to serve raw GLM positions. The RANDOM error
+# (optical centroid vs CG ground contact, ~8 km pixel) is a sensor floor no
+# static shift can remove; this only takes out the systematic parallax part.
+DEPARALLAX_ENABLED = True
+DEPARALLAX_DH_KM = 4.0
+_R_EARTH_KM = 6378.137
+_R_GEO_KM = 42164.16
+_KM_PER_DEG_LAT = 110.574
+# Nominal sub-satellite longitudes per bucket (a 0.2° error here moves the
+# correction by millimetres, so the retired birds share their slot's value).
+_SUBPOINT_LON = {
+    "noaa-goes19": -75.0, "noaa-goes16": -75.0,   # East
+    "noaa-goes18": -137.0, "noaa-goes17": -137.0,  # West
+}
+
 # Coverage clip. GLM sees the whole hemisphere (Argentina to Canada,
 # mid-Pacific to mid-Atlantic), but the app serves the US. Emitting all of
 # it ~doubled the feed (to ~1.7 MB) and let a busy day over South America
@@ -205,6 +237,32 @@ def _list_window_keys(bucket: str, prefixes: list[str], cutoff_epoch: int) -> li
             else:
                 break
     return out
+
+
+def _deparallax(
+    lat: np.ndarray, lon: np.ndarray, sub_lon: float, dh_km: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Shift GLM flashes back toward the sub-satellite point by dh·tanZ to
+    remove the systematic parallax offset (see the DEPARALLAX_* block).
+
+    û is the horizontal unit vector pointing AWAY from the satellite at the
+    flash; the plotted point is displaced along +û, so the true ground point
+    is plotted − dh·tanZ·û. tanZ (satellite zenith tangent) comes from the
+    geocentric angle γ between the flash and the sub-point:
+        tanZ = sinγ / (cosγ − R_earth/R_geo).
+    """
+    phi = np.radians(lat)
+    dlam = np.radians(sub_lon - lon)
+    cosg = np.cos(phi) * np.cos(dlam)
+    sing = np.sqrt(np.clip(1.0 - cosg * cosg, 0.0, 1.0))
+    tanz = sing / (cosg - _R_EARTH_KM / _R_GEO_KM)
+    az = np.arctan2(np.sin(dlam), -np.sin(phi) * np.cos(dlam))  # toward sat
+    ue, un = -np.sin(az), -np.cos(az)  # away-from-sat = toward-sat + 180°
+    klon = 111.320 * np.cos(phi)
+    klon = np.where(np.abs(klon) < 1e-6, 1e-6, klon)
+    lat2 = lat - dh_km * tanz * un / _KM_PER_DEG_LAT
+    lon2 = lon - dh_km * tanz * ue / klon
+    return lat2, lon2
 
 
 def _local_path(key: str) -> Path:
@@ -387,6 +445,14 @@ def main() -> int:
             # clip are both spatial masks, so combine them in one pass.
             sel = keep(lon) & _in_coverage(lat, lon)
             lat, lon, fep = lat[sel], lon[sel], fep[sel]
+            # De-parallax with THIS granule's satellite (the bucket owns the
+            # look geometry). Done after the split so each flash is corrected
+            # for the bird that actually reported it; the sub-km shift can't
+            # move a flash meaningfully across the CUTOFF_LON boundary.
+            if DEPARALLAX_ENABLED and lat.size:
+                sub = _SUBPOINT_LON.get(bucket)
+                if sub is not None:
+                    lat, lon = _deparallax(lat, lon, sub, DEPARALLAX_DH_KM)
             for la, lo, e in zip(lat, lon, fep):
                 ei = int(e)
                 # Two-tier dedup: fine for the recent half (live layer's
