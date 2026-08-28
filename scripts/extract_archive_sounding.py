@@ -242,27 +242,35 @@ def main() -> int:
         if found is not None:
             break
 
+    # "No profile" is an EXPECTED outcome (pre-2005 dates, archive gaps,
+    # odd-era files), not a workflow failure: upload a short-cache
+    # negative marker and exit green, so the app stops re-requesting for
+    # a while and a red run / failure email only ever means a real bug.
     lat, lon = coord
-    if found is None:
-        doc = {"site": site, "requested": t0.isoformat(), "model": None,
-               "error": "no_model_data"}
-        cache = "public, max-age=3600"
-        print(f"==> {site} {stamp}: no archive model source; negative marker")
-    else:
+    doc = None
+    if found is not None:
         grib, band_keys, model, t = found
         vals = live.extract_all(grib, band_keys, [(site, lat, lon)])[0]
         print(f"  [extract] {len(band_keys)} bands requested, "
               f"{len(vals)} values sampled: {sorted(vals)[:8]}...")
         prof = build_wind_profile(vals)
         if prof is None:
-            print(f"==> {site} {stamp}: {model} extraction yielded <4 levels")
-            return 1
-        doc = {"site": site, "model": model, "run": t.isoformat(),
-               "requested": t0.isoformat(), "lat": lat, "lon": lon, **prof}
-        cache = "public, max-age=31536000, immutable"
-        print(f"==> {site} {stamp}: {model} @ {t.isoformat()} "
-              f"({len(prof['hgt_msl_m'])} levels)")
-        print(f"    u={prof['u_ms'][:4]}... v={prof['v_ms'][:4]}...")
+            print(f"==> {site} {stamp}: {model} extraction yielded <4 "
+                  "usable levels; negative marker")
+        else:
+            doc = {"site": site, "model": model, "run": t.isoformat(),
+                   "requested": t0.isoformat(), "lat": lat, "lon": lon,
+                   **prof}
+            cache = "public, max-age=31536000, immutable"
+            print(f"==> {site} {stamp}: {model} @ {t.isoformat()} "
+                  f"({len(prof['hgt_msl_m'])} levels)")
+            print(f"    u={prof['u_ms'][:4]}... v={prof['v_ms'][:4]}...")
+    else:
+        print(f"==> {site} {stamp}: no archive model source; negative marker")
+    if doc is None:
+        doc = {"site": site, "requested": t0.isoformat(), "model": None,
+               "error": "no_model_data"}
+        cache = "public, max-age=21600"
 
     out_dir = Path(args.out) if args.out else work / "out"
     (out_dir / site).mkdir(parents=True, exist_ok=True)
