@@ -58,6 +58,7 @@ jobs:
             python=3.11
             gdal
             libgdal-grib
+            libgdal-jp2openjpeg
             rclone
             timezonefinder
           cache-environment: true
