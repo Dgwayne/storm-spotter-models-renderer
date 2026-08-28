@@ -180,7 +180,7 @@ const KNOWN_WORKFLOWS = new Set(
     .concat(DEFAULT_WORKFLOW, LIGHTNING_WORKFLOW),
 );
 
-async function dispatch(workflow, token) {
+async function dispatch(workflow, token, inputs) {
   const url = `https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/${workflow}/dispatches`;
   const resp = await fetch(url, {
     method: "POST",
@@ -191,7 +191,7 @@ async function dispatch(workflow, token) {
       // GitHub rejects API requests without a User-Agent.
       "User-Agent": "stp-models-cron",
     },
-    body: JSON.stringify({ ref: "main" }),
+    body: JSON.stringify(inputs ? { ref: "main", inputs } : { ref: "main" }),
   });
   // workflow_dispatch returns 204 No Content on success.
   if (!resp.ok) {
@@ -288,7 +288,30 @@ export default {
     if (!env.GH_DISPATCH_TOKEN) {
       return new Response("GH_DISPATCH_TOKEN not set\n", { status: 500 });
     }
-    const wf = new URL(request.url).searchParams.get("wf") || DEFAULT_WORKFLOW;
+    const reqUrl = new URL(request.url);
+    // App-facing: bake one archived model sounding (site + UTC hour) for
+    // the velocity dealiaser's archive mode. Fired when the app's fetch of
+    // v1/soundings/archive/<SITE>/<YYYYMMDDHH>.json 404s; the workflow
+    // no-ops when the file already exists and GitHub's concurrency group
+    // dedupes concurrent requests for the same storm-hour. Inputs strictly
+    // validated — this is an open endpoint.
+    if (reqUrl.pathname === "/archive-sounding") {
+      const site = (reqUrl.searchParams.get("site") || "").toUpperCase();
+      const time = reqUrl.searchParams.get("time") || "";
+      if (!/^[A-Z]{4}$/.test(site) || !/^\d{4}-\d{2}-\d{2}T\d{2}$/.test(time)) {
+        return new Response("bad site/time\n", { status: 400 });
+      }
+      try {
+        await dispatch("archive_sounding.yml", env.GH_DISPATCH_TOKEN, {
+          site,
+          time,
+        });
+        return new Response("baking\n", { status: 202 });
+      } catch (e) {
+        return new Response(`${e}\n`, { status: 502 });
+      }
+    }
+    const wf = reqUrl.searchParams.get("wf") || DEFAULT_WORKFLOW;
     if (!KNOWN_WORKFLOWS.has(wf)) {
       return new Response(`unknown workflow: ${wf}\n`, { status: 400 });
     }
