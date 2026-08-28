@@ -1,0 +1,90 @@
+name: Archive Sounding
+
+# On-demand: extract the archived model wind profile (HRRR 2014->, NCEI
+# RAP/RUC 2005->) for ONE radar site at ONE UTC hour and upload it to
+# v1/soundings/archive/<SITE>/<YYYYMMDDHH>.json. The Storm Spotter velocity
+# dealiaser uses it as the trusted fold reference for ARCHIVE loops (live
+# loops use the hourly extract_soundings.py output).
+#
+# Triggered by repository_dispatch from the models CDN Worker when the app
+# requests a sounding that isn't in R2 yet (first view of a storm-hour), or
+# manually via workflow_dispatch. Archive analyses never change, so the
+# script no-ops when the CDN already serves the file.
+
+on:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: "Radar site id (e.g. KMVX)"
+        required: true
+      time:
+        description: "UTC analysis hour, e.g. 2025-06-21T04"
+        required: true
+  repository_dispatch:
+    types: [archive-sounding]
+
+concurrency:
+  group: archive-sounding-${{ github.event.inputs.site || github.event.client_payload.site }}-${{ github.event.inputs.time || github.event.client_payload.time }}
+  cancel-in-progress: false
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      SITE: ${{ github.event.inputs.site || github.event.client_payload.site }}
+      TIME: ${{ github.event.inputs.time || github.event.client_payload.time }}
+
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore micromamba binary (cache)
+        id: mmbin
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Set up micromamba (gdal + rclone + python)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: soundings
+          create-args: >-
+            python=3.11
+            gdal
+            libgdal-grib
+            rclone
+            timezonefinder
+          cache-environment: true
+          init-shell: bash
+          download-micromamba: ${{ steps.mmbin.outputs.cache-hit != 'true' }}
+          micromamba-binary-path: ~/micromamba-bin/micromamba
+
+      - name: Save micromamba binary (cache)
+        if: steps.mmbin.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Configure rclone for R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Extract archive sounding
+        run: python3 scripts/extract_archive_sounding.py --site "$SITE" --time "$TIME"
