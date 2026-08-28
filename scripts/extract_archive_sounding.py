@@ -109,6 +109,8 @@ def _subset_by_inventory(url: str, inv_url: str, work: Path):
         end = parsed[i + 1][1] - 1 if i + 1 < len(parsed) else ""
         ranges.append(f"{off}-{end}")
         band_keys.append(key)
+    print(f"  [inv] {len(parsed)} messages, {len(ranges)} matched "
+          f"({band_keys[:6]}...)")
     if not ranges:
         return None
     work.mkdir(parents=True, exist_ok=True)
@@ -233,6 +235,8 @@ def main() -> int:
     else:
         grib, band_keys, model, t = found
         vals = live.extract_all(grib, band_keys, [(site, lat, lon)])[0]
+        print(f"  [extract] {len(band_keys)} bands requested, "
+              f"{len(vals)} values sampled: {sorted(vals)[:8]}...")
         prof = build_wind_profile(vals)
         if prof is None:
             print(f"==> {site} {stamp}: {model} extraction yielded <4 levels")
