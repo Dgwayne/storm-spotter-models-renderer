@@ -359,10 +359,12 @@ def extract_all(grib: Path, band_keys, sites, want_grid=False):
     grids = {}
     nb = min(ds.RasterCount, len(band_keys))
     for i in range(nb):
+        key = band_keys[i]
+        if key is None:  # placeholder submessage (archive subsetting)
+            continue
         arr = ds.GetRasterBand(i + 1).ReadAsArray()  # decode this message once
         if arr is None:  # undecodable message (e.g. missing GRIB codec)
             continue
-        key = band_keys[i]
         for j, p in enumerate(pix):
             if p is None:
                 continue

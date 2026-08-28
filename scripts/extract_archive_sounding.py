@@ -90,27 +90,43 @@ def _subset_by_inventory(url: str, inv_url: str, work: Path):
     """Byte-range the classify()-matched messages using a wgrib-style
     inventory (msg:offset:date:VAR:LEVEL:...). Same trick as the live
     fetch_subset, parameterized on the inventory URL - NCEI serves `.inv`
-    beside each GRIB instead of `.idx`."""
+    beside each GRIB instead of `.idx`.
+
+    RAP/RUC files pack fields as SUBMESSAGES (dotted numbers `112.1`,
+    `112.2` sharing one parent message's offset) - the parent decodes to
+    one gdal band PER SUBMESSAGE, in inventory order. So: group entries
+    by offset, fetch a parent when ANY submessage matches, and emit a
+    band key (or None placeholder for unmatched submessages) for EVERY
+    submessage of every fetched parent, keeping band indices aligned."""
     inv = live._get(inv_url).decode()
-    parsed = []
+    entries = []  # (offset, msg_tuple, var, lvl)
     for line in inv.splitlines():
         a = line.split(":")
         if len(a) >= 5:
             try:
-                parsed.append((int(a[0]), int(a[1]), a[3], a[4]))
+                msg = tuple(int(p) for p in a[0].split("."))
+                entries.append((int(a[1]), msg, a[3], a[4]))
             except ValueError:
                 pass
-    parsed.sort()
+    entries.sort()
+    # Group submessages by parent offset, preserving submessage order.
+    groups: list[tuple[int, list]] = []
+    for e in entries:
+        if groups and groups[-1][0] == e[0]:
+            groups[-1][1].append(e)
+        else:
+            groups.append((e[0], [e]))
     ranges, band_keys = [], []
-    for i, (_, off, var, lvl) in enumerate(parsed):
-        key = live.classify(var, lvl)
-        if key is None:
+    for gi, (off, subs) in enumerate(groups):
+        keys = [live.classify(var, lvl) for (_, _, var, lvl) in subs]
+        if not any(k is not None for k in keys):
             continue
-        end = parsed[i + 1][1] - 1 if i + 1 < len(parsed) else ""
+        end = groups[gi + 1][0] - 1 if gi + 1 < len(groups) else ""
         ranges.append(f"{off}-{end}")
-        band_keys.append(key)
-    print(f"  [inv] {len(parsed)} messages, {len(ranges)} matched "
-          f"({band_keys[:6]}...)")
+        band_keys.extend(keys)
+    print(f"  [inv] {len(entries)} fields in {len(groups)} messages; "
+          f"{len(ranges)} messages fetched, "
+          f"{sum(1 for k in band_keys if k)} bands matched")
     if not ranges:
         return None
     work.mkdir(parents=True, exist_ok=True)
