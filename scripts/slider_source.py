@@ -53,7 +53,12 @@ import urllib.request
 # ── SLIDER endpoints ──────────────────────────────────────────────────
 SLIDER_BASE = "https://rammb-slider.cira.colostate.edu"
 TILE_PX = 688
-MAX_ZOOM = 5
+# z4 (1 km), NOT the z5 the canvas-doubling model implies: Himawari full_disk
+# geocolor 404s every z5 tile (verified against a live timestamp 2026-09-06,
+# while the same slot's z4 tiles served fine). A region whose target_mpp asks
+# past this cap would have every frame refused by the no-partial-mosaic guard
+# and silently store nothing — that is exactly how jpn/phl shipped 0 frames.
+MAX_ZOOM = 4
 UA = "storm_spotter_geocolor/1.0 (+https://dgwaynes.com)"
 
 # Measured disk half-extent in geos metres. Constant across zooms (see module

@@ -194,22 +194,24 @@ REGIONS: dict[str, dict] = {
                  # CONUS's effective resolution. 3827 x 3265 px.
                  "target_mpp": 1600.0,
                  },
+    # ⚠ The sector target_mpp values are pinned to the z4 (1 km) source:
+    # SLIDER serves Himawari geocolor to z4 ONLY (z5 404s — see MAX_ZOOM in
+    # slider_source.py), so anything finer is invisible upsampling. The floor
+    # is 1000 / cos(mid-lat) in mercator metres; going below it re-creates the
+    # 0-frames failure this replaced (pick_zoom would want a tier that does
+    # not exist, and the no-partial-mosaic guard refused every frame).
     "jpn":      {"label": "Japan",        "sat": "Himawari", "bounds": [125.0, 24.0, 150.0, 46.0],
                  "source": "slider", "slider_sat": "himawari",
                  "sector": "full_disk", "product": "geocolor",
-                 # Sharp sector cut from the 0.5 km z5 tiles (pick_zoom needs
-                 # ground res 614 m at 35 N, z4's 1000 m would upsample).
-                 # 750, not 700: at 700 the height lands at 4324 and the
-                 # MAX_PX clamp would silently break square pixels. 3711 x
-                 # 4036 px.
-                 "target_mpp": 750.0,
+                 # 1000 / cos(35) = 1221; 1250 leaves margin. 2226 x 2421 px,
+                 # fully resolving the source over the landfall coasts.
+                 "target_mpp": 1250.0,
                  },
     "phl":      {"label": "Philippines",  "sat": "Himawari", "bounds": [112.0, 4.0, 137.0, 25.0],
                  "source": "slider", "slider_sat": "himawari",
                  "sector": "full_disk", "product": "geocolor",
-                 # Also a z5 sector (ground res 677 m at 14.5 N). 3976 x
-                 # 3473 px, no cap risk.
-                 "target_mpp": 700.0,
+                 # 1000 / cos(14.5) = 1033; 1050 leaves margin. 2650 x 2316 px.
+                 "target_mpp": 1050.0,
                  },
 }
 
