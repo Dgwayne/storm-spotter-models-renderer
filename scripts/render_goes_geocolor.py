@@ -133,7 +133,7 @@ REGIONS: dict[str, dict] = {
     # ⚠ GOES-West's disk reaches past the antimeridian (its limb sits near
     # 142 E), but a Mapbox ImageSource box is [W,S,E,N] with W < E and cannot
     # cross +/-180. Every box below therefore stops at -180 and the far-western
-    # limb is simply not offered; the Himawari `wpac` region covers that water
+    # limb is simply not offered; the Himawari `nwpac` region covers that water
     # far better anyway.
     "pacus":    {"label": "PACUS",              "sat": "G18", "source": "star", "bounds": [-140.0, 22.0, -90.0, 52.0]},
     # East corners pulled in from -60: those reached 83.6 deg, past the limb.
@@ -146,7 +146,15 @@ REGIONS: dict[str, dict] = {
     "sea":      {"label": "Southeastern Alaska", "sat": "G18", "source": "star", "bounds": [-145.0, 54.0, -128.0, 62.0]},
     "np":       {"label": "Northern Pacific Ocean", "sat": "G18", "source": "star", "bounds": [-180.0, 30.0, -120.0, 60.0]},
     "hi":       {"label": "Hawaii",             "sat": "G18", "source": "star", "bounds": [-162.0, 17.0, -152.0, 24.0]},
+    # LEGACY: superseded by `tpac` (25 N ceiling cut recurving hurricanes out
+    # of frame between here and np's 30 N floor). Kept rendering because
+    # shipped builds read this id off the CDN with baked corners.
     "tpw":      {"label": "Tropical Pacific Ocean", "sat": "G18", "source": "star", "bounds": [-180.0, -5.0, -110.0, 25.0]},
+    # tpac meets np at 30 N so a recurving central-Pacific hurricane never
+    # crosses uncovered water. Worst corner (30 N, 180 W) sits 50.7 deg off
+    # nadir, comfortably on-disk. Width-pinned at MAX_PX like tpw was, so the
+    # extra 5 deg of latitude costs height pixels only, no sharpness.
+    "tpac":     {"label": "Tropical Pacific Ocean", "sat": "G18", "source": "star", "bounds": [-180.0, -5.0, -110.0, 30.0]},
     "tsp":      {"label": "Southern Pacific Ocean", "sat": "G18", "source": "star", "bounds": [-180.0, -40.0, -100.0, -5.0]},
     "wpac":      {"label": "W Pacific",        "sat": "Himawari",  "bounds": [128.0, 8.0, 172.0, 36.0],
                   "source": "slider", "slider_sat": "himawari",
@@ -167,7 +175,42 @@ REGIONS: dict[str, dict] = {
                   # (No window_min key at all: _window_for falls back to the
                   # default. WINDOW_MIN is defined below this table, so naming
                   # it here would be a NameError at import.)
+                  #
+                  # LEGACY: superseded by `nwpac` (the 128 E west edge cut the
+                  # East China Sea approach, the 36 N ceiling cut recurvature
+                  # past central Japan). Kept rendering for shipped builds.
                   },
+    # ── Himawari, current set ─────────────────────────────────────────
+    # Same SLIDER source and licence terms as wpac. The basin box plus two
+    # sharp sectors mirrors the STAR design (tpw + hi): sharpness comes from
+    # more, smaller boxes, because the 4096 px texture cap is per REGION.
+    # Limb is a non-issue for all three (worst corner 55 deg off the 140.7 E
+    # nadir). All boxes checked against the height cap: at these target_mpp
+    # values width AND height land under 4096, keeping pixels square.
+    "nwpac":    {"label": "W Pacific",    "sat": "Himawari", "bounds": [120.0, 5.0, 175.0, 46.0],
+                 "source": "slider", "slider_sat": "himawari",
+                 "sector": "full_disk", "product": "geocolor",
+                 # Basin-sized like wpac, same payload reasoning: 1600 matches
+                 # CONUS's effective resolution. 3827 x 3265 px.
+                 "target_mpp": 1600.0,
+                 },
+    "jpn":      {"label": "Japan",        "sat": "Himawari", "bounds": [125.0, 24.0, 150.0, 46.0],
+                 "source": "slider", "slider_sat": "himawari",
+                 "sector": "full_disk", "product": "geocolor",
+                 # Sharp sector cut from the 0.5 km z5 tiles (pick_zoom needs
+                 # ground res 614 m at 35 N, z4's 1000 m would upsample).
+                 # 750, not 700: at 700 the height lands at 4324 and the
+                 # MAX_PX clamp would silently break square pixels. 3711 x
+                 # 4036 px.
+                 "target_mpp": 750.0,
+                 },
+    "phl":      {"label": "Philippines",  "sat": "Himawari", "bounds": [112.0, 4.0, 137.0, 25.0],
+                 "source": "slider", "slider_sat": "himawari",
+                 "sector": "full_disk", "product": "geocolor",
+                 # Also a z5 sector (ground res 677 m at 14.5 N). 3976 x
+                 # 3473 px, no cap risk.
+                 "target_mpp": 700.0,
+                 },
 }
 
 GIBS_WMS = "https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi"
