@@ -1,0 +1,13 @@
+[Unit]
+Description=STP MRMS 3D volume tiles timer (box 2)
+
+[Timer]
+# MRMS's own 3D-mosaic cadence. An unchanged stamp is a one-listing idle
+# tick, so this never renders the same cycle twice. Offset one minute
+# from the OBS fast tier (*:0/2) so the two do not start together.
+OnCalendar=*:1/2
+Persistent=false
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

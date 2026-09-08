@@ -1,0 +1,16 @@
+[Unit]
+Description=STP MRMS 3D volume tiles (box 2, live v1/VOL3D/)
+Documentation=https://github.com/Dgwayne/storm-spotter-models-renderer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash %h/storm-spotter-models-renderer/deploy/box2/run-vol3d.sh
+# A wedged fetch must not hold the flock across many cycles.
+TimeoutStartSec=8min
+# Measured 3.1 GB peak. The cap is a fuse for this job only: if it ever
+# trips, THIS tick dies instead of the box OOM-killing the L2 ingest or a
+# render (the 2026-09-05 night). Raise it if a busy-day tick is killed.
+MemoryMax=5G
+Nice=5
