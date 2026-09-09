@@ -69,8 +69,13 @@ Usage:
 Env (all optional): R2_BUCKET (required to publish), VOL3D_STATE_DIR
 (default ~/stp-vol3d/state), VOL3D_RETAIN_MIN (stamps kept on B2, default
 120), VOL3D_JOBS (download/decode threads, default 6), VOL3D_PREFIX
-(default v1/VOL3D; a shadow run points this elsewhere).
+(default v1/VOL3D; a shadow run points this elsewhere), VOL3D_DEADLINE_S
+(the whole tick's budget, default 300; 0 disables).
 Needs numpy + osgeo (GDAL with its GRIB driver); --selftest needs numpy only.
+
+Exit codes: 0 published or honestly idle, 2 usage, 3 the tick ran past
+its deadline (see the watchdog below), 4 the source could not be listed.
+The wrapper keeps the per-tick log for anything non-zero.
 """
 
 from __future__ import annotations
@@ -84,6 +89,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
@@ -473,12 +479,16 @@ def stamp_dt(stamp: str) -> datetime:
     return datetime.strptime(stamp, "%Y%m%d-%H%M%S").replace(tzinfo=timezone.utc)
 
 
-def list_recent(dirname: str, since: datetime) -> dict[str, str]:
-    """{stamp: key} for objects of CONUS/<dirname>/ newer than `since`.
+def list_recent(dirname: str, since: datetime) -> dict[str, str] | None:
+    """{stamp: key} for objects of CONUS/<dirname>/ newer than `since`, or
+    None when the bucket could not be listed (a FAILED listing is not an
+    EMPTY one: the caller reports the difference — see idle_reason).
 
     Keys sort by stamp, so `start-after` on the day directory keeps each
     response to a handful of objects instead of the day's ~720; both the
-    since-day and today are listed when they differ (the 00Z rollover)."""
+    since-day and today are listed when they differ (the 00Z rollover).
+    Short timeout, one retry: on a dead link 56 listings at the download
+    settings ran past the systemd fuse."""
     now = datetime.now(timezone.utc)
     out: dict[str, str] = {}
     days = []
@@ -493,15 +503,33 @@ def list_recent(dirname: str, since: datetime) -> dict[str, str]:
             after = f"{prefix}MRMS_{dirname}_{since.strftime('%Y%m%d-%H%M%S')}"
             url += f"&start-after={after}"
         try:
-            body = _http_get(url, timeout=30).decode("utf-8", "replace")
+            body = _http_get(url, timeout=20, tries=2).decode("utf-8", "replace")
         except RuntimeError as e:
-            print(f"  WARN list {dirname}/{day}: {e}", file=sys.stderr)
-            continue
+            print(f"  WARN list {dirname}/{day}: {e}", file=sys.stderr, flush=True)
+            return None
         for key in _KEY_RE.findall(body):
             m = _STAMP_RE.search(key)
             if m:
                 out[m.group(1)] = key
     return out
+
+
+def idle_reason(quick: dict[str, str] | None, last: str | None,
+                forced: bool) -> str | None:
+    """Decide the tick from ONE listing (the lowest CAPPI's) before the
+    other 55 are made. Every level's newest stamp is bounded by this one,
+    so if it is not past the last published stamp, no complete cycle can
+    be either. Returns the idle reason, or None to go on and list the
+    rest. A forced stamp / --force always goes on."""
+    if forced:
+        return None
+    if quick is None:
+        return "listing-failed"
+    if not quick:
+        return "no-source-stamp"
+    if last is not None and max(quick) <= last:
+        return "unchanged"
+    return None
 
 
 def level_tag(m: int) -> str:
@@ -516,17 +544,18 @@ def cc_dir(m: int) -> str:
     return f"{CC_DIR}_{level_tag(m)}"
 
 
-def choose_stamp(listings: dict[str, dict[str, str]], ref_dirs: list[str],
+def choose_stamp(listings: dict[str, dict[str, str] | None], ref_dirs: list[str],
                  forced: str | None = None) -> str | None:
     """Newest stamp present in EVERY reflectivity level (the 33 CAPPIs
     publish together but not atomically; a level missing at the newest
     stamp means the cycle is still landing, and the next tick catches it
-    whole)."""
+    whole). A level whose listing FAILED (None) has no stamps, so nothing
+    is chosen — the caller says which of the two it was."""
     if forced:
         return forced
     common: set[str] | None = None
     for d in ref_dirs:
-        s = set(listings.get(d, {}))
+        s = set(listings.get(d) or {})
         common = s if common is None else common & s
     if not common:
         return None
@@ -652,21 +681,97 @@ class State:
     def last(self) -> str | None:
         return self.stamps[0] if self.stamps else None
 
-    def record(self, stamp: str, retain_min: int) -> list[str]:
+    def plan(self, stamp: str, retain_min: int) -> list[str]:
+        """The `recent[]` list the pointer would carry with [stamp] added:
+        newest first, inside the retention window. Nothing is written —
+        commit() does that AFTER the upload, so a tick killed mid-publish
+        leaves no record of a stamp that is not on B2 (the next tick sees
+        the same newest stamp and publishes it whole; before this split it
+        was recorded first, so it would have read as `unchanged` forever
+        and `recent[]` would have named a stamp with no index)."""
         s = sorted(set(self.stamps) | {stamp}, reverse=True)
         cutoff = stamp_dt(stamp) - timedelta(minutes=retain_min)
-        s = [x for x in s if stamp_dt(x) >= cutoff]
-        self.stamps = s
+        return [x for x in s if stamp_dt(x) >= cutoff]
+
+    def commit(self, stamps: list[str]) -> None:
+        self.stamps = stamps
         tmp = self._f.with_suffix(".tmp")
-        tmp.write_text(json.dumps(s))
+        tmp.write_text(json.dumps(stamps))
         tmp.replace(self._f)
+
+    def record(self, stamp: str, retain_min: int) -> list[str]:
+        s = self.plan(stamp, retain_min)
+        self.commit(s)
         return s
+
+
+# ── Tick watchdog ─────────────────────────────────────────────────────────
+# Every fetch has a per-request timeout, but a tick is 56 listings + 56
+# downloads + an upload, and through a degraded link those add up to more
+# than the unit's TimeoutStartSec. 2026-09-09 02:15-04:28Z the box lost
+# its way to AWS (the L2 ingest logged connect timeouts at the same
+# minutes): every vol3d tick sat in the listing until systemd killed it,
+# and a killed tick writes NO log line, so a 2 h feed gap looked like a
+# producer bug and the one tick that did finish said "no-complete-cycle".
+# Now the tick times ITSELF out: a daemon thread prints an honest TICK
+# line naming the phase, kills a running rclone, drops the scratch dir
+# and exits 3 (the wrapper keeps that log). The systemd fuse stays as
+# the outer backstop.
+
+_t0 = time.time()
+_phase = "start"
+_work_dir: Path | None = None
+_child: subprocess.Popen | None = None
+
+
+def phase(name: str) -> None:
+    """Enter a tick phase. Printed with the elapsed time so a log cut
+    short by a kill still says where the tick was."""
+    global _phase
+    _phase = name
+    print(f"  [+{time.time() - _t0:.0f}s] {name}", flush=True)
+
+
+def _on_deadline(deadline_s: int) -> None:
+    print(f"TICK vol3d status=abort reason=deadline phase={_phase} "
+          f"budget={deadline_s}s elapsed={time.time() - _t0:.0f}s", flush=True)
+    child = _child
+    if child is not None and child.poll() is None:
+        try:
+            child.kill()
+        except OSError:
+            pass
+    if _work_dir is not None:
+        import shutil
+        shutil.rmtree(_work_dir, ignore_errors=True)
+    os._exit(3)
+
+
+def arm_watchdog(deadline_s: int) -> threading.Timer | None:
+    if deadline_s <= 0:
+        return None
+    t = threading.Timer(deadline_s, _on_deadline, args=(deadline_s,))
+    t.daemon = True
+    t.start()
+    return t
 
 
 # ── Publish ───────────────────────────────────────────────────────────────
 
 def rclone(*args: str) -> None:
-    subprocess.check_call(["rclone", *args, "--s3-no-check-bucket"])
+    # Popen, not check_call, so the watchdog can kill a wedged transfer;
+    # explicit connect/idle timeouts so a dead link fails in seconds, not
+    # rclone's default five minutes.
+    global _child
+    _child = subprocess.Popen(["rclone", *args, "--s3-no-check-bucket",
+                               "--contimeout", "20s", "--timeout", "90s",
+                               "--retries", "2"])
+    try:
+        rc = _child.wait()
+    finally:
+        _child = None
+    if rc != 0:
+        raise subprocess.CalledProcessError(rc, "rclone " + " ".join(args[:2]))
 
 
 def publish(bucket: str, prefix: str, stamp: str, stamp_dir: Path,
@@ -708,34 +813,60 @@ def prune(bucket: str, prefix: str, keep: set[str], retain_min: int,
 # ── One tick ──────────────────────────────────────────────────────────────
 
 def run_tick(args) -> int:
-    t_start = time.time()
+    global _t0, _work_dir
+    _t0 = t_start = time.time()
     jobs = int(os.environ.get("VOL3D_JOBS", "6"))
     retain_min = int(os.environ.get("VOL3D_RETAIN_MIN", "120"))
     prefix = os.environ.get("VOL3D_PREFIX", "v1/VOL3D").strip("/")
+    deadline_s = int(os.environ.get("VOL3D_DEADLINE_S", "300"))
     state = State(Path(os.environ.get("VOL3D_STATE_DIR",
                                       str(Path.home() / "stp-vol3d" / "state"))))
     bucket = os.environ.get("R2_BUCKET", "")
     if args.publish and not bucket:
         print("FATAL: --publish needs R2_BUCKET", file=sys.stderr)
         return 2
+    watchdog = arm_watchdog(deadline_s)
 
     ref_dirs = [ref_dir(m) for m in NATIVE_M]
     cc_levels = [m for m in NATIVE_M if m <= CC_TOP_M]
     cc_dirs = [cc_dir(m) for m in cc_levels]
     since = datetime.now(timezone.utc) - timedelta(minutes=args.lookback_min)
 
-    # 1. What is newest, and is it complete?
+    def elapsed() -> str:
+        return f"elapsed={time.time() - t_start:.0f}s"
+
+    # 1. What is newest, and is it complete? One listing settles the idle
+    #    case (most ticks between MRMS cycles, and every tick on a dead
+    #    link) before the other 55 are made.
+    phase("list")
+    quick = list_recent(ref_dirs[0], since)
+    reason = idle_reason(quick, state.last, bool(args.force or args.stamp))
+    if reason is not None:
+        print(f"TICK vol3d status=idle reason={reason} stamp={state.last} "
+              f"lookback={args.lookback_min}m {elapsed()}")
+        return 4 if reason == "listing-failed" else 0
+    names = ref_dirs + cc_dirs + [AZ02_DIR, AZ36_DIR]
     with ThreadPoolExecutor(max_workers=jobs) as pool:
-        names = ref_dirs + cc_dirs + [AZ02_DIR, AZ36_DIR]
-        listed = list(pool.map(lambda d: list_recent(d, since), names))
-    listings = dict(zip(names, listed))
+        listed = list(pool.map(
+            lambda d: quick if d == ref_dirs[0] else list_recent(d, since), names))
+    failed = [d for d, l in zip(names, listed) if l is None]
+    listings: dict[str, dict[str, str]] = {
+        d: (l or {}) for d, l in zip(names, listed)}
     stamp = choose_stamp(listings, ref_dirs, args.stamp)
     if stamp is None:
-        print(f"TICK vol3d status=idle reason=no-complete-cycle elapsed={time.time() - t_start:.0f}s")
-        return 0
+        # A reflectivity level that could not be listed makes the cycle
+        # look incomplete; say which it was.
+        reason = "listing-failed" if failed else "no-complete-cycle"
+        print(f"TICK vol3d status=idle reason={reason} "
+              f"failed={len(failed)}/{len(names)} {elapsed()}")
+        return 4 if failed else 0
     if not args.force and state.last == stamp:
-        print(f"TICK vol3d status=idle reason=unchanged stamp={stamp} elapsed={time.time() - t_start:.0f}s")
+        print(f"TICK vol3d status=idle reason=unchanged stamp={stamp} {elapsed()}")
         return 0
+    if failed:
+        print(f"  WARN {len(failed)} companion listings failed: "
+              f"{' '.join(failed[:4])}{' ...' if len(failed) > 4 else ''}",
+              flush=True)
     valid = stamp_dt(stamp)
     valid_ms = int(valid.timestamp() * 1000)
 
@@ -748,8 +879,10 @@ def run_tick(args) -> int:
     az36_key = pick_companion(listings[AZ36_DIR], stamp)
 
     work = Path(tempfile.mkdtemp(prefix="vol3d-"))
+    _work_dir = work
     try:
         # 2. Download everything the cycle needs, in parallel.
+        phase(f"download stamp={stamp}")
         wanted: list[tuple[str, Path]] = []
         for i, k in enumerate(ref_keys):
             wanted.append((k, work / f"ref{i:02d}.grib2.gz"))
@@ -767,6 +900,7 @@ def run_tick(args) -> int:
         t_dl = time.time() - t0
 
         # 3. Reflectivity volume, streamed bottom-up.
+        phase(f"ref in_mb={bytes_in / 1e6:.1f} dl={t_dl:.0f}s")
         t0 = time.time()
         plan = level_plan(NATIVE_M)
 
@@ -783,6 +917,7 @@ def run_tick(args) -> int:
         t_ref = time.time() - t0
 
         # 4. CC volume up to CC_TOP_M, then the debris rule.
+        phase("cc")
         t0 = time.time()
         cc_plan = level_plan(cc_levels)
         nz_cc = sum(1 for p in cc_plan if p is not None)
@@ -817,6 +952,7 @@ def run_tick(args) -> int:
         t_cc = time.time() - t0
 
         # 5. Tiles + index.
+        phase("tiles")
         t0 = time.time()
         stamp_dir = work / "out" / stamp
         tiles = cut_tiles(ref_vol, cc_vol, rot02, rot36, valid_ms, stamp_dir)
@@ -852,14 +988,20 @@ def run_tick(args) -> int:
         t0 = time.time()
         removed = 0
         if args.publish:
-            recent = state.record(stamp, retain_min)
+            phase(f"publish tiles={len(tiles)} out_mb={bytes_out / 1e6:.1f}")
+            # Planned now, COMMITTED after the upload (State.plan says why).
+            recent = state.plan(stamp, retain_min)
             latest = dict(index, recent=recent)
             latest_path = work / "latest.json"
             latest_path.write_text(json.dumps(latest, separators=(",", ":")))
             publish(bucket, prefix, stamp, stamp_dir, latest_path)
+            state.commit(recent)
             if not args.no_prune:
+                phase("prune")
                 removed = prune(bucket, prefix, set(recent), retain_min, stamp)
         t_pub = time.time() - t0
+        if watchdog is not None:
+            watchdog.cancel()
 
         debris_tiles = sum(1 for s in tiles.values() if s[3] >= 6)
         rot_tiles = sum(1 for s in tiles.values() if s[4] >= 6)
@@ -1004,6 +1146,37 @@ def selftest() -> int:
           "companion: nothing inside the window -> absent")
     check(choose_stamp({"x": {"1": "k", "2": "k"}, "y": {"1": "k"}}, ["x", "y"]) == "1",
           "stamp = newest common to every level")
+    check(choose_stamp({"x": {"1": "k"}, "y": None}, ["x", "y"]) is None,
+          "a level whose listing failed chooses nothing")
+
+    # The one-listing idle decision (a failed listing is not an empty one).
+    check(idle_reason(None, "20260909-020000", False) == "listing-failed",
+          "idle: listing failed")
+    check(idle_reason({}, "20260909-020000", False) == "no-source-stamp",
+          "idle: nothing in the lookback")
+    check(idle_reason({"20260909-020000": "k"}, "20260909-020000", False) == "unchanged",
+          "idle: newest is the last published")
+    check(idle_reason({"20260909-015800": "k"}, "20260909-020000", False) == "unchanged",
+          "idle: newest is OLDER than the last published")
+    check(idle_reason({"20260909-020200": "k"}, "20260909-020000", False) is None,
+          "go on: a newer stamp exists")
+    check(idle_reason({"20260909-020200": "k"}, None, False) is None,
+          "go on: nothing published yet")
+    check(idle_reason(None, "20260909-020000", True) is None
+          and idle_reason({}, "x", True) is None,
+          "forced runs never idle here")
+
+    # State: plan writes nothing, commit does.
+    with tempfile.TemporaryDirectory() as td:
+        st = State(Path(td))
+        st.commit(["20260909-020000", "20260909-015800"])
+        planned = st.plan("20260909-020200", 3)
+        check(planned == ["20260909-020200", "20260909-020000"]
+              and st.last == "20260909-020000"
+              and State(Path(td)).last == "20260909-020000",
+              "State.plan: window applied, nothing recorded")
+        st.commit(planned)
+        check(State(Path(td)).last == "20260909-020200", "State.commit persists")
     check(level_tag(500) == "00.50" and level_tag(10000) == "10.00" and level_tag(19000) == "19.00",
           "level tags")
 

@@ -7,7 +7,10 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/bin/bash %h/storm-spotter-models-renderer/deploy/box2/run-vol3d.sh
-# A wedged fetch must not hold the flock across many cycles.
+# Outer fuse only. The script times ITSELF out first (VOL3D_DEADLINE_S in
+# run-vol3d.sh, 300 s) with a TICK line that names the phase; this kill
+# is what a hung tick hit eighteen times on 2026-09-09 while the box had
+# no route to AWS, and a killed tick used to leave no log line at all.
 TimeoutStartSec=8min
 # Measured 3.1 GB peak. The cap is a fuse for this job only: if it ever
 # trips, THIS tick dies instead of the box OOM-killing the L2 ingest or a
