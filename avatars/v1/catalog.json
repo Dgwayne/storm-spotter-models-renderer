@@ -29,6 +29,12 @@
       "key": "rcww",
       "name": "RCWW",
       "tagline": "Racine County Weather Watch"
+    },
+    {
+      "id": 205,
+      "key": "sws",
+      "name": "SWS",
+      "tagline": "Severe Weather Specialist"
     }
   ]
 }
