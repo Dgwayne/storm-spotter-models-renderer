@@ -59,6 +59,28 @@ ck "old guard silently accepted it" "$( export PATH="${WORK}/bin:$PATH"
   P=$(yq -r ".models.HRRR.products[]" "$CONFIG" 2>/dev/null || true)
   if [ -z "$P" ]; then echo "rejected"; else echo "ACCEPTED-$(printf '%s' "$P" | grep -c .)"; fi )" "ACCEPTED-6"
 
+echo "== 8. filter_products: all-valid codes pass through =="
+ck "filtered list is exactly the filter" "$( . "$LIB"; load_model_products HRRR "$CONFIG"; filter_products HRRR "refc t2m mslp" "$CONFIG" 2>/dev/null; printf '%s' "$PRODUCTS" | tr '
+' ' ' )" "refc t2m mslp "
+
+echo "== 9. filter_products: a code the in-hand list lost but the config HAS =="
+out9=$( . "$LIB"; PRODUCTS=$'refc
+t2m'; filter_products HRRR "refc t2m mslp" "$CONFIG" 2>&1 >/dev/null; )
+ck "warns instead of dying" "$(printf '%s' "$out9" | grep -c "transient, continuing")" "1"
+ck "warn names the entry count" "$(printf '%s' "$out9" | grep -c "2 entries")" "1"
+ck "the code is kept, group survives" "$( . "$LIB"; PRODUCTS=$'refc
+t2m'; filter_products HRRR "refc t2m mslp" "$CONFIG" 2>/dev/null; printf '%s' "$PRODUCTS" | tr '
+' ' ' )" "refc t2m mslp "
+
+echo "== 10. filter_products: a code in NEITHER is still a hard error =="
+out10=$( . "$LIB"; load_model_products HRRR "$CONFIG"; filter_products HRRR "refc notaproduct" "$CONFIG" 2>&1 >/dev/null; echo "RC=$?" )
+ck "typo still fails loudly" "$(printf '%s' "$out10" | grep -c "ERROR: PRODUCT_FILTER contains 'notaproduct'")" "1"
+ck "returns non-zero" "$(printf '%s' "$out10" | grep -c 'RC=1')" "1"
+
+echo "== 11. exact-line matching, no substring false positives =="
+ck "refc does not match refc1km" "$( . "$LIB"; PRODUCTS=$'refc1km
+t2m'; filter_products HRRR "refc" "/nonexistent" 2>/dev/null; echo "rc=$?" )" "rc=1"
+
 echo
 echo "RESULT pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

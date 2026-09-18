@@ -49,16 +49,9 @@ RETAIN=$(yq -r ".models.${MODEL}.retain_runs" "$CONFIG")
 # Unknown codes are a hard error: a typo in a render group must fail the
 # job, not silently render nothing.
 if [ -n "${PRODUCT_FILTER:-}" ]; then
-  FILTERED=""
-  for p in ${PRODUCT_FILTER}; do
-    if ! printf '%s\n' ${PRODUCTS} | grep -qxF "${p}"; then
-      echo "ERROR: PRODUCT_FILTER contains '${p}', not in models.${MODEL}.products" >&2
-      exit 1
-    fi
-    FILTERED="${FILTERED}${p}"$'\n'
-  done
-  PRODUCTS="${FILTERED}"
-  echo "==> Product filter active: $(echo ${PRODUCTS} | tr '\n' ' ')"
+  filter_products "${MODEL}" "${PRODUCT_FILTER}" "${CONFIG}"
+  echo "==> Product filter active: $(echo ${PRODUCTS} | tr '
+' ' ')"
 fi
 
 # Per-product forecast-hour caps (mesoanalysis products render f00-f01

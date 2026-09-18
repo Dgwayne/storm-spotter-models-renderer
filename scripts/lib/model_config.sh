@@ -52,3 +52,46 @@ load_model_products() {
   echo "FATAL: could not read models.${_model}.products from ${_config} consistently after 5 attempts (last ${_got:-0}/${_want:-?} entries)" >&2
   return 1
 }
+
+# Apply PRODUCT_FILTER to PRODUCTS.
+#
+# WHY THIS IS NOT JUST A LOOP WITH grep. On 2026-09-18 the render groups were
+# rejecting codes that ARE in config/products.yml, and the codes MOVED from
+# tick to tick: mslp/ehi1/mlcin/precipTotal one tick, wind10m/uh25/shear1/mcc/
+# snod another, scattered through the list rather than truncated off its end.
+# Two hypotheses were tested on box 1 under real load (~25) and BOTH failed:
+# the config reads were clean 40/40, and the old `printf | grep` membership
+# test gave 0 false rejections in 2000 runs. So the mechanism is still unknown.
+#
+# What is certain is the COST: one unexplained miss killed a whole render
+# group for that tick. So before failing, re-verify the code against the
+# config itself. If the config has it, the in-hand list was wrong rather than
+# the config, and that is a transient to warn about and ride through, not a
+# reason to drop 8 products for 10 minutes. A code that is genuinely absent
+# from the config is still a hard error, which is what the check was for: a
+# typo in a render group must fail loudly. The WARN carries the entry count
+# and MODEL_PRODUCTS_FOR so the next occurrence identifies itself.
+filter_products() {
+  local _model="$1" _filter="$2" _config="${3:-}" _p _l _filtered="" _n _fresh
+  local _hay=$'\n'"${PRODUCTS}"$'\n'
+  for _p in ${_filter}; do
+    case "${_hay}" in
+      *$'\n'"${_p}"$'\n'*) _filtered="${_filtered}${_p}"$'\n'; continue ;;
+    esac
+    _n=0
+    while IFS= read -r _l; do [ -n "${_l}" ] && _n=$((_n+1)); done <<< "${PRODUCTS}"
+    _fresh=0
+    if [ -n "${_config}" ]; then
+      _fresh=$(yq -r ".models.${_model}.products[]" "${_config}" 2>/dev/null | grep -cx -- "${_p}" 2>/dev/null || true)
+    fi
+    if [ "${_fresh:-0}" -ge 1 ] 2>/dev/null; then
+      echo "WARN: '${_p}' missing from the in-hand ${_model} list (${_n} entries, MODEL_PRODUCTS_FOR=${MODEL_PRODUCTS_FOR:-unset}) but present in ${_config}; transient, continuing" >&2
+      _filtered="${_filtered}${_p}"$'\n'
+      continue
+    fi
+    echo "ERROR: PRODUCT_FILTER contains '${_p}', not in models.${_model}.products (in-hand list had ${_n} entries, MODEL_PRODUCTS_FOR=${MODEL_PRODUCTS_FOR:-unset})" >&2
+    return 1
+  done
+  PRODUCTS="${_filtered}"
+  return 0
+}

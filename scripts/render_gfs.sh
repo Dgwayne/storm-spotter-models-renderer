@@ -58,16 +58,9 @@ RETAIN=$(yq -r ".models.${MODEL}.retain_runs" "$CONFIG")
 # set by the workflow's matrix jobs so render groups run in parallel
 # (see render_groups in products.yml). Unset = render everything.
 if [ -n "${PRODUCT_FILTER:-}" ]; then
-  FILTERED=""
-  for p in ${PRODUCT_FILTER}; do
-    if ! printf '%s\n' ${PRODUCTS} | grep -qxF "${p}"; then
-      echo "ERROR: PRODUCT_FILTER contains '${p}', not in models.${MODEL}.products" >&2
-      exit 1
-    fi
-    FILTERED="${FILTERED}${p}"$'\n'
-  done
-  PRODUCTS="${FILTERED}"
-  echo "==> Product filter active: $(echo ${PRODUCTS} | tr '\n' ' ')"
+  filter_products "${MODEL}" "${PRODUCT_FILTER}" "${CONFIG}"
+  echo "==> Product filter active: $(echo ${PRODUCTS} | tr '
+' ' ')"
 fi
 
 # Per-product forecast-hour floors/caps/steps (fh_min products like
