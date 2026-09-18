@@ -20,25 +20,11 @@ CYCLES_BACK=2
 FH_START=$(yq -r ".models.${MODEL}.forecast_hours_default.start" "$CONFIG")
 FH_END=$(yq -r ".models.${MODEL}.forecast_hours_default.end" "$CONFIG")
 FH_STEP=$(yq -r ".models.${MODEL}.forecast_hours_default.step" "$CONFIG")
-# ⚠ RETRY, do not simplify: a bare `yq` here has been observed returning
-# EMPTY on a loaded box (box 1 sits at load 21/16 with several render
-# groups reading this same file concurrently). An empty PRODUCTS made the
-# PRODUCT_FILTER loop below reject every VALID code with
-# "not in models.<M>.products" and exit 1, silently costing that group its
-# whole tick. Data survived only because the next tick redid it. Retry the
-# read, then hard-fail loudly if it is still empty — "I could not read the
-# config" must never masquerade as "your config is wrong".
-PRODUCTS=""
-for _try in 1 2 3; do
-  PRODUCTS=$(yq -r ".models.${MODEL}.products[]" "$CONFIG" 2>/dev/null || true)
-  [ -n "$PRODUCTS" ] && break
-  echo "WARN: empty product list for ${MODEL} (attempt ${_try}/3); retrying" >&2
-  sleep 2
-done
-if [ -z "$PRODUCTS" ]; then
-  echo "FATAL: could not read models.${MODEL}.products from ${CONFIG} after 3 attempts" >&2
-  exit 1
-fi
+# The product-list read is shared and concurrency-safe: see
+# lib/model_config.sh for why a bare `yq` here used to come back SHORT
+# and take the whole render group down with it.
+. "${SCRIPT_DIR}/lib/model_config.sh"
+load_model_products "${MODEL}" "${CONFIG}"
 RETAIN=$(yq -r ".models.${MODEL}.retain_runs" "$CONFIG")
 
 # PRODUCT_FILTER: optional space-separated subset of the product list —

@@ -78,21 +78,11 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG="${REPO_ROOT}/config/products.yml"
 COLOR_TABLES="${REPO_ROOT}/config/color_tables"
 
-# Retry, do not simplify: a bare `yq` has been observed returning EMPTY on a
-# loaded box (several render groups reading this same file concurrently),
-# which downstream looks like "the config is wrong" rather than "the read
-# failed". Retry, then fail loudly with the real reason.
-ALL_PRODUCTS=""
-for _try in 1 2 3; do
-  ALL_PRODUCTS=$(yq -r ".models.${MODEL}.products[]" "$CONFIG" 2>/dev/null || true)
-  [ -n "$ALL_PRODUCTS" ] && break
-  echo "WARN: empty product list for ${MODEL} (attempt ${_try}/3); retrying" >&2
-  sleep 2
-done
-if [ -z "$ALL_PRODUCTS" ]; then
-  echo "FATAL: could not read models.${MODEL}.products from ${CONFIG} after 3 attempts" >&2
-  exit 1
-fi
+# The product-list read is shared and concurrency-safe: see
+# lib/model_config.sh for why a bare `yq` here used to come back SHORT
+# and take the whole render group down with it.
+. "${SCRIPT_DIR}/lib/model_config.sh"
+load_model_products "${MODEL}" "${CONFIG}" ALL_PRODUCTS
 RETAIN=$(yq -r ".models.${MODEL}.retain_runs" "$CONFIG")
 BBOX=$(yq -r ".models.${MODEL}.bbox_lonlat | join(\" \")" "$CONFIG")
 IMG_W=$(yq -r ".models.${MODEL}.image_size[0]" "$CONFIG")
