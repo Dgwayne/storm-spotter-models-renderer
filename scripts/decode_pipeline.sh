@@ -93,7 +93,7 @@ SOURCE_TYPE=$(yq -r ".models.${MODEL}.source_type // \"grib\"" "$CONFIG")
 # below then runs the plain grib path for this one product; the model's
 # other products are untouched.
 if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ] && \
-   yq -e ".models.${MODEL}.grib_products // [] | index(\"${PRODUCT}\")" "$CONFIG" > /dev/null 2>&1; then
+   [ "$(yq -r ".models.${MODEL}.grib_products // [] | contains([\"${PRODUCT}\"])" "$CONFIG")" = "true" ]; then
   SOURCE_TYPE="grib"
 fi
 OM_MODEL_PATH=$(yq -r ".models.${MODEL}.om_model_path // \"\"" "$CONFIG")
