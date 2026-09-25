@@ -75,6 +75,9 @@ JOBS="${OBS_JOBS:-1}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=lib/scratch.sh
+source "${REPO_ROOT}/scripts/lib/scratch.sh"
+stp_scratch_init render_mrms_obs
 CONFIG="${REPO_ROOT}/config/products.yml"
 COLOR_TABLES="${REPO_ROOT}/config/color_tables"
 
@@ -113,7 +116,7 @@ echo "==> MRMS observation catalog: prefix=v1/${PREFIX}/ tier=${OBS_TIER:-all} j
 EXISTING_KEYS_FILE=$(mktemp)
 FAST_SRC_FILE=$(mktemp)
 RESULTS_DIR=$(mktemp -d)
-trap 'rm -rf "$EXISTING_KEYS_FILE" "$FAST_SRC_FILE" "${FAST_SRC_FILE}.json" "$RESULTS_DIR"' EXIT
+trap 'rm -rf "$EXISTING_KEYS_FILE" "$FAST_SRC_FILE" "${FAST_SRC_FILE}.json" "$RESULTS_DIR"; rm -rf "$STP_SCRATCH"' EXIT
 : > "$EXISTING_KEYS_FILE"
 : > "$FAST_SRC_FILE"
 

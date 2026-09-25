@@ -41,6 +41,9 @@ set -euo pipefail
 MODEL="RTMA"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=lib/scratch.sh
+source "${REPO_ROOT}/scripts/lib/scratch.sh"
+stp_scratch_init render_rtma_obs
 CONFIG="${REPO_ROOT}/config/products.yml"
 COLOR_TABLES="${REPO_ROOT}/config/color_tables"
 
@@ -109,7 +112,7 @@ if [ -z "${FORCE_RERENDER:-}" ] && \
 fi
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK"; rm -rf "$STP_SCRATCH"' EXIT
 
 # ── 3. Fetch idx once; byte-range fetch each needed message ────────────
 GRIB_URL="${S3_BASE}/${FOUND_KEY}"

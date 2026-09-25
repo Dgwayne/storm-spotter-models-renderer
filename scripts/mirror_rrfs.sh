@@ -35,6 +35,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=lib/scratch.sh
+source "${REPO_ROOT}/scripts/lib/scratch.sh"
+stp_scratch_init mirror_rrfs
 CONFIG="${REPO_ROOT}/config/products.yml"
 
 NOMADS_BASE="https://nomads.ncep.noaa.gov/pub/data/nccf/com/rrfs/v1.0"
@@ -63,7 +66,7 @@ MAX_NEW_FILES="${MIRROR_MAX_NEW:-60}"
 # contribute their inputs map values (decode_pipeline.sh never
 # substitutes fh placeholders into inputs, so those are literal).
 MATCHES_RAW=$(mktemp)
-trap 'rm -f "$MATCHES_RAW"' EXIT
+trap 'rm -f "$MATCHES_RAW"; rm -rf "$STP_SCRATCH"' EXIT
 for product in $(yq -r '.models.RRFS.products[]' "$CONFIG"); do
   if [ "$(yq -r ".products.${product}.derived // false" "$CONFIG")" = "true" ]; then
     yq -r ".products.${product}.inputs | to_entries[].value" "$CONFIG" >> "$MATCHES_RAW"
@@ -75,7 +78,7 @@ echo "==> $(wc -l < "$MATCHES_RAW") match expressions collected from products.ym
 
 # ── Pre-list the mirror so already-done frames cost one grep ───────────
 EXISTING=$(mktemp)
-trap 'rm -f "$MATCHES_RAW" "$EXISTING"' EXIT
+trap 'rm -f "$MATCHES_RAW" "$EXISTING"; rm -rf "$STP_SCRATCH"' EXIT
 rclone lsf --recursive "r2:${R2_BUCKET}/v1/RRFS/_src/" --files-only 2>/dev/null > "$EXISTING" || : > "$EXISTING"
 echo "==> $(wc -l < "$EXISTING") existing mirror keys"
 

@@ -23,6 +23,9 @@ RUN_HOUR="$4"
 FH="$5"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/scratch.sh
+source "${REPO_ROOT}/scripts/lib/scratch.sh"
+stp_scratch_init decode_pipeline
 CONFIG="${REPO_ROOT}/config/products.yml"
 COLOR_TABLES="${REPO_ROOT}/config/color_tables"
 
@@ -172,7 +175,7 @@ PY
 fi
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+trap 'rm -rf "$WORK"; rm -rf "$STP_SCRATCH"' EXIT
 
 OUT_REL="v1/${MODEL}/${PRODUCT}/${RUN_DATE}${RUN_HOUR}/${FRAME_BASE}.png"
 echo "[${MODEL}/${PRODUCT}] run=${RUN_DATE}${RUN_HOUR} fh=${FH}"

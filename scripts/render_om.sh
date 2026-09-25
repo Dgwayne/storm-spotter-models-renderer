@@ -24,6 +24,9 @@ set -euo pipefail
 MODEL="${1:?usage: render_om.sh <MODEL>}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=lib/scratch.sh
+source "${REPO_ROOT}/scripts/lib/scratch.sh"
+stp_scratch_init render_om
 CONFIG="${REPO_ROOT}/config/products.yml"
 
 CYCLE_HOURS=$(yq -r ".models.${MODEL}.om_cycle_hours" "$CONFIG")
@@ -69,7 +72,7 @@ EXISTING_KEYS_FILE=$(mktemp)
 export EXISTING_KEYS_FILE
 OM_CACHE_DIR=$(mktemp -d)
 export OM_CACHE_DIR
-trap 'rm -f "$EXISTING_KEYS_FILE"; rm -rf "$OM_CACHE_DIR"' EXIT
+trap 'rm -f "$EXISTING_KEYS_FILE"; rm -rf "$OM_CACHE_DIR"; rm -rf "$STP_SCRATCH"' EXIT
 
 echo "==> Pre-listing R2 contents under v1/${MODEL}/"
 if rclone lsf --recursive "r2:${R2_BUCKET}/v1/${MODEL}/" \

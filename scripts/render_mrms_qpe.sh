@@ -45,6 +45,9 @@ PREFIX="${OBS_PREFIX:-$MODEL}"
 LIVE_PREFIX="OBS"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=lib/scratch.sh
+source "${REPO_ROOT}/scripts/lib/scratch.sh"
+stp_scratch_init render_mrms_qpe
 CONFIG="${REPO_ROOT}/config/products.yml"
 COLOR_TABLES="${REPO_ROOT}/config/color_tables"
 
@@ -71,7 +74,7 @@ fi
 
 # ── Pre-fetch R2 listing (same trick as render_hrrr.sh) ────────────────
 EXISTING_KEYS_FILE=$(mktemp)
-trap 'rm -f "$EXISTING_KEYS_FILE"' EXIT
+trap 'rm -f "$EXISTING_KEYS_FILE"; rm -rf "$STP_SCRATCH"' EXIT
 echo "==> Pre-listing R2 contents under v1/${PREFIX}/"
 if rclone lsf --recursive "r2:${R2_BUCKET}/v1/${PREFIX}/" \
     --files-only 2>/dev/null > "$EXISTING_KEYS_FILE"; then
