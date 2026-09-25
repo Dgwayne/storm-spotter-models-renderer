@@ -89,8 +89,19 @@ async function fetchSource(p) {
     // KML carries only its styles, no issuance fields. `description` is a
     // full HTML page per polygon on WPC's files (several KB each); the name
     // and style colours are what the app draws.
+    // The one useful thing in that page is the valid window, which ArcGIS
+    // writes as table rows (<td>Start_Date</td><td>10/3/2026</td>); keep
+    // it as start_date / end_date, as the app's direct-KML fallback does.
     fc.features = fc.features.filter((f) => f.geometry);
-    for (const f of fc.features) delete f.properties?.description;
+    for (const f of fc.features) {
+      const p = f.properties || (f.properties = {});
+      const html = typeof p.description === "string" ? p.description : p.description?.value || "";
+      for (const [field, key] of [["Start_Date", "start_date"], ["End_Date", "end_date"]]) {
+        const v = html.match(new RegExp(`<td>${field}</td>\\s*<td>([^<]*)</td>`))?.[1]?.trim();
+        if (v && !v.startsWith("&lt;") && !v.startsWith("<")) p[key] = v;
+      }
+      delete p.description;
+    }
     return fc;
   }
   const url =
