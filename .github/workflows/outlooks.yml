@@ -85,9 +85,13 @@ jobs:
           path: outlooks/node_modules
           key: outlooks-node-${{ hashFiles('outlooks/package-lock.json') }}
 
+      # `npm install`, not `npm ci`: npm's lockfile check trips over
+      # mapshaper's optional @types/node peer and rejects a lockfile npm
+      # itself just wrote (same error from npm 10 and 11, 2026-09-25).
+      # install still resolves from the committed lockfile.
       - name: Install bake dependencies
         working-directory: outlooks
-        run: '[ -d node_modules ] || npm ci --no-audit --no-fund'
+        run: '[ -d node_modules ] || npm install --no-audit --no-fund'
 
       - name: Configure rclone for Backblaze B2
         run: |
