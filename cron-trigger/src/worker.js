@@ -6,6 +6,12 @@
 //   GH_DISPATCH_TOKEN — fine-grained GitHub PAT scoped to this repo with
 //                       "Actions: Read and write" permission.
 
+import {
+  PRODUCTS as OUTLOOK_PRODUCTS,
+  MANIFEST_URL as OUTLOOK_MANIFEST_URL,
+} from "../../outlooks/products.mjs";
+import { probe as probeOutlook } from "../../outlooks/probe.mjs";
+
 const OWNER = "Dgwayne";
 const REPO = "storm-spotter-models-renderer";
 
@@ -172,12 +178,90 @@ const LIGHTNING_FEED_URL =
   "https://models.dgwaynes.com/lightning/v1/flashes.json";
 const LIGHTNING_STALE_SEC = 300;
 
+// Outlook cache gate. Outlooks change a few dozen times a day across ~110
+// layers, so a fixed dispatch would mostly run empty bakes in a runner queue
+// shared with the model renders. Instead, on every 5-minute tick this probes
+// each outlook (a geometry-free attribute query or a HEAD, a few hundred
+// bytes) and dispatches outlooks.yml only when one differs from the
+// manifest. The probe code and product list are the SAME modules the bake
+// imports, so the two can never disagree on what "changed" means.
+const OUTLOOKS_WORKFLOW = "outlooks.yml";
+
+async function workflowHasQueuedRun(workflow, token) {
+  const url =
+    `https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/` +
+    `${workflow}/runs?status=queued&per_page=1`;
+  const resp = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "stp-models-cron",
+    },
+  });
+  if (!resp.ok) throw new Error(`runs list HTTP ${resp.status}`);
+  return ((await resp.json()).total_count || 0) > 0;
+}
+
+// Fail-quiet like checkLightning: nothing here may break the tick's other
+// dispatches. A probe that errors counts as "unknown", never as "changed".
+async function checkOutlooks(token, minute) {
+  let stored = {};
+  let failed = {};
+  try {
+    const resp = await fetch(`${OUTLOOK_MANIFEST_URL}?_gate=${Date.now()}`, {
+      headers: { "Cache-Control": "no-cache", "User-Agent": "stp-models-cron" },
+    });
+    if (resp.ok) {
+      const m = await resp.json();
+      stored = m.products || {};
+      failed = m.failed || {};
+    } else if (resp.status !== 404) {
+      throw new Error(`manifest HTTP ${resp.status}`);
+    }
+    // 404 = never baked: every product counts as changed.
+  } catch (e) {
+    console.log(`outlooks gate: manifest read failed (${e}), skipping`);
+    return;
+  }
+
+  const due = OUTLOOK_PRODUCTS.filter((p) => p.probeEvery <= 5 || minute === 0);
+  const changed = [];
+  // Parallel in batches of 16: ~80 small requests to two NOAA hosts.
+  for (let i = 0; i < due.length; i += 16) {
+    await Promise.all(
+      due.slice(i, i + 16).map(async (p) => {
+        try {
+          const sig = await probeOutlook(p);
+          if (sig !== stored[p.id]?.sig && sig !== failed[p.id]) changed.push(p.id);
+        } catch (e) {
+          console.log(`outlooks gate: ${e.message}`);
+        }
+      }),
+    );
+  }
+  if (!changed.length) return;
+
+  // One pending run is enough: the bake re-probes everything when it starts.
+  try {
+    if (await workflowHasQueuedRun(OUTLOOKS_WORKFLOW, token)) {
+      console.log(`outlooks gate: ${changed.length} changed, a run is already queued`);
+      return;
+    }
+  } catch (e) {
+    console.log(`outlooks gate: runs check failed (${e}), skipping`);
+    return;
+  }
+  console.log(`outlooks gate: ${changed.length} changed (${changed.slice(0, 8).join(", ")}) — dispatching`);
+  await dispatch(OUTLOOKS_WORKFLOW, token);
+}
+
 // Every workflow this Worker knows how to dispatch (for the manual endpoint).
 const KNOWN_WORKFLOWS = new Set(
   Object.values(CRON_TO_WORKFLOW)
     .flat()
     .map(entryName)
-    .concat(DEFAULT_WORKFLOW, LIGHTNING_WORKFLOW),
+    .concat(DEFAULT_WORKFLOW, LIGHTNING_WORKFLOW, OUTLOOKS_WORKFLOW),
 );
 
 async function dispatch(workflow, token, inputs) {
@@ -277,7 +361,10 @@ export default {
           .map((wf) => dispatch(wf, env.GH_DISPATCH_TOKEN))
           // Piggybacks on every tick (the 5 slots' union fires every few
           // minutes) — detection within ~5 min at zero extra cron slots.
-          .concat(checkLightning(env.GH_DISPATCH_TOKEN)),
+          .concat(checkLightning(env.GH_DISPATCH_TOKEN))
+          // Slots A, B and D together tick on every multiple of 5 minutes;
+          // the :02/:07 slots are skipped so the gate runs exactly every 5.
+          .concat(minute % 5 === 0 ? checkOutlooks(env.GH_DISPATCH_TOKEN, minute) : []),
       ),
     );
   },

@@ -1,0 +1,15 @@
+{
+  "name": "stp-outlooks-bake",
+  "private": true,
+  "type": "module",
+  "description": "Outlook cache bake: NOAA outlooks -> zoom-tiered, topology-simplified GeoJSON on B2. See README.md.",
+  "scripts": {
+    "bake": "node bake.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@tmcw/togeojson": "^7.1.2",
+    "@xmldom/xmldom": "^0.9.8",
+    "mapshaper": "^0.6.113"
+  }
+}

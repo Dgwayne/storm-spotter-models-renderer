@@ -178,6 +178,13 @@ jobs:
           # answers 429 inside an HTTP 200 body), so it can fail in ways
           # the render workflows cannot.
           check WILDFIRE "https://models.dgwaynes.com/wildfire/v1/current.json" 120
+          # Outlook cache (outlooks.yml). Every run rewrites generatedAt as a
+          # "last checked against NOAA" stamp, even when nothing changed, and
+          # the hourly native backstop guarantees a run, so this is the same
+          # 120 as wildfire: one missed backstop plus slack. The app stops
+          # trusting the cache on its own at 3 h and fetches NOAA directly,
+          # so a stall costs speed, never correctness.
+          check OUTLOOKS "https://models.dgwaynes.com/outlooks/v1/manifest.json" 120
           # Lightning rebuilds every ~15-20 s; the cron Worker's dead-man
           # re-dispatches it within ~5 min of a stall, so 30 min stale here
           # means BOTH recovery layers failed — email the owner.
@@ -197,6 +204,7 @@ jobs:
           check_cc SAT        "https://models.dgwaynes.com/v1/SAT/manifest.json"
           check_cc GEOCOLOR   "https://models.dgwaynes.com/v1/SAT/geocolor.json"
           check_cc WILDFIRE   "https://models.dgwaynes.com/wildfire/v1/current.json"
+          check_cc OUTLOOKS   "https://models.dgwaynes.com/outlooks/v1/manifest.json"
           check_cc AIRQUALITY "https://models.dgwaynes.com/airquality/v1/conus.json"
           check_cc WIND       "https://models.dgwaynes.com/wind/v1/latest.json"
           exit $fail

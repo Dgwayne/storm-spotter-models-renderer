@@ -1,0 +1,110 @@
+name: Outlooks (NOAA outlook cache)
+
+# Bakes NOAA/WPC/CPC outlooks into zoom-tiered, topology-simplified GeoJSON
+# for Spotter Tools Pro (see outlooks/bake.mjs and outlooks/products.mjs).
+#
+# Produces (on the shared B2 bucket / models.dgwaynes.com):
+#   outlooks/v1/manifest.json                  product -> sig + tier files (max-age=60)
+#   outlooks/v1/<product>/<sig>.<tier>.json    immutable, content-addressed
+#
+# Dispatched by the cron-trigger Worker ONLY when its 5-minute change probe
+# sees an outlook the manifest doesn't have yet (checkOutlooks in
+# cron-trigger/src/worker.js), so a quiet hour costs zero runs. Outlooks
+# change a few dozen times a day in total, and this repo's runner queue is
+# shared with the model renders, which is why this is gated rather than
+# dispatched on a fixed tick.
+#
+# The bake re-probes every product itself and bakes whatever differs from
+# the manifest, so the dispatch carries no product list: a pending run
+# evicted by the concurrency group loses nothing, because the next run sees
+# the same differences.
+#
+# The hourly native cron is a BACKSTOP for the Worker's silent-stall failure
+# mode (see wildfire.yml). An unchanged hour is a ~30 s probe-only run.
+#
+# Public repo => free Actions minutes; B2 uploads + CDN egress are free. $0.
+
+on:
+  schedule:
+    - cron: '41 * * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Re-bake even if unchanged: "all" or comma-separated product ids'
+        required: false
+        default: ''
+
+concurrency:
+  group: outlooks
+  cancel-in-progress: false
+
+jobs:
+  outlooks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      FORCE: ${{ inputs.force }}
+
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore micromamba binary (cache)
+        id: mmbin
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Set up micromamba (node + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: outlooks
+          create-args: >-
+            nodejs=22
+            rclone
+          cache-environment: true
+          init-shell: bash
+          download-micromamba: ${{ steps.mmbin.outputs.cache-hit != 'true' }}
+          micromamba-binary-path: ~/micromamba-bin/micromamba
+
+      - name: Save micromamba binary (cache)
+        if: steps.mmbin.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: outlooks/node_modules
+          key: outlooks-node-${{ hashFiles('outlooks/package-lock.json') }}
+
+      - name: Install bake dependencies
+        working-directory: outlooks
+        run: '[ -d node_modules ] || npm ci --no-audit --no-fund'
+
+      - name: Configure rclone for Backblaze B2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Bake changed outlooks
+        working-directory: outlooks
+        # The heaviest sources (drought outlook, 7-day QPF) are 12-16 MB of
+        # JSON and mapshaper holds a few copies while building tiers.
+        run: node --max-old-space-size=4096 bake.mjs
