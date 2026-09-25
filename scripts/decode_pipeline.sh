@@ -86,6 +86,16 @@ INDEX_FORMAT=$(yq -r ".models.${MODEL}.index_format // \"wgrib2\"" "$CONFIG")
 # bucket's data_spatial layout — one file per valid time carrying every
 # variable; extraction happens locally via scripts/om_extract.py).
 SOURCE_TYPE=$(yq -r ".models.${MODEL}.source_type // \"grib\"" "$CONFIG")
+# grib_products: products an openmeteo_spatial model fetches from a NOAA
+# GRIB (the model's s3_bucket/s3_key_template) instead of the om bucket —
+# for fields Open-Meteo's spatial set does not carry (HRRR15 ptype15: the
+# categorical precip flags exist only in NOAA's wrfsubhf files). Everything
+# below then runs the plain grib path for this one product; the model's
+# other products are untouched.
+if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ] && \
+   yq -e ".models.${MODEL}.grib_products // [] | index(\"${PRODUCT}\")" "$CONFIG" > /dev/null 2>&1; then
+  SOURCE_TYPE="grib"
+fi
 OM_MODEL_PATH=$(yq -r ".models.${MODEL}.om_model_path // \"\"" "$CONFIG")
 OM_BASE_URL=$(yq -r ".models.${MODEL}.om_base_url // \"https://openmeteo.s3.amazonaws.com/data_spatial\"" "$CONFIG")
 
@@ -135,12 +145,17 @@ if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ]; then
 else
   # Expand the key template (Python so we get printf-style {fh:02d}/{fh:03d}).
   # Pass run/fh as strings then int() to avoid Python rejecting "02" as a literal.
+  # {fhour}: the forecast HOUR file a minute step lives in — NOAA's
+  # sub-hourly files bundle four 15-min messages per hour (wrfsubhf02
+  # carries 75/90/105/120 min), so minutes 61..120 → 02. Equals {fh} on
+  # hourly models.
   S3_KEY=$(python3 - <<PY
 date = "${RUN_DATE}"
 run = int("${RUN_HOUR}")
 fh = int("${FH}")
+fhour = -(-fh // 60) if "${OM_STEP_MINUTES}" else fh
 tmpl = r"""${S3_KEY_TEMPLATE}"""
-print(tmpl.format(date=date, run=run, fh=fh))
+print(tmpl.format(date=date, run=run, fh=fh, fhour=fhour))
 PY
   )
   if [ -n "${BASE_URL}" ]; then
@@ -424,6 +439,9 @@ elif [ "${DERIVED}" = "true" ]; then
   CALC_EXPR=$(yq -r ".products.${PRODUCT}.calc" "$CONFIG")
   GDAL_INPUT_ARGS=()
   while IFS=$'\t' read -r letter match; do
+    # Same {fh} placeholder wgrib2_match gets: a sub-hourly file holds one
+    # message per 15-min step, told apart only by ":<minutes> min fcst:".
+    match="${match//\{fh\}/${FH}}"
     mapfile -t IN_RANGES < <(compute_ranges "${match}")
     if [ "${#IN_RANGES[@]}" -eq 0 ]; then
       echo "  derived input ${letter} (${match}) missing from idx; skip"

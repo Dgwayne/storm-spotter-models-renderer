@@ -1575,6 +1575,36 @@ products:
     # Denser value grid than the model default (128): the cell-picker
     # readout interpolates this, and 512 =~ 12 km/sample over CONUS.
     point_grid: [512, 512]
+  ptype15:
+    display: "Precip Type"
+    group: "Surface & Precipitation/Precipitation"
+    derived: true
+    # The 15-minute twin of ptype for HRRR15 (minute-unit product code,
+    # per the never-share-a-code-across-unit-spaces rule). Sourced from
+    # NOAA's wrfsubhf files (HRRR15 `grib_products`), where each hour's
+    # file carries four messages per flag told apart by ":<min> min fcst:".
+    # Same priority encoding and nearest warp as ptype; the app's radar
+    # Precip Type product prefers these frames so the rain/snow line
+    # moves every 15 minutes instead of once an hour. fh_min 15: NOAA's
+    # sub-hourly f00 carries "anl" messages with all-zero flags, like f00.
+    # fh_cap 1080: NOAA's sub-hourly files stop at f18, while HRRR15's
+    # om steps run to 1125 — without the cap the last three steps would
+    # sit "expected, never available" and paint red on the scrub bar.
+    fh_min: 15
+    fh_cap: 1080
+    resample: near
+    inputs:
+      A: ":CRAIN:surface:{fh} min fcst:"
+      B: ":CSNOW:surface:{fh} min fcst:"
+      C: ":CICEP:surface:{fh} min fcst:"
+      D: ":CFRZR:surface:{fh} min fcst:"
+    calc: "where(D>0,4,where(C>0,3,where(B>0,2,where(A>0,1,0))))"
+    units_in: ""
+    units_out: ""
+    convert: ""
+    clr: "ptype.clr"
+    pal: ""
+    point_values: false
 
   frzLvl:
     display: "Freezing Level"
@@ -5046,7 +5076,14 @@ models:
       - vis
       - precip15m
       - snow15m
+      - ptype15
     source_type: "openmeteo_spatial"
+    # ptype15 alone comes from NOAA's sub-hourly GRIB (the om bucket has
+    # no precip-type flags): decode_pipeline.sh flips this one product to
+    # the grib path and resolves {fhour} = ceil(minutes / 60).
+    grib_products: [ptype15]
+    s3_bucket: "noaa-hrrr-bdp-pds"
+    s3_key_template: "hrrr.{date}/conus/hrrr.t{run:02d}z.wrfsubhf{fhour:02d}.grib2"
     om_model_path: "ncep_hrrr_conus_15min"
     om_cycle_hours: 1
     om_cycles_back: 2
