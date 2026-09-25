@@ -5,7 +5,8 @@
 //   1. fetches the full source (ArcGIS query as GeoJSON, or KML converted),
 //   2. writes up to three zoom tiers, simplified TOPOLOGICALLY by mapshaper so
 //      neighbouring bands keep sharing one border (no gaps, no slivers),
-//   3. uploads them under content-addressed keys (immutable, edge-cacheable),
+//   3. uploads them under content-addressed keys
+//      (<sig>.<tier>.<content hash>.json; immutable, edge-cacheable),
 //   4. rewrites outlooks/v1/manifest.json (max-age=60) to point at them,
 //   5. deletes all but the current and previous generation of each product.
 //
@@ -17,6 +18,7 @@
 // even when unchanged).
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import mapshaper from "mapshaper";
@@ -207,7 +209,14 @@ async function main() {
       const fc = await fetchSource(p);
       const tiers = await buildTiers(fc);
       const entryTiers = tiers.map((t) => {
-        const key = `${PREFIX}/${p.id}/${sig}.${t.name}.json`;
+        // The content hash is load-bearing: these keys are served
+        // immutable for a year, and a forced re-bake of an unchanged
+        // issuance (same probe sig) after a bake change produces new bytes.
+        // Without it that upload would overwrite a key Cloudflare may
+        // already hold forever (it did once, 2026-09-25, for the hazard
+        // dates). Pruning still keys on the leading sig.
+        const hash = createHash("sha256").update(t.text).digest("hex").slice(0, 8);
+        const key = `${PREFIX}/${p.id}/${sig}.${t.name}.${hash}.json`;
         const path = join(STAGE, key);
         mkdirSync(dirname(path), { recursive: true });
         writeFileSync(path, t.text);

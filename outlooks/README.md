@@ -41,7 +41,9 @@ would not be at least 20% smaller than the next finer one.
 
 ## Storage
 
-`outlooks/v1/<product>/<sig>.<tier>.json` is immutable (max-age 1 year); a
+`outlooks/v1/<product>/<sig>.<tier>.<content hash>.json` is immutable (max-age
+1 year); the content hash makes a forced re-bake with new output land on a
+new key instead of overwriting one the edge may hold for a year. A
 new issuance gets a new `<sig>`. The bake keeps the current and previous
 generation and deletes older ones; the bucket's keep-only-last-version
 lifecycle purges them. Everything, all tiers, all products, is ~470 MB raw
