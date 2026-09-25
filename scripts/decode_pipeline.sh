@@ -39,6 +39,11 @@ CONVERT_EXPR=$(yq -r ".products.${PRODUCT}.convert // \"\"" "$CONFIG")
 # (smooth gradient). When false/absent we pass -nearest_color_entry to
 # snap each pixel to the nearest stop (hard binned colors).
 INTERPOLATE=$(yq -r ".products.${PRODUCT}.interpolate_color // false" "$CONFIG")
+# resample: gdalwarp kernel for the mercator warp (step 6). Default cubic
+# for continuous fields; categorical products (ptype) MUST say `near` —
+# cubic interpolates BETWEEN category codes, so a rain(1)/sleet(3) edge
+# passes through 2 and snaps to a false strip of snow.
+RESAMPLE=$(yq -r ".products.${PRODUCT}.resample // \"cubic\"" "$CONFIG")
 CLR_FILE=$(yq -r ".products.${PRODUCT}.clr" "$CONFIG")
 CLR_PATH="${COLOR_TABLES}/${CLR_FILE}"
 # Derived products combine several GRIB fields via a gdal_calc formula
@@ -480,6 +485,8 @@ fi
 # and fronts keep their gradient instead of smearing. Slight overshoot near
 # sharp boundaries is harmless here (it stays within the color ramp; nodata
 # is masked via -dstnodata so edges don't bleed into the -9999 fill).
+# Categorical products override the kernel via `resample: near` (see the
+# RESAMPLE read at the top).
 MERC_TIF="${WORK}/merc.tif"
 # shellcheck disable=SC2086
 gdalwarp -q -overwrite \
@@ -487,7 +494,7 @@ gdalwarp -q -overwrite \
   -te_srs EPSG:4326 \
   -te ${BBOX} \
   -ts "${IMG_W}" "${IMG_H}" \
-  -r cubic \
+  -r "${RESAMPLE}" \
   -dstnodata -9999 \
   "${RAW_TIF}" "${MERC_TIF}"
 

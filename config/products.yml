@@ -1548,6 +1548,10 @@ products:
     # populates them on forecast hours. Render starts at f01; the app's
     # meso layer follows each product's first expected hour.
     fh_min: 1
+    # resample: near — the warp kernel must not interpolate BETWEEN
+    # category codes (cubic turns a rain/sleet edge into a strip of 2 =
+    # snow). Also what the radar Precip Type product samples per gate.
+    resample: near
     inputs:
       A: ":CRAIN:surface:"
       B: ":CSNOW:surface:"
