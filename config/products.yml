@@ -66,13 +66,13 @@ sounding_models:
     display: "HRRR"
     prefix: ""
     order: 10
-  # RRFS PULLED 2026-09-26: v1/soundings/rrfs/ was frozen at the
-  # 2026-08-12 11z run for six weeks while still offered here. Restore
-  # once the NOMADS-fed extract has landed a current run on the CDN:
-  # - key: rrfs
-  #   display: "RRFS"
-  #   prefix: "rrfs/"
-  #   order: 20
+  # RRFS: NOMADS-fed since 2026-09-26 (3-hourly cycles until the Oct 6
+  # cutover). It sat 6 weeks frozen while listed here; SOUNDRRFS in
+  # freshness_monitor.yml now watches it.
+  - key: rrfs
+    display: "RRFS"
+    prefix: "rrfs/"
+    order: 20
   - key: gfs
     display: "GFS"
     prefix: "gfs/"
