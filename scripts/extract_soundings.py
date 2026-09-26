@@ -44,6 +44,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -69,25 +70,15 @@ BUCKET = os.environ["R2_BUCKET"]
 # the isobaric levels (prslev.3km) from the surface fields (2dfld.3km).
 # `prefix` is the output subdirectory under v1/soundings/ ("" keeps HRRR at
 # the root for back-compat with the dealiaser and released apps).
-# ⚠ RRFS DISABLED DURING THE NOMADS BRIDGE (2026-08-13 → 2026-10-06):
-# the rrfs_a feed froze at 2026-08-12 11z (SCN 26-48). The live NOMADS
-# source serves no .idx, and soundings need the 591 MB prslev file — a
-# whole-file bridge would add ~45 GB/day of NOMADS pulls for a secondary
-# feature, so RRFS soundings stay frozen at their last extracted run and
-# HRRR (the default) carries the sounding deck. RESTORE the entry below
-# at cutover with the operational path (drop the rrfs_a/ prefix; verify
-# against the bucket):
-#     {
-#         "key": "rrfs",
-#         "name": "RRFS",
-#         "prefix": "rrfs/",
-#         "files": [
-#             "https://noaa-rrfs-pds.s3.amazonaws.com/"
-#             "rrfs.{d}/{h}/rrfs.t{h}z.prslev.3km.f{fh:03d}.conus.grib2",
-#             "https://noaa-rrfs-pds.s3.amazonaws.com/"
-#             "rrfs.{d}/{h}/rrfs.t{h}z.2dfld.3km.f{fh:03d}.conus.grib2",
-#         ],
-#     },
+# RRFS reads NOMADS directly (re-enabled 2026-09-26). The rrfs_a AWS feed
+# froze at 2026-08-12 11z (SCN 26-48) and NOMADS then served no .idx, so
+# RRFS soundings sat frozen for six weeks. By late September NOMADS
+# publishes .idx for the plain prslev/2dfld 3km CONUS files, but only on
+# 3-HOURLY cycles (00/03/../21z; the hours between are .subh. only).
+# find_latest_run's hourly walk just 404s past the missing cycles. NOMADS
+# requests are paced + coalesced (see _pace / fetch_subset). At the
+# operational cutover (SCN: 2026-10-06 12z) swap these URLs back to the
+# noaa-rrfs-pds bucket (verify the prefix NCO ships) for hourly cycles.
 MODELS = [
     {
         "key": "hrrr",
@@ -122,6 +113,19 @@ MODELS = [
         "tile_stride": 2,
         "stride_km": 55,
         "tile_bbox": (-170.0, 15.0, -50.0, 72.0),  # lonW, latS, lonE, latN
+    },
+    # Isobaric levels (prslev) and surface fields (2dfld) live in separate
+    # files on the same 3 km grid; both are fetched and merged per hour.
+    {
+        "key": "rrfs",
+        "name": "RRFS",
+        "prefix": "rrfs/",
+        "files": [
+            "https://nomads.ncep.noaa.gov/pub/data/nccf/com/rrfs/v1.0/"
+            "rrfs.{d}/{h}/rrfs.t{h}z.prslev.3km.f{fh:03d}.conus.grib2",
+            "https://nomads.ncep.noaa.gov/pub/data/nccf/com/rrfs/v1.0/"
+            "rrfs.{d}/{h}/rrfs.t{h}z.2dfld.3km.f{fh:03d}.conus.grib2",
+        ],
     },
 ]
 
@@ -195,8 +199,39 @@ def _derive_dpt(per_site: list, grids: dict) -> None:
             grids[f"DPT:{mb}"] = _td_from_t_rh(grids[f"TMP:{mb}"], grids[f"RH:{mb}"])
 
 
+# NOMADS blocks IPs that exceed roughly 120 requests/minute, and one RRFS
+# run is ~700 ranged GETs (19 hours x 2 files, 137 MB/hour of 3 km
+# isobaric messages). Every NOMADS request (HEAD, idx, range, retry) is
+# spaced process-wide to stay well under the limit, and carries the same
+# contact UA as mirror_rrfs.sh. S3 hosts are unaffected.
+NOMADS_HOST = "nomads.ncep.noaa.gov"
+NOMADS_UA = "SpotterToolsPro-models-renderer/1.0 (contact: dgwaynesllc@gmail.com)"
+NOMADS_MIN_INTERVAL_S = 60.0 / 90
+_pace_lock = threading.Lock()
+_pace_next = 0.0
+
+
+def _is_nomads(url: str) -> bool:
+    return NOMADS_HOST in url
+
+
+def _pace(req: urllib.request.Request) -> None:
+    """Sleep until this request's NOMADS slot; no-op for other hosts."""
+    global _pace_next
+    if not _is_nomads(req.full_url):
+        return
+    req.add_header("User-Agent", NOMADS_UA)
+    with _pace_lock:
+        now = time.monotonic()
+        wait = _pace_next - now
+        _pace_next = max(now, _pace_next) + NOMADS_MIN_INTERVAL_S
+    if wait > 0:
+        time.sleep(wait)
+
+
 def _head_ok(url: str) -> bool:
     req = urllib.request.Request(url, method="HEAD")
+    _pace(req)
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             return r.status == 200
@@ -217,6 +252,7 @@ def _get(url: str, byte_range=None, attempts=4) -> bytes:
         req.add_header("Range", f"bytes={byte_range}")
     last = None
     for attempt in range(attempts):
+        _pace(req)
         try:
             with urllib.request.urlopen(req, timeout=180) as r:
                 return r.read()
@@ -281,29 +317,52 @@ def fetch_subset(url: str, work: Path):
             except ValueError:
                 pass
     parsed.sort()
-    ranges, band_keys = [], []
+    sel, band_keys = [], []   # sel: (start, end or None for "to EOF")
     for i, (_, off, var, lvl) in enumerate(parsed):
         key = classify(var, lvl)
         if key is None:
             continue
-        end = parsed[i + 1][1] - 1 if i + 1 < len(parsed) else ""
-        ranges.append(f"{off}-{end}")
+        end = parsed[i + 1][1] - 1 if i + 1 < len(parsed) else None
+        sel.append((off, end))
         band_keys.append(key)
-    if not ranges:
+    if not sel:
         return None
     work.mkdir(parents=True, exist_ok=True)
     grib = work / "in.grib2"
-    # The ~100 selected messages are fetched as individual ranged GETs. Doing
-    # them sequentially made S3 round-trip latency the dominant wall-clock
-    # cost once FHOURS went hourly (19 hours x ~100 ranges x 2 models); a
-    # small thread pool overlaps the latency. Results are written in index
-    # order, so the assembled GRIB layout (and band_keys mapping) is
-    # byte-identical to the sequential version.
-    with ThreadPoolExecutor(max_workers=12) as ex:
-        parts = list(ex.map(lambda r: _get(url, r), ranges))
+    # Coalesce selected messages into spans. Strictly adjacent messages
+    # always merge (same bytes, fewer requests). On NOMADS, where the
+    # request COUNT is what gets an IP blocked, spans also bridge gaps up
+    # to MERGE_GAP bytes: measured on RRFS prslev, 57 -> 34 requests per
+    # file for ~15% more bytes. Unselected bytes are sliced back out, so
+    # the assembled GRIB is byte-identical either way.
+    nomads = _is_nomads(url)
+    gap = 2_000_000 if nomads else 0
+    spans: list[list] = []    # [start, end or None, [(start, end), ...]]
+    for s0, e0 in sel:
+        if (spans and spans[-1][1] is not None
+                and s0 - spans[-1][1] - 1 <= gap):
+            spans[-1][1] = e0
+            spans[-1][2].append((s0, e0))
+        else:
+            spans.append([s0, e0, [(s0, e0)]])
+
+    def fetch(span):
+        s0, e0, parts = span
+        data = _get(url, f"{s0}-{'' if e0 is None else e0}")
+        return [data[ps - s0:None if pe is None else pe - s0 + 1]
+                for ps, pe in parts]
+
+    # A small thread pool overlaps per-request latency (S3 round trips were
+    # the dominant cost once FHOURS went hourly). Results are written in
+    # index order, so band_keys still map 1:1 onto the assembled messages.
+    # NOMADS is capped by _pace anyway; fewer workers just avoids piling
+    # up sleeping threads there.
+    with ThreadPoolExecutor(max_workers=3 if nomads else 12) as ex:
+        chunks = list(ex.map(fetch, spans))
     with open(grib, "wb") as f:
-        for part in parts:
-            f.write(part)
+        for parts in chunks:
+            for part in parts:
+                f.write(part)
     return grib, band_keys
 
 

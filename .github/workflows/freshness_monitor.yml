@@ -166,6 +166,11 @@ jobs:
           # + a full ~25-min extract + slack.
           check SOUNDINGS "https://models.dgwaynes.com/v1/soundings/manifest.json" 180
           check SOUNDGFS  "https://models.dgwaynes.com/v1/soundings/gfs/manifest.json" 600
+          # RRFS soundings sat 6 weeks frozen (2026-08-12 -> 09-26) with
+          # nothing watching this path. NOMADS cycles are 3-hourly and f18
+          # lands ~110 min after init, but every hourly run touches
+          # generatedAt, so 600 flags a dead feed, not normal cadence.
+          check SOUNDRRFS "https://models.dgwaynes.com/v1/soundings/rrfs/manifest.json" 600
           # Wildfire rides the :00/:15/:30/:45 Worker slot with an hourly
           # GitHub-native backstop, so a healthy feed is never over ~60 min
           # old even with the Worker down. 120 = one missed hourly backstop
