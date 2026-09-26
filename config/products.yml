@@ -3491,12 +3491,13 @@ models:
     # ── NOMADS BRIDGE (2026-08-13 → cutover 2026-10-06) ────────────────
     # NOAA froze the rrfs_a/rrfs_public prototype feeds at 2026-08-12 11z
     # (SCN 26-48 pre-implementation parallel). The live source is NOMADS,
-    # which serves no .idx — so mirror_rrfs.sh downloads each whole file,
-    # extracts only our products' messages, and publishes slim grib+idx
-    # pairs under v1/RRFS/_src/ on our own bucket. This template points
-    # the (unchanged) byte-range pipeline at that mirror via the CDN.
-    # Synoptic-only during the bridge: render_rrfs.sh skips other cycles
-    # (NOMADS publishes them as sub-hourly files only — see mirror_rrfs.sh).
+    # which rate-limits per IP, so mirror_rrfs.sh is its ONE paced client:
+    # it byte-range fetches only our products' messages via the NOMADS
+    # .idx and publishes slim grib+idx pairs under v1/RRFS/_src/ on our
+    # own bucket. This template points the (unchanged) byte-range
+    # pipeline at that mirror via the CDN. 3-hourly cycles during the
+    # bridge: NOMADS publishes the hours between as sub-hourly files only
+    # (see mirror_rrfs.sh).
     base_url: "https://models.dgwaynes.com"
     s3_key_template: "v1/RRFS/_src/{date}{run:02d}/F{fh:03d}.grib2"
     display: "RRFS 3km"

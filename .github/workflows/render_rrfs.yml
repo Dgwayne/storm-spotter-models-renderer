@@ -44,8 +44,8 @@ concurrency:
 jobs:
   mirror:
     runs-on: ubuntu-latest
-    # Backfill ticks are download-bound (MIRROR_MAX_NEW × ~366 MB);
-    # steady-state ticks finish in ~10 min.
+    # Backfill ticks are pace-bound (MIRROR_MAX_NEW files x ~25 NOMADS
+    # requests at 0.7 s spacing, ~30 min); steady-state ticks are short.
     timeout-minutes: 80
     env:
       R2_BUCKET: ${{ secrets.B2_BUCKET }}

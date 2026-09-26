@@ -56,14 +56,14 @@ import yaml  # PyYAML
 # ── Per-model run enumeration (KEEP IN SYNC with the sweep scripts) ──────
 #   mode "hourly": offsets 0..span hours back from now (render_hrrr.sh /
 #     render_rrfs.sh), optionally filtered to a set of allowed run hours
-#     (the RRFS bridge renders synoptic cycles only — delete that filter
+#     (the RRFS bridge renders 3-hourly cycles only; delete that filter
 #     here when render_rrfs.sh drops its own at the NOMADS cutover).
 #   mode "cycle":  snap now to the interval, step back 0..span cycles
 #     (render_nam.sh / render_gfs.sh / render_gefs_mean.sh /
 #      render_aifs.sh / render_ecmwf.sh).
 SWEEP_RUNS = {
     "HRRR": ("hourly", 4, None),
-    "RRFS": ("hourly", 9, {0, 6, 12, 18}),
+    "RRFS": ("hourly", 9, set(range(0, 24, 3))),
     "NAM": ("cycle", 2, 6),
     "GFS": ("cycle", 2, 6),
     "GEFS": ("cycle", 2, 6),
