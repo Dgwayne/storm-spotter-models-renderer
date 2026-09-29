@@ -18,8 +18,15 @@ Encoding is exactly the OBS data PNG's (mrms_render_one.encode_gray): gray
 no cell above dataMin is not written at all; the index lists the ones that
 exist, so the app never asks for an empty one.
 
+Overviews: o2.png / o4.png are the WHOLE grid sampled every 2nd / 4th
+cell, at cell index k*s + s//2 (native[1::2], native[2::4]): exactly the
+cells a stride-s read of the tiles would pick, so the app can switch
+between tiles and an overview with zoom and no echo moves or reshapes.
+Zoomed out, one overview replaces fetching every tile.
+
 Output (B2 behind models.dgwaynes.com, rclone remote "r2:"):
   <prefix>/<code>/<YYYYMMDD-HHMMSS>/r<RR>c<CC>.png   immutable, one per scan
+  <prefix>/<code>/<YYYYMMDD-HHMMSS>/o2.png, o4.png   whole-grid overviews
   <prefix>/<code>/<YYYYMMDD-HHMMSS>/index.json       grid + tile list
   <prefix>/<code>/latest.json                        newest + retained stamps
 
@@ -82,8 +89,6 @@ def load_grid(grib: str, sentinel_lt: float, scale: float) -> np.ndarray:
 
 def cut(gray: np.ndarray, alpha: np.ndarray, tile: int, out: Path) -> list[str]:
     """Write every tile holding a cell above dataMin; return their ids."""
-    png = gdal.GetDriverByName("PNG")
-    mem_drv = gdal.GetDriverByName("MEM")
     ids: list[str] = []
     for tr in range((ROWS + tile - 1) // tile):
         r0 = tr * tile
@@ -96,13 +101,30 @@ def cut(gray: np.ndarray, alpha: np.ndarray, tile: int, out: Path) -> list[str]:
                 continue
             a = alpha[r0:r0 + tile, c0:c0 + tile]
             tid = f"r{tr:02d}c{tc:02d}"
-            mem = mem_drv.Create("", g.shape[1], g.shape[0], 2, gdal.GDT_Byte)
-            mem.GetRasterBand(1).WriteArray(g)
-            mem.GetRasterBand(2).WriteArray(a)
-            png.CreateCopy(str(out / f"{tid}.png"), mem, strict=0,
-                           options=["ZLEVEL=9"])
+            write_png(out / f"{tid}.png", g, a)
             ids.append(tid)
     return ids
+
+
+OVERVIEW_STRIDES = (2, 4)
+
+
+def write_png(path: Path, g: np.ndarray, a: np.ndarray) -> None:
+    mem = gdal.GetDriverByName("MEM").Create("", g.shape[1], g.shape[0], 2,
+                                             gdal.GDT_Byte)
+    mem.GetRasterBand(1).WriteArray(g)
+    mem.GetRasterBand(2).WriteArray(a)
+    gdal.GetDriverByName("PNG").CreateCopy(str(path), mem, strict=0,
+                                           options=["ZLEVEL=9"])
+
+
+def overviews(gray: np.ndarray, alpha: np.ndarray, out: Path) -> list[int]:
+    """o<s>.png for each stride: every s-th cell, offset s//2 (see top)."""
+    for s in OVERVIEW_STRIDES:
+        o = s // 2
+        write_png(out / f"o{s}.png", np.ascontiguousarray(gray[o::s, o::s]),
+                  np.ascontiguousarray(alpha[o::s, o::s]))
+    return list(OVERVIEW_STRIDES)
 
 
 def rclone(*args: str, capture: bool = False) -> str:
@@ -187,6 +209,7 @@ def main() -> int:
     stamp_dir = work / args.stamp
     stamp_dir.mkdir(parents=True, exist_ok=True)
     ids = cut(gray, alpha, args.tile, stamp_dir)
+    ovs = overviews(gray, alpha, stamp_dir)
 
     header = {
         "code": args.code,
@@ -194,11 +217,13 @@ def main() -> int:
         "cols": COLS, "rows": ROWS, "tile": args.tile,
         "dataMin": args.data_min, "dataMax": args.data_max,
     }
-    index = dict(header, stamp=args.stamp, tiles=ids)
+    index = dict(header, stamp=args.stamp, tiles=ids, overviews=ovs)
     (stamp_dir / "index.json").write_text(json.dumps(index, separators=(",", ":")))
-    nbytes = sum(f.stat().st_size for f in stamp_dir.glob("*.png"))
+    nbytes = sum(f.stat().st_size for f in stamp_dir.glob("r*.png"))
+    ov_kb = " ".join(f"o{s}={(stamp_dir / f'o{s}.png').stat().st_size / 1e3:.0f}KB"
+                     for s in ovs)
     print(f"  tiles {args.code} {args.stamp}: {len(ids)} tiles, "
-          f"{nbytes / 1e6:.2f} MB, cut in {time.time() - t0:.1f}s")
+          f"{nbytes / 1e6:.2f} MB, {ov_kb}, cut in {time.time() - t0:.1f}s")
 
     if not args.publish:
         return 0
