@@ -2692,7 +2692,11 @@ products:
 
   rala:
     display: "Reflectivity At Lowest Altitude"
-    mrms_dir: "MergedReflectivityAtLowestAltitude_00.50"
+    # The QC'd RALA (no "Merged"): MRMS strips biological/clutter echoes
+    # with dual-pol. The Merged* twin is raw, and on a fall-migration night
+    # (2026-09-29 06:32Z) it kept 72.7% of the East at >=5 dBZ vs 0.0% here,
+    # with >=35 dBZ cores unchanged. Same dBZ units and sentinels.
+    mrms_dir: "ReflectivityAtLowestAltitude_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
     data_png: { min: -30.0, max: 80.0 }
