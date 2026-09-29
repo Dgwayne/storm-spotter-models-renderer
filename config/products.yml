@@ -2717,8 +2717,14 @@ products:
     # separate from light rain: 70.6% of the East >=5 dBZ raw vs 0.1% QC'd
     # on 2026-09-29 06:32Z, >=35 dBZ cores unchanged. Measured 109 s behind
     # wall clock at the source.
-    display: "Base Reflectivity (QC)"
-    mrms_dir: "MergedBaseReflectivityQC_00.50"
+    # SOURCE = the QC'd COMPOSITE (column max), chosen 2026-09-29 over
+    # MergedBaseReflectivityQC: base reflectivity takes each radar's lowest
+    # tilt even where terrain blocks it, so it read far weaker than raw in
+    # the mountain West (central NM, cells >=35 dBZ: 2.9% vs raw 29%; the
+    # composite 15.3%). The code stays `brefqc` because the app and the
+    # tile prefix are keyed on it.
+    display: "Composite Reflectivity (QC)"
+    mrms_dir: "MergedReflectivityQCComposite_00.50"
     cadence_tier: fast      # source publishes ~2 min
     # Native 0.01 deg tiles beside the 4096 px frame (mrms_obs_tiles.py):
     # v1/OBSTILES/brefqc/<scan>/r<RR>c<CC>.png + latest.json. The frame
