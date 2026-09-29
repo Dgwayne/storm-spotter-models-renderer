@@ -2710,6 +2710,27 @@ products:
     point_decimals: 0
     point_grid: [512, 512]
 
+  brefqc:
+    # QC'd national base reflectivity: the clean source behind the national
+    # layer's "Base Reflectivity (QC)" chip (the raw chip stays IEM n0q).
+    # MRMS dual-pol QC strips birds/insects/clutter that no dBZ floor can
+    # separate from light rain: 70.6% of the East >=5 dBZ raw vs 0.1% QC'd
+    # on 2026-09-29 06:32Z, >=35 dBZ cores unchanged. Measured 109 s behind
+    # wall clock at the source.
+    display: "Base Reflectivity (QC)"
+    mrms_dir: "MergedBaseReflectivityQC_00.50"
+    cadence_tier: fast      # source publishes ~2 min
+    data_png: { min: -30.0, max: 80.0 }
+    units_in: "dBZ"
+    units_out: "dBZ"
+    sentinel_lt: -35.0
+    clr: "qpe.clr"
+    pal: ""
+    group: "Reflectivity Layers"
+    point_values: true
+    point_decimals: 0
+    point_grid: [512, 512]
+
   lcrlow:
     display: "Reflectivity Low (0-24 kft)"
     mrms_dir: "LayerCompositeReflectivity_Low_00.50"
@@ -3587,6 +3608,7 @@ models:
       - ffg03h
       - ffg06h
       - rala
+      - brefqc
       - lcrlow
       - lcrhigh
       - lcrsuper
