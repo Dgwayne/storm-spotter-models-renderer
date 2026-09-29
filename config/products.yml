@@ -2720,6 +2720,11 @@ products:
     display: "Base Reflectivity (QC)"
     mrms_dir: "MergedBaseReflectivityQC_00.50"
     cadence_tier: fast      # source publishes ~2 min
+    # Native 0.01 deg tiles beside the 4096 px frame (mrms_obs_tiles.py):
+    # v1/OBSTILES/brefqc/<scan>/r<RR>c<CC>.png + latest.json. The frame
+    # stays the zoomed-out tier; tiles are the zoomed-in one. 120 min
+    # matches the longest national loop window.
+    tiles: { px: 512, retain_min: 120 }
     data_png: { min: -30.0, max: 80.0 }
     units_in: "dBZ"
     units_out: "dBZ"

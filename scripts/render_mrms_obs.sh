@@ -262,6 +262,9 @@ render_one() {
   decimals=$(yq -r ".products.${product}.point_decimals // 2" "$CONFIG")
   grid_w=$(yq -r ".products.${product}.point_grid[0] // 512" "$CONFIG")
   grid_h=$(yq -r ".products.${product}.point_grid[1] // 512" "$CONFIG")
+  local tiles_px tiles_retain
+  tiles_px=$(yq -r ".products.${product}.tiles.px // \"\"" "$CONFIG")
+  tiles_retain=$(yq -r ".products.${product}.tiles.retain_min // 120" "$CONFIG")
 
   local work gz url grib
   work="$(mktemp -d)"
@@ -316,6 +319,14 @@ render_one() {
     --s3-no-check-bucket --no-traverse \
     --header-upload "Cache-Control: public, max-age=300"
   echo "  uploaded ${out_rel} ($(stat -c%s "${work}/F000.png" 2>/dev/null || echo '?') bytes)"
+
+  # Native-resolution tiles (products with a `tiles:` block): the 0.01 deg
+  # grid the 4096 px frame above decimates, cut for per-viewport fetches.
+  # Separate prefix so the manifest rebuild never lists them. Non-fatal:
+  # the frame above is already published whatever happens here.
+  if [ -n "${tiles_px}" ] && [ -n "${dmin}" ]; then
+    python3 "${REPO_ROOT}/scripts/mrms_obs_tiles.py"       --grib "${grib}" --code "${product}" --stamp "${src_stamp}"       --data-min "${dmin}" --data-max "${dmax}"       --sentinel-lt "${sentinel_lt}" --scale "${scale}"       --tile "${tiles_px}" --retain-min "${tiles_retain}" --publish       || echo "  tiles FAILED (non-fatal, frame already published)"
+  fi
 
   # Source marker: still written on every tick â€” it is what build_manifest.py
   # reads to publish srcTimes, so the full sweep stays authoritative either

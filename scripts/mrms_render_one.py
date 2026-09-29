@@ -44,17 +44,12 @@ gdal.UseExceptions()
 NODATA = -9999.0
 
 
-def build(args) -> tuple[np.ndarray, gdal.Dataset]:
-    """Read the GRIB, mask sentinels, scale, and warp to the target grid.
-
-    Reproduces, in order:
-      gdal_translate -of GTiff -ot Float32 -b 1
-      [gdal_edit.py -a_ullr ...]              (0-360 longitude guard)
-      gdal_calc  where(A<sentinel,-9999,A*scale)  --NoDataValue=-9999
-      gdalwarp -t_srs EPSG:3857 -te_srs EPSG:4326 -te BBOX -ts W H
-               -r near -dstnodata -9999
-    """
-    src = gdal.Open(args.grib, gdal.GA_ReadOnly)
+def read_scaled(grib: str, sentinel_lt: float,
+                scale: float) -> tuple[gdal.Dataset, list, np.ndarray]:
+    """GRIB band 1 on its NATIVE grid with sentinels/NoData -> NODATA and the
+    unit scale applied. Shared with mrms_obs_tiles.py so the native tiles
+    and the warped frame mask and scale identically."""
+    src = gdal.Open(grib, gdal.GA_ReadOnly)
     band = src.GetRasterBand(1)
     # Float32 to match `gdal_translate -ot Float32`: the arithmetic below
     # must happen at the same precision the classic chain used, or values
@@ -73,9 +68,9 @@ def build(args) -> tuple[np.ndarray, gdal.Dataset]:
     # sentinel_lt: products whose REAL values go negative (dBZ, raw
     # azimuthal shear) set a floor below their physical range so the
     # -99/-999 sentinels are still caught without eating valid data.
-    scaled = np.where(arr < np.float32(args.sentinel_lt),
+    scaled = np.where(arr < np.float32(sentinel_lt),
                       np.float32(NODATA),
-                      arr * np.float32(args.scale)).astype(np.float32)
+                      arr * np.float32(scale)).astype(np.float32)
     # gdal_calc reads bands as MASKED arrays unless --hideNoData is given,
     # and the sentinel step deliberately does not pass it: cells the GRIB
     # itself declares NoData come out as the output NoDataValue rather than
@@ -85,6 +80,21 @@ def build(args) -> tuple[np.ndarray, gdal.Dataset]:
     if src_nodata is not None:
         scaled = np.where(arr == np.float32(src_nodata), np.float32(NODATA), scaled)
     scaled = np.where(np.isnan(arr), np.float32(NODATA), scaled)
+
+    return src, gt, scaled
+
+
+def build(args) -> tuple[np.ndarray, gdal.Dataset]:
+    """Read the GRIB, mask sentinels, scale, and warp to the target grid.
+
+    Reproduces, in order:
+      gdal_translate -of GTiff -ot Float32 -b 1
+      [gdal_edit.py -a_ullr ...]              (0-360 longitude guard)
+      gdal_calc  where(A<sentinel,-9999,A*scale)  --NoDataValue=-9999
+      gdalwarp -t_srs EPSG:3857 -te_srs EPSG:4326 -te BBOX -ts W H
+               -r near -dstnodata -9999
+    """
+    src, gt, scaled = read_scaled(args.grib, args.sentinel_lt, args.scale)
 
     mem = gdal.GetDriverByName("MEM").Create(
         "", src.RasterXSize, src.RasterYSize, 1, gdal.GDT_Float32
@@ -114,6 +124,20 @@ def build(args) -> tuple[np.ndarray, gdal.Dataset]:
     return warped
 
 
+def encode_gray(a: np.ndarray, dmin: float,
+                dmax: float) -> tuple[np.ndarray, np.ndarray]:
+    """NODATA-masked float32 grid -> (gray, alpha) uint8 planes."""
+    valid = a != np.float32(NODATA)
+
+    # Expression order matters: ((A-dmin)*254.0)/(dmax-dmin) in float32,
+    # and np.round's round-half-to-even, are what gdal_calc evaluated.
+    v = (a - np.float32(dmin)) * np.float32(254.0) / np.float32(dmax - dmin)
+    gray = np.where(valid, np.minimum(255, np.maximum(1, 1 + np.round(v))), 0)
+    gray = gray.astype(np.uint8)
+    alpha = np.where(valid, 255, 0).astype(np.uint8)
+    return gray, alpha
+
+
 def to_png(warped: gdal.Dataset, out: str, dmin: float, dmax: float) -> None:
     """gray+alpha PNG, reproducing the second gdal_calc + gdal_translate.
 
@@ -128,15 +152,7 @@ def to_png(warped: gdal.Dataset, out: str, dmin: float, dmax: float) -> None:
     masked-array handling — verified live 2026-07-12). Working on the raw
     array here has the same effect.
     """
-    a = warped.GetRasterBand(1).ReadAsArray()
-    valid = a != np.float32(NODATA)
-
-    # Expression order matters: ((A-dmin)*254.0)/(dmax-dmin) in float32,
-    # and np.round's round-half-to-even, are what gdal_calc evaluated.
-    v = (a - np.float32(dmin)) * np.float32(254.0) / np.float32(dmax - dmin)
-    gray = np.where(valid, np.minimum(255, np.maximum(1, 1 + np.round(v))), 0)
-    gray = gray.astype(np.uint8)
-    alpha = np.where(valid, 255, 0).astype(np.uint8)
+    gray, alpha = encode_gray(warped.GetRasterBand(1).ReadAsArray(), dmin, dmax)
 
     mem = gdal.GetDriverByName("MEM").Create(
         "", warped.RasterXSize, warped.RasterYSize, 2, gdal.GDT_Byte
