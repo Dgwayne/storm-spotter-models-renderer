@@ -71,6 +71,22 @@ Env (all optional): R2_BUCKET (required to publish), VOL3D_STATE_DIR
 120), VOL3D_JOBS (download/decode threads, default 6), VOL3D_PREFIX
 (default v1/VOL3D; a shadow run points this elsewhere), VOL3D_DEADLINE_S
 (the whole tick's budget, default 300; 0 disables).
+
+Two hosts, one prefix (primary + fallback, since 2026-09-30): VOL3D_ROLE
+(`primary`, the default, or `fallback`) and VOL3D_PRODUCER (this host's
+name in the pointer, default the hostname). Both roles read the published
+pointer (`rclone cat .../latest.json`, the bucket itself, never the CDN)
+before any download and skip a stamp that is already up, so two live
+producers never render the same cycle twice on purpose. The fallback also
+waits: while a DIFFERENT producer has published within
+VOL3D_PRIMARY_ALIVE_S (default 600), it leaves a new stamp alone until the
+source objects are VOL3D_FALLBACK_GRACE_S old (default 300; S3
+Last-Modified, so "how long the primary has had it"). Once the last
+pointer is its own, or the primary has been silent past the alive window,
+it publishes without waiting, so a lone fallback is exactly as fresh as a
+primary. `recent[]` is the union of both producers' stamps (the pointer's
+list is absorbed into local state), so loops never lose the other box's
+frames and prune never deletes them early.
 Needs numpy + osgeo (GDAL with its GRIB driver); --selftest needs numpy only.
 
 Exit codes: 0 published or honestly idle, 2 usage, 3 the tick ran past
@@ -85,6 +101,7 @@ import gzip
 import json
 import os
 import re
+import socket
 import struct
 import subprocess
 import sys
@@ -704,6 +721,126 @@ class State:
         self.commit(s)
         return s
 
+    def absorb(self, stamps: list[str]) -> bool:
+        """Take stamps another producer published (the pointer's
+        `recent[]`) into local state, newest first. They ARE on B2, so
+        they belong in every later plan() and in prune's keep-set. Returns
+        whether anything was new."""
+        good = [s for s in stamps if isinstance(s, str) and re.fullmatch(r"\d{8}-\d{6}", s)]
+        merged = sorted(set(self.stamps) | set(good), reverse=True)
+        if merged == self.stamps:
+            return False
+        self.commit(merged)
+        return True
+
+
+# ── Two producers, one prefix ─────────────────────────────────────────────
+# The primary (OVH) and the fallback (box 2) run the same timer against the
+# same prefix. They coordinate through the published pointer alone: no
+# shared lock, no cross-box network, nothing that fails when one box is
+# unreachable. See the module docstring for the rules; publish_decision()
+# is the whole policy and --selftest pins it.
+
+def read_remote_latest(bucket: str, prefix: str) -> dict | None:
+    """The pointer as it is on B2 right now (NOT via the CDN: its 20 s
+    max-age would let a fallback act on a stale copy). None when it cannot
+    be read: absent on a fresh prefix, or the bucket is unreachable, in
+    which case a publish would fail anyway."""
+    try:
+        out = subprocess.run(
+            ["rclone", "cat", f"r2:{bucket}/{prefix}/latest.json",
+             "--s3-no-check-bucket", "--retries", "2", "--low-level-retries", "3"],
+            capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"  WARN pointer read failed: {e}", file=sys.stderr, flush=True)
+        return None
+    if out.returncode != 0 or not out.stdout.strip():
+        tail = (out.stderr or "").strip().splitlines()
+        print(f"  WARN pointer read rc={out.returncode}: {tail[-1] if tail else 'no output'}",
+              file=sys.stderr, flush=True)
+        return None
+    try:
+        d = json.loads(out.stdout)
+    except ValueError as e:
+        print(f"  WARN pointer unreadable: {e}", file=sys.stderr, flush=True)
+        return None
+    return d if isinstance(d, dict) else None
+
+
+def source_age_s(key: str) -> float | None:
+    """Seconds since NOAA uploaded `key` (S3 Last-Modified), i.e. how long
+    every producer has been able to see this stamp. None if the HEAD
+    fails: the caller treats unknown as "not old enough yet"."""
+    try:
+        req = Request(f"{S3}/{key}", method="HEAD",
+                      headers={"User-Agent": "stp-renderer/1.0"})
+        with urlopen(req, timeout=20) as r:
+            lm = r.headers.get("Last-Modified")
+    except (HTTPError, URLError, TimeoutError, OSError):
+        return None
+    if not lm:
+        return None
+    try:
+        from email.utils import parsedate_to_datetime
+        t = parsedate_to_datetime(lm)
+    except (TypeError, ValueError):
+        return None
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return max(0.0, (datetime.now(timezone.utc) - t).total_seconds())
+
+
+def _parse_iso(s: object) -> datetime | None:
+    if not isinstance(s, str):
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def publish_decision(role: str, me: str, stamp: str, remote: dict | None,
+                     age_fn, grace_s: int, alive_s: int,
+                     now: datetime | None = None) -> tuple[str | None, str]:
+    """Should THIS tick publish `stamp`? Returns (idle reason or None to go
+    on, a detail for the log). `age_fn()` is called only when the answer
+    hinges on the source's age (one HEAD), so idle and primary ticks never
+    pay for it.
+
+    Rules, in order:
+      1. pointer unreadable            -> publish (a fresh prefix, or B2
+                                          is down and the upload will say so)
+      2. pointer stamp >= this stamp   -> idle `published-elsewhere`
+      3. primary                       -> publish
+      4. fallback, last pointer is my own or older than alive_s
+                                       -> publish (`primary-absent`)
+      5. fallback, source younger than grace_s
+                                       -> idle `primary-grace`
+      6. fallback, otherwise           -> publish (`primary-behind`)
+    """
+    if remote is None:
+        return None, "pointer=none"
+    r_stamp = remote.get("stamp")
+    r_by = remote.get("producer") or "?"
+    if isinstance(r_stamp, str) and r_stamp >= stamp:
+        return "published-elsewhere", f"remote={r_stamp} by={r_by}"
+    if role != "fallback":
+        return None, f"remote={r_stamp} by={r_by}"
+    now = now or datetime.now(timezone.utc)
+    gen = _parse_iso(remote.get("generatedAt"))
+    gen_age = (now - gen).total_seconds() if gen else None
+    foreign_alive = (r_by != me and r_by != "?" and gen_age is not None
+                     and 0 <= gen_age <= alive_s)
+    if not foreign_alive:
+        return None, (f"primary-absent remote={r_stamp} by={r_by} "
+                      f"pointer_age={gen_age:.0f}s" if gen_age is not None else
+                      f"primary-absent remote={r_stamp} by={r_by}")
+    age = age_fn()
+    if age is None or age < grace_s:
+        shown = "?" if age is None else f"{age:.0f}s"
+        return "primary-grace", f"remote={r_stamp} by={r_by} source_age={shown} grace={grace_s}s"
+    return None, f"primary-behind remote={r_stamp} by={r_by} source_age={age:.0f}s"
+
 
 # ── Tick watchdog ─────────────────────────────────────────────────────────
 # Every fetch has a per-request timeout, but a tick is 56 listings + 56
@@ -819,6 +956,13 @@ def run_tick(args) -> int:
     retain_min = int(os.environ.get("VOL3D_RETAIN_MIN", "120"))
     prefix = os.environ.get("VOL3D_PREFIX", "v1/VOL3D").strip("/")
     deadline_s = int(os.environ.get("VOL3D_DEADLINE_S", "300"))
+    role = os.environ.get("VOL3D_ROLE", "primary").strip().lower() or "primary"
+    if role not in ("primary", "fallback"):
+        print(f"FATAL: VOL3D_ROLE must be primary or fallback, not {role!r}", file=sys.stderr)
+        return 2
+    producer = os.environ.get("VOL3D_PRODUCER", "").strip() or socket.gethostname()
+    grace_s = int(os.environ.get("VOL3D_FALLBACK_GRACE_S", "300"))
+    alive_s = int(os.environ.get("VOL3D_PRIMARY_ALIVE_S", "600"))
     state = State(Path(os.environ.get("VOL3D_STATE_DIR",
                                       str(Path.home() / "stp-vol3d" / "state"))))
     bucket = os.environ.get("R2_BUCKET", "")
@@ -874,6 +1018,26 @@ def run_tick(args) -> int:
     if any(k is None for k in ref_keys):
         print(f"TICK vol3d status=idle reason=forced-stamp-incomplete stamp={stamp}")
         return 0
+
+    # 2. Who else is publishing here? The pointer on B2 decides whether
+    #    this stamp is still ours to do (see publish_decision).
+    if args.publish and not args.force:
+        phase("pointer")
+        remote = read_remote_latest(bucket, prefix)
+        if remote is not None and state.absorb(remote.get("recent") or []):
+            print(f"  absorbed remote recent[] -> {len(state.stamps)} stamps", flush=True)
+        reason, detail = publish_decision(
+            role, producer, stamp, remote,
+            lambda: source_age_s(ref_keys[0]), grace_s, alive_s)
+        if reason is not None:
+            if reason == "published-elsewhere":
+                # Cheap idles from here on: the quick check sees this
+                # stamp as the last one (it IS up, just not by us).
+                state.absorb([stamp])
+            print(f"TICK vol3d status=idle reason={reason} stamp={stamp} role={role} "
+                  f"{detail} {elapsed()}")
+            return 0
+        print(f"  publish: role={role} {detail}", flush=True)
     cc_keys = [pick_companion(listings[d], stamp) for d in cc_dirs]
     az02_key = pick_companion(listings[AZ02_DIR], stamp)
     az36_key = pick_companion(listings[AZ36_DIR], stamp)
@@ -965,6 +1129,8 @@ def run_tick(args) -> int:
             "stamp": stamp,
             "valid": valid.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "producer": producer,
+            "role": role,
             "grid": grid_json(),
             "channels": CH_REF | (CH_CC if has_cc else 0) | (CH_ROT if has_rot else 0),
             "tiles": tiles,
@@ -1011,7 +1177,8 @@ def run_tick(args) -> int:
             f"debris_cols={kept_cols} debris_tiles={debris_tiles} rot_tiles={rot_tiles} "
             f"in_mb={bytes_in / 1e6:.1f} out_mb={bytes_out / 1e6:.1f} "
             f"pruned={removed} dl={t_dl:.0f}s ref={t_ref:.0f}s cc={t_cc:.0f}s "
-            f"tiles={t_tiles:.0f}s pub={t_pub:.0f}s elapsed={time.time() - t_start:.0f}s"
+            f"tiles={t_tiles:.0f}s pub={t_pub:.0f}s role={role} "
+            f"elapsed={time.time() - t_start:.0f}s"
         )
         return 0
     finally:
@@ -1179,6 +1346,49 @@ def selftest() -> int:
         check(State(Path(td)).last == "20260909-020200", "State.commit persists")
     check(level_tag(500) == "00.50" and level_tag(10000) == "10.00" and level_tag(19000) == "19.00",
           "level tags")
+
+    # State.absorb: another producer's stamps join local state, once.
+    with tempfile.TemporaryDirectory() as td:
+        st = State(Path(td))
+        st.commit(["20260930-060000"])
+        check(st.absorb(["20260930-060200", "junk", "20260930-060000"])
+              and st.stamps == ["20260930-060200", "20260930-060000"]
+              and State(Path(td)).last == "20260930-060200",
+              "State.absorb: union, newest first, junk dropped, persisted")
+        check(not st.absorb(["20260930-060000"]), "State.absorb: nothing new -> False")
+
+    # publish_decision: the two-producer policy.
+    now = datetime(2026, 9, 30, 6, 40, tzinfo=timezone.utc)
+    fresh = {"stamp": "20260930-063639", "producer": "ovh",
+             "generatedAt": "2026-09-30T06:39:20Z"}
+    stale = dict(fresh, generatedAt="2026-09-30T06:20:00Z")
+    mine = dict(fresh, producer="box2")
+    S = "20260930-063840"
+    never = lambda: (_ for _ in ()).throw(AssertionError("age_fn must not be called"))  # noqa: E731
+    check(publish_decision("primary", "ovh", S, None, never, 300, 600, now) == (None, "pointer=none"),
+          "decision: no pointer -> publish")
+    check(publish_decision("fallback", "box2", S, None, never, 300, 600, now)[0] is None,
+          "decision: fallback with no pointer -> publish")
+    check(publish_decision("primary", "ovh", S, dict(fresh, stamp=S), never, 300, 600, now)[0]
+          == "published-elsewhere", "decision: stamp already up -> idle (primary)")
+    check(publish_decision("fallback", "box2", S, dict(fresh, stamp="20260930-064040"),
+                           never, 300, 600, now)[0] == "published-elsewhere",
+          "decision: pointer newer than mine -> idle (fallback)")
+    check(publish_decision("primary", "ovh", S, mine, never, 300, 600, now)[0] is None,
+          "decision: primary never waits")
+    check(publish_decision("fallback", "box2", S, mine, never, 300, 600, now)
+          == (None, "primary-absent remote=20260930-063639 by=box2 pointer_age=40s"),
+          "decision: fallback owns the last pointer -> publish now")
+    check(publish_decision("fallback", "box2", S, stale, never, 300, 600, now)[0] is None,
+          "decision: primary silent past the alive window -> publish")
+    check(publish_decision("fallback", "box2", S, {"stamp": "20260930-063639"}, never, 300, 600, now)[0]
+          is None, "decision: pointer without producer/generatedAt -> publish")
+    check(publish_decision("fallback", "box2", S, fresh, lambda: 120.0, 300, 600, now)[0]
+          == "primary-grace", "decision: primary alive, source young -> wait")
+    check(publish_decision("fallback", "box2", S, fresh, lambda: None, 300, 600, now)[0]
+          == "primary-grace", "decision: age unknown counts as young")
+    check(publish_decision("fallback", "box2", S, fresh, lambda: 301.0, 300, 600, now)[0] is None,
+          "decision: primary alive but behind past the grace -> publish")
 
     print("SELFTEST " + ("PASS" if fails == 0 else f"FAIL ({fails})"))
     return 0 if fails == 0 else 1

@@ -10,7 +10,7 @@ scan to deepen.
 | | |
 |---|---|
 | script | `scripts/mrms_volume_tiles.py` (`--selftest` needs numpy only) |
-| runs on | Box 2 (`deploy/box2/run-vol3d.sh`, user timer `stp-vol3d.timer`, every 2 min) |
+| runs on | OVH VPS (primary, `*:0/2`) + Box 2 (fallback, `*:1/2`), both `deploy/vol3d/run-vol3d.sh` under user timer `stp-vol3d.timer`; roles and failover in `deploy/vol3d/README.md` |
 | source | `noaa-mrms-pds` `CONUS/MergedReflectivityQC_<lvl>/` (33 CAPPIs 0.5–19 km), `MergedRhoHV_<lvl>/` to 8 km, `MergedAzShear_0-2kmAGL_00.50/`, `MergedAzShear_3-6kmAGL_00.50/` |
 | output | `v1/VOL3D/latest.json` (pointer, `max-age=20`), `v1/VOL3D/<stamp>/index.json` + `r<RR>c<CC>.rvt.gz` (immutable, `max-age=86400`) |
 | tile | 2°×2°, 200×200 cells × 38 levels of 500 m, planes REF / CC / rotation, gzip; an **empty tile is not written** |
