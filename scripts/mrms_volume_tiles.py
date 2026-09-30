@@ -579,6 +579,16 @@ def choose_stamp(listings: dict[str, dict[str, str] | None], ref_dirs: list[str]
     return max(common)
 
 
+def complete_stamps(listings: dict[str, dict[str, str] | None],
+                    ref_dirs: list[str]) -> list[str]:
+    """Every stamp present in ALL reflectivity levels, oldest first."""
+    common: set[str] | None = None
+    for d in ref_dirs:
+        s = set(listings.get(d) or {})
+        common = s if common is None else common & s
+    return sorted(common or ())
+
+
 def pick_companion(listing: dict[str, str], stamp: str, *,
                    after_s: int = 90, before_s: int = 360) -> str | None:
     """Newest key of a companion product whose stamp is within
@@ -803,9 +813,13 @@ def publish_decision(role: str, me: str, stamp: str, remote: dict | None,
                      age_fn, grace_s: int, alive_s: int,
                      now: datetime | None = None) -> tuple[str | None, str]:
     """Should THIS tick publish `stamp`? Returns (idle reason or None to go
-    on, a detail for the log). `age_fn()` is called only when the answer
-    hinges on the source's age (one HEAD), so idle and primary ticks never
-    pay for it.
+    on, a detail for the log). `age_fn()` -> (stamp, seconds) is the age
+    of the OLDEST complete stamp the pointer does not cover yet: how long
+    the primary has had something to do and not done it. It is called only
+    when the answer hinges on it (one HEAD), so idle and primary ticks
+    never pay for it. Measuring the NEWEST stamp instead was the first
+    version's mistake: MRMS posts one every ~2 min, so the newest is never
+    5 min old and the fallback only ever took over at the alive window.
 
     Rules, in order:
       1. pointer unreadable            -> publish (a fresh prefix, or B2
@@ -814,7 +828,7 @@ def publish_decision(role: str, me: str, stamp: str, remote: dict | None,
       3. primary                       -> publish
       4. fallback, last pointer is my own or older than alive_s
                                        -> publish (`primary-absent`)
-      5. fallback, source younger than grace_s
+      5. fallback, oldest missed stamp younger than grace_s
                                        -> idle `primary-grace`
       6. fallback, otherwise           -> publish (`primary-behind`)
     """
@@ -835,11 +849,13 @@ def publish_decision(role: str, me: str, stamp: str, remote: dict | None,
         return None, (f"primary-absent remote={r_stamp} by={r_by} "
                       f"pointer_age={gen_age:.0f}s" if gen_age is not None else
                       f"primary-absent remote={r_stamp} by={r_by}")
-    age = age_fn()
+    missed, age = age_fn()
     if age is None or age < grace_s:
         shown = "?" if age is None else f"{age:.0f}s"
-        return "primary-grace", f"remote={r_stamp} by={r_by} source_age={shown} grace={grace_s}s"
-    return None, f"primary-behind remote={r_stamp} by={r_by} source_age={age:.0f}s"
+        return "primary-grace", (f"remote={r_stamp} by={r_by} missed={missed} "
+                                 f"missed_age={shown} grace={grace_s}s")
+    return None, (f"primary-behind remote={r_stamp} by={r_by} missed={missed} "
+                  f"missed_age={age:.0f}s")
 
 
 # ── Tick watchdog ─────────────────────────────────────────────────────────
@@ -1026,9 +1042,18 @@ def run_tick(args) -> int:
         remote = read_remote_latest(bucket, prefix)
         if remote is not None and state.absorb(remote.get("recent") or []):
             print(f"  absorbed remote recent[] -> {len(state.stamps)} stamps", flush=True)
+
+        def missed_age() -> tuple[str, float | None]:
+            # The oldest complete stamp the pointer does not cover: the
+            # one the primary has been sitting on longest.
+            r = (remote or {}).get("stamp")
+            pending = [s for s in complete_stamps(listings, ref_dirs)
+                       if not isinstance(r, str) or s > r]
+            first = pending[0] if pending else stamp
+            return first, source_age_s(listings[ref_dirs[0]][first])
+
         reason, detail = publish_decision(
-            role, producer, stamp, remote,
-            lambda: source_age_s(ref_keys[0]), grace_s, alive_s)
+            role, producer, stamp, remote, missed_age, grace_s, alive_s)
         if reason is not None:
             if reason == "published-elsewhere":
                 # Cheap idles from here on: the quick check sees this
@@ -1383,12 +1408,19 @@ def selftest() -> int:
           "decision: primary silent past the alive window -> publish")
     check(publish_decision("fallback", "box2", S, {"stamp": "20260930-063639"}, never, 300, 600, now)[0]
           is None, "decision: pointer without producer/generatedAt -> publish")
-    check(publish_decision("fallback", "box2", S, fresh, lambda: 120.0, 300, 600, now)[0]
-          == "primary-grace", "decision: primary alive, source young -> wait")
-    check(publish_decision("fallback", "box2", S, fresh, lambda: None, 300, 600, now)[0]
+    M = "20260930-063840"
+    check(publish_decision("fallback", "box2", S, fresh, lambda: (M, 120.0), 300, 600, now)[0]
+          == "primary-grace", "decision: primary alive, missed stamp young -> wait")
+    check(publish_decision("fallback", "box2", S, fresh, lambda: (M, None), 300, 600, now)[0]
           == "primary-grace", "decision: age unknown counts as young")
-    check(publish_decision("fallback", "box2", S, fresh, lambda: 301.0, 300, 600, now)[0] is None,
+    check(publish_decision("fallback", "box2", S, fresh, lambda: (M, 301.0), 300, 600, now)
+          == (None, f"primary-behind remote=20260930-063639 by=ovh missed={M} missed_age=301s"),
           "decision: primary alive but behind past the grace -> publish")
+
+    # complete_stamps: oldest first, only stamps every level has.
+    L = {"a": {"1": "k", "2": "k", "3": "k"}, "b": {"2": "k", "3": "k"}, "c": None}
+    check(complete_stamps(L, ["a", "b"]) == ["2", "3"] and complete_stamps(L, ["a", "c"]) == [],
+          "complete_stamps: intersection, sorted, failed listing empties it")
 
     print("SELFTEST " + ("PASS" if fails == 0 else f"FAIL ({fails})"))
     return 0 if fails == 0 else 1
