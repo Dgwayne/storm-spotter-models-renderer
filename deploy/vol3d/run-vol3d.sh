@@ -6,7 +6,7 @@
 # upload, prune stamps past the retention window.
 #
 # TWO HOSTS, ONE PREFIX (since 2026-09-30):
-#   OVH VPS  vps-021a1204    VOL3D_ROLE=primary    (timer *:0/2)
+#   OVH VPS  vps-021a1204    VOL3D_ROLE=primary    (timer *:0/1)
 #   Box 2    stp-render2copy VOL3D_ROLE=fallback   (timer *:1/2)
 # They coordinate through the published pointer alone (see the script's
 # docstring: a stamp already up is skipped by both; the fallback waits

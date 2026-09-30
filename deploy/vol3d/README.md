@@ -6,7 +6,7 @@ hosts against that one prefix:
 
 | host | role | timer | credentials env | why |
 |---|---|---|---|---|
-| OVH VPS-4 `vps-021a1204` (15.204.211.25) | **primary** | `*:0/2` | `~/stp-vol3d/env.sh` -> `~/.stp-b2.env` | 8 vCore / 22 GB, 4 ms to us-east-1, off the home ISP |
+| OVH VPS-4 `vps-021a1204` (15.204.211.25) | **primary** | `*:0/1` | `~/stp-vol3d/env.sh` -> `~/.stp-b2.env` | 8 vCore / 22 GB, 4 ms to us-east-1, off the home ISP |
 | Box 2 `stp-render2copy` (192.168.50.134) | **fallback** | `*:1/2` | `~/stp-prod/env.sh` | the box that ran it alone until 2026-09-30 |
 
 Oracle was measured and rejected: 2 cores at load 4, its MRMS fast tier
@@ -53,7 +53,7 @@ second `latest.json` simply wins.
 
 ```bash
 # OVH (primary)
-VOL3D_ENV=$HOME/stp-vol3d/env.sh VOL3D_NICE=10 VOL3D_ONCALENDAR='*:0/2' \
+VOL3D_ENV=$HOME/stp-vol3d/env.sh VOL3D_NICE=10 VOL3D_ONCALENDAR='*:0/1' \
   ~/storm-spotter-models-renderer/deploy/vol3d/install.sh primary
 # Box 2 (fallback)
 ~/storm-spotter-models-renderer/deploy/vol3d/install.sh fallback
@@ -79,6 +79,16 @@ Prove the fill without printing values:
 ```bash
 source ~/stp-vol3d/env.sh && rclone lsf --dirs-only r2:$R2_BUCKET/v1/VOL3D/ | tail -3
 ```
+
+## Measured at the cutover (2026-09-30 16:33Z)
+
+OVH's tick is 76 s (box 2: 50 s; slower cores shared with the L2 ingest at
+the same nice), so on a 2-min timer each stamp waited for the next boundary
+and publish-minus-valid was 288 s against box 2's 193 s baseline. On the
+1-min timer (an unchanged stamp is a 1 s idle) it is p50 215 s, max 248 s.
+The L2 ingest on the same box moved from age p50 12 s / decode 1434 ms to
+13 s / 1601 ms. Closing the last ~20 s means giving vol3d priority over
+the ingest (`VOL3D_NICE=5`), which is a trade, not a fix.
 
 ## Reading the logs
 

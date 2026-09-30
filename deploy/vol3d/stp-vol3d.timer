@@ -5,9 +5,9 @@ Description=STP MRMS 3D volume tiles timer
 # MRMS's own 3D-mosaic cadence. An unchanged stamp is a one-listing idle
 # tick, so this never renders the same cycle twice. Box 2 keeps this
 # default, offset one minute from its OBS fast tier (*:0/2) so the two do
-# not start together. The OVH primary runs *:0/2 (install.sh drop-in) so it
-# leads the fallback by a minute: by the time box 2 looks, the stamp is
-# normally already up and its tick is a cheap idle.
+# not start together. The OVH primary runs *:0/1 (install.sh drop-in): its tick
+# is ~76 s there, so a 2-min cadence made every stamp wait for the next
+# boundary; at 1 min the idle ticks cost a 1 s listing each.
 OnCalendar=*:1/2
 Persistent=false
 AccuracySec=5s
