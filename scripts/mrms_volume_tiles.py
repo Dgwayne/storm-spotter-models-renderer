@@ -800,6 +800,51 @@ def source_age_s(key: str) -> float | None:
     return max(0.0, (datetime.now(timezone.utc) - t).total_seconds())
 
 
+def write_heartbeat(bucket: str, prefix: str, producer: str, role: str) -> None:
+    """The primary's presence, `<prefix>/primary.json`, written every tick
+    that reaches the pointer phase. Without it a healthy fallback that owns
+    the pointer never yields: on 2026-09-30 box 2's odd-minute tick caught
+    every new stamp first, so OVH only ever saw `published-elsewhere` and
+    the primary never became the primary. Not fatal if it fails."""
+    body = json.dumps({"producer": producer, "role": role,
+                       "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        f.write(body)
+        tmp = f.name
+    try:
+        r = subprocess.run(
+            ["rclone", "copyto", tmp, f"r2:{bucket}/{prefix}/primary.json",
+             "--s3-no-check-bucket", "--no-traverse", "--retries", "2",
+             "--header-upload", "Cache-Control: public, max-age=20"],
+            capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            tail = (r.stderr or "").strip().splitlines()
+            print(f"  WARN heartbeat rc={r.returncode}: {tail[-1] if tail else ''}",
+                  file=sys.stderr, flush=True)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"  WARN heartbeat: {e}", file=sys.stderr, flush=True)
+    finally:
+        os.unlink(tmp)
+
+
+def read_heartbeat(bucket: str, prefix: str) -> dict | None:
+    """The primary's `primary.json`, or None (never written, or unreadable)."""
+    try:
+        r = subprocess.run(
+            ["rclone", "cat", f"r2:{bucket}/{prefix}/primary.json",
+             "--s3-no-check-bucket", "--retries", "2", "--low-level-retries", "3"],
+            capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    try:
+        d = json.loads(r.stdout)
+    except ValueError:
+        return None
+    return d if isinstance(d, dict) else None
+
+
 def _parse_iso(s: object) -> datetime | None:
     if not isinstance(s, str):
         return None
@@ -811,7 +856,8 @@ def _parse_iso(s: object) -> datetime | None:
 
 def publish_decision(role: str, me: str, stamp: str, remote: dict | None,
                      age_fn, grace_s: int, alive_s: int,
-                     now: datetime | None = None) -> tuple[str | None, str]:
+                     now: datetime | None = None,
+                     heartbeat: dict | None = None) -> tuple[str | None, str]:
     """Should THIS tick publish `stamp`? Returns (idle reason or None to go
     on, a detail for the log). `age_fn()` -> (stamp, seconds) is the age
     of the OLDEST complete stamp the pointer does not cover yet: how long
@@ -826,7 +872,8 @@ def publish_decision(role: str, me: str, stamp: str, remote: dict | None,
                                           is down and the upload will say so)
       2. pointer stamp >= this stamp   -> idle `published-elsewhere`
       3. primary                       -> publish
-      4. fallback, last pointer is my own or older than alive_s
+      4. fallback, no OTHER producer within alive_s in either the
+         pointer or the primary's heartbeat (`primary.json`)
                                        -> publish (`primary-absent`)
       5. fallback, oldest missed stamp younger than grace_s
                                        -> idle `primary-grace`
@@ -845,10 +892,17 @@ def publish_decision(role: str, me: str, stamp: str, remote: dict | None,
     gen_age = (now - gen).total_seconds() if gen else None
     foreign_alive = (r_by != me and r_by != "?" and gen_age is not None
                      and 0 <= gen_age <= alive_s)
-    if not foreign_alive:
-        return None, (f"primary-absent remote={r_stamp} by={r_by} "
-                      f"pointer_age={gen_age:.0f}s" if gen_age is not None else
-                      f"primary-absent remote={r_stamp} by={r_by}")
+    hb_by = (heartbeat or {}).get("producer")
+    hb_at = _parse_iso((heartbeat or {}).get("at"))
+    hb_age = (now - hb_at).total_seconds() if hb_at else None
+    hb_alive = (isinstance(hb_by, str) and hb_by != me and hb_age is not None
+                and 0 <= hb_age <= alive_s)
+    if not foreign_alive and not hb_alive:
+        pa = f" pointer_age={gen_age:.0f}s" if gen_age is not None else ""
+        ha = f" heartbeat={hb_by} heartbeat_age={hb_age:.0f}s" if hb_age is not None else ""
+        return None, f"primary-absent remote={r_stamp} by={r_by}{pa}{ha}"
+    if hb_alive and not foreign_alive:
+        r_by = f"{hb_by}(heartbeat {hb_age:.0f}s)"
     missed, age = age_fn()
     if age is None or age < grace_s:
         shown = "?" if age is None else f"{age:.0f}s"
@@ -1039,6 +1093,11 @@ def run_tick(args) -> int:
     #    this stamp is still ours to do (see publish_decision).
     if args.publish and not args.force:
         phase("pointer")
+        heartbeat = None
+        if role == "primary":
+            write_heartbeat(bucket, prefix, producer, role)
+        else:
+            heartbeat = read_heartbeat(bucket, prefix)
         remote = read_remote_latest(bucket, prefix)
         if remote is not None and state.absorb(remote.get("recent") or []):
             print(f"  absorbed remote recent[] -> {len(state.stamps)} stamps", flush=True)
@@ -1053,7 +1112,8 @@ def run_tick(args) -> int:
             return first, source_age_s(listings[ref_dirs[0]][first])
 
         reason, detail = publish_decision(
-            role, producer, stamp, remote, missed_age, grace_s, alive_s)
+            role, producer, stamp, remote, missed_age, grace_s, alive_s,
+            heartbeat=heartbeat)
         if reason is not None:
             if reason == "published-elsewhere":
                 # Cheap idles from here on: the quick check sees this
@@ -1416,6 +1476,21 @@ def selftest() -> int:
     check(publish_decision("fallback", "box2", S, fresh, lambda: (M, 301.0), 300, 600, now)
           == (None, f"primary-behind remote=20260930-063639 by=ovh missed={M} missed_age=301s"),
           "decision: primary alive but behind past the grace -> publish")
+
+    # The heartbeat: a primary that has not published yet still counts.
+    hb = {"producer": "ovh", "role": "primary", "at": "2026-09-30T06:39:30Z"}
+    check(publish_decision("fallback", "box2", S, mine, lambda: (M, 120.0), 300, 600, now,
+                           heartbeat=hb)[0] == "primary-grace",
+          "decision: own pointer but a live primary heartbeat -> wait")
+    check(publish_decision("fallback", "box2", S, mine, lambda: (M, 301.0), 300, 600, now,
+                           heartbeat=hb)[0] is None,
+          "decision: live heartbeat but behind past the grace -> publish")
+    check(publish_decision("fallback", "box2", S, mine, never, 300, 600, now,
+                           heartbeat=dict(hb, at="2026-09-30T06:20:00Z"))[0] is None,
+          "decision: stale heartbeat -> publish")
+    check(publish_decision("fallback", "box2", S, mine, never, 300, 600, now,
+                           heartbeat=dict(hb, producer="box2"))[0] is None,
+          "decision: my own heartbeat never holds me back")
 
     # complete_stamps: oldest first, only stamps every level has.
     L = {"a": {"1": "k", "2": "k", "3": "k"}, "b": {"2": "k", "3": "k"}, "c": None}

@@ -22,9 +22,12 @@ pointer straight from the bucket (`rclone cat .../latest.json`, never the
    `published-elsewhere` (both roles), and the stamp is absorbed into local
    state so the following ticks are one-listing idles;
 2. the **primary** otherwise publishes at once;
-3. the **fallback** publishes at once when the last pointer is its own, or
-   the other producer has been silent longer than `VOL3D_PRIMARY_ALIVE_S`
-   (600 s): a lone fallback is exactly as fresh as a primary;
+3. the **fallback** publishes at once when no other producer has shown
+   up within `VOL3D_PRIMARY_ALIVE_S` (600 s) in either the pointer or the
+   primary's heartbeat (`primary.json`, written by every primary tick that
+   reaches the pointer phase): a lone fallback is exactly as fresh as a
+   primary. The heartbeat is what lets a returning primary take the
+   prefix back from a healthy fallback that keeps catching stamps first;
 4. while the primary is alive, the fallback leaves a new stamp alone until
    NOAA's objects are `VOL3D_FALLBACK_GRACE_S` (300 s) old (S3
    Last-Modified), then publishes it as `primary-behind`.
