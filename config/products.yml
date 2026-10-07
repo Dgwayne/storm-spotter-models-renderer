@@ -5265,9 +5265,8 @@ models:
   # pmmn = probability-matched mean (the "ensemble radar"), prob =
   # neighborhood probabilities. 00/06/12/18z cycles to f48, no f00.
   # ⚠ NOMADS retains ~2 days — retain_runs must stay ≤ 7.
-  # HREF's operational successor (REFS, the RRFS ensemble) arrives
-  # with the 2026-10-06 transition — same bridge-then-cutover story
-  # as RRFS deterministic; see [[rrfs-model]] checklist.
+  # ⚠ RETIRES 2026-10-14 (SCN 26-47) on the day REFS (below) goes
+  # operational. Delete both HREF entries once their feed stops.
   HREFPMMN:
     display: "HREF PMM 3km"
     picker_group: "Ensembles"
@@ -5292,3 +5291,47 @@ models:
     retain_runs: 4
     products: [probRefc40, probUh25, probUh75, probRain05, probRain1,
                probWind40, probSnow1h, probCape2k]
+
+  # ── REFS ensemble (RRFS Ensemble Forecast System) ─────────────────
+  # HREF's operational successor (SCN 26-48, go-live 2026-10-14). NOAA's
+  # ops bucket already carries the pre-implementation parallel at its
+  # final layout, idx included, so REFS renders beside HREF until HREF
+  # goes dark and nothing has to change on cutover day. Same two-file
+  # split as HREF. 00/06/12/18z to f60 (HREF stops at f48), no f00;
+  # f01 lands ~2 h after init, ~50 min sooner than HREF.
+  # ⚠ Membership thins late: the prob idx reports 14 members at f24, 13
+  # at f48 but only 6 at f60 (the time-lagged and HRRR members end
+  # early), so f49-f60 probabilities are noticeably noisier.
+  # Every HREF product code matched exactly ONE REFS message at
+  # f01/f02/f24/f48/f60 (checked 2026-10-07 against the 12z run) except
+  # probSnow1h — see match_overrides.
+  REFSPMMN:
+    display: "REFS PMM 3km"
+    picker_group: "Ensembles"
+    picker_order: 32
+    s3_bucket: "noaa-rrfs-ops-pds"
+    s3_key_template: "refs.{date}/{run:02d}/ensprod/refs.t{run:02d}z.pmmn.f{fh:02d}.conus.grib2"
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [2048, 2048]
+    forecast_hours_default: { start: 1, end: 60, step: 1 }
+    retain_runs: 4
+    products: [refc, refd1km, echoTops, uh25, precip1h]
+
+  REFSPROB:
+    display: "REFS Prob 3km"
+    picker_group: "Ensembles"
+    picker_order: 33
+    s3_bucket: "noaa-rrfs-ops-pds"
+    s3_key_template: "refs.{date}/{run:02d}/ensprod/refs.t{run:02d}z.prob.f{fh:02d}.conus.grib2"
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [2048, 2048]
+    forecast_hours_default: { start: 1, end: 60, step: 1 }
+    retain_runs: 4
+    products: [probRefc40, probUh25, probUh75, probRain05, probRain1,
+               probWind40, probSnow1h, probCape2k]
+    # REFS has no WEASD probability; its 1-hour snow probability is on
+    # ASNOW (snow depth, metres). 0.025 m ≈ 1 in, the same "1 in/hr"
+    # threshold HREF's 2.54 kg/m² SWE expresses at 10:1. Keeping the
+    # probSnow1h code keeps the app's legend and map behavior as-is.
+    match_overrides:
+      probSnow1h: ":ASNOW:surface:{fh_minus_1}-{fh} hour acc.*:prob >0.025:"

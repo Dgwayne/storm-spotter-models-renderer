@@ -72,6 +72,8 @@ SWEEP_RUNS = {
     "RAP": ("hourly", 4, None),
     "HREFPMMN": ("cycle", 2, 6),
     "HREFPROB": ("cycle", 2, 6),
+    "REFSPMMN": ("cycle", 2, 6),
+    "REFSPROB": ("cycle", 2, 6),
 }
 
 PROBE_TIMEOUT_S = 8
@@ -327,6 +329,10 @@ def main() -> None:
             key = (prod, run_hour)
             if key not in admitted_cache:
                 pc = dict(products_cfg[prod], _code=prod)
+                # Same per-model idx match swap decode_pipeline.sh applies.
+                override = (model_cfg.get("match_overrides") or {}).get(prod)
+                if override:
+                    pc["wgrib2_match"] = override
                 admitted_cache[key] = admitted_fhs(pc, expected, plan_knobs)
             have = rendered.get((prod, run), set())
             for fh in admitted_cache[key]:

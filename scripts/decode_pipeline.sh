@@ -31,6 +31,14 @@ COLOR_TABLES="${REPO_ROOT}/config/color_tables"
 
 # --- Resolve product + model config from YAML ----------------------------------
 WGRIB2_MATCH=$(yq -r ".products.${PRODUCT}.wgrib2_match" "$CONFIG")
+# match_overrides: a model that carries the SAME quantity under a different
+# GRIB field keeps the shared product code (so the app's legend, ramp and
+# map behavior apply unchanged) and swaps only the idx match. REFS
+# probSnow1h is ASNOW (snow depth, m) where HREF's is WEASD (SWE, kg/m²).
+MATCH_OVERRIDE=$(yq -r ".models.${MODEL}.match_overrides.${PRODUCT} // \"\"" "$CONFIG")
+if [ -n "${MATCH_OVERRIDE}" ]; then
+  WGRIB2_MATCH="${MATCH_OVERRIDE}"
+fi
 # Substitute fh placeholders so per-hour accumulation products work.
 WGRIB2_MATCH="${WGRIB2_MATCH//\{fh\}/${FH}}"
 WGRIB2_MATCH="${WGRIB2_MATCH//\{fh_minus_1\}/$((FH - 1))}"

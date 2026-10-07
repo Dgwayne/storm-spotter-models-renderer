@@ -91,6 +91,12 @@ const CRON_TO_WORKFLOW = {
     // Box is primary; these are the gated fallback legs.
     { wf: "render_hrefpmmn.yml", minutes: [55] },
     { wf: "render_hrefprob.yml", minutes: [10] },
+    // REFS pair (HREF's successor, 4 cycles/day to f60): same hourly
+    // fallback cadence on the two minutes HREF leaves free, so no tick
+    // gains more than one job. Box 2 is primary. When HREF retires
+    // (2026-10-14) these can move onto :55/:10.
+    { wf: "render_refspmmn.yml", minutes: [25] },
+    { wf: "render_refsprob.yml", minutes: [40] },
   ],
   // Slot C. Satellite frames land in IEM's archive on the quarter-hours, so
   // this catches each one a few minutes after it publishes. GeoColor shares
