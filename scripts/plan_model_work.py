@@ -19,8 +19,7 @@ What it does, in one pass:
      (an "APCP:{fh_minus_1}-{fh} hour acc" product has no f00 message, so
      probing/pending f00 forever would defeat the gate).
   4. HEAD-probe the source idx ONLY for (run, fh) tuples some product still
-     needs. RRFS needs no probes at all: its slim mirror lives in the same
-     bucket (v1/RRFS/_src/), so the listing already says what is published.
+     needs.
   5. Emit GITHUB_OUTPUT:
        has_work  = 'true' | 'false'
        matrix    = JSON [{group, products}] for ONLY the groups with work
@@ -56,8 +55,8 @@ import yaml  # PyYAML
 # ── Per-model run enumeration (KEEP IN SYNC with the sweep scripts) ──────
 #   mode "hourly": offsets 0..span hours back from now (render_hrrr.sh /
 #     render_rrfs.sh), optionally filtered to a set of allowed run hours
-#     (the RRFS bridge renders 3-hourly cycles only; delete that filter
-#     here when render_rrfs.sh drops its own at the NOMADS cutover).
+#     (RRFS renders 3-hourly cycles only, the only ones with plain 2dfld
+#     files; delete that filter here when render_rrfs.sh drops its own).
 #   mode "cycle":  snap now to the interval, step back 0..span cycles
 #     (render_nam.sh / render_gfs.sh / render_gefs_mean.sh /
 #      render_aifs.sh / render_ecmwf.sh).
@@ -83,7 +82,6 @@ PROBE_WORKERS = 16
 PROBE_UA = "stp-plan-gate"
 
 FRAME_RE = re.compile(r"^(?P<prod>[^/]+)/(?P<run>\d{10})/F(?P<fh>\d{3})\.png$")
-MIRROR_IDX_RE = re.compile(r"^_src/(?P<run>\d{10})/F(?P<fh>\d{3})\.grib2\.idx$")
 FH_MINUS_RE = re.compile(r"\{fh_minus_(\d+)\}")
 
 
@@ -301,15 +299,10 @@ def main() -> None:
         listing = res.stdout
 
     rendered: dict[tuple[str, str], set[int]] = {}
-    mirror_pub: dict[str, set[int]] = {}
     for line in listing.splitlines():
         m = FRAME_RE.match(line)
         if m:
             rendered.setdefault((m["prod"], m["run"]), set()).add(int(m["fh"]))
-            continue
-        m = MIRROR_IDX_RE.match(line)
-        if m:
-            mirror_pub.setdefault(m["run"], set()).add(int(m["fh"]))
 
     # ── 2+3. Candidate runs and per-product needs ────────────────────────
     plan_knobs = {
@@ -341,12 +334,7 @@ def main() -> None:
 
     # ── 4. Which needed (run, fh) tuples are actually published ─────────
     published: dict[str, set[int]] = {r: set() for r in runs}
-    if model == "RRFS":
-        # Slim mirror lives in this same bucket — the listing IS the
-        # publish state; no HTTP probes at all.
-        for run in runs:
-            published[run] = {fh for fh in need[run] if fh in mirror_pub.get(run, set())}
-    elif model_cfg.get("index_format") == "ecmwf":
+    if model_cfg.get("index_format") == "ecmwf":
         # Rate-limited host: binary-search the publish frontier per run
         # (batch publishing makes this exact) instead of per-fh probes.
         for run in runs:

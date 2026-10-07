@@ -70,15 +70,14 @@ BUCKET = os.environ["R2_BUCKET"]
 # the isobaric levels (prslev.3km) from the surface fields (2dfld.3km).
 # `prefix` is the output subdirectory under v1/soundings/ ("" keeps HRRR at
 # the root for back-compat with the dealiaser and released apps).
-# RRFS reads NOMADS directly (re-enabled 2026-09-26). The rrfs_a AWS feed
-# froze at 2026-08-12 11z (SCN 26-48) and NOMADS then served no .idx, so
-# RRFS soundings sat frozen for six weeks. By late September NOMADS
-# publishes .idx for the plain prslev/2dfld 3km CONUS files, but only on
-# 3-HOURLY cycles (00/03/../21z; the hours between are .subh. only).
-# find_latest_run's hourly walk just 404s past the missing cycles. NOMADS
-# requests are paced + coalesced (see _pace / fetch_subset). At the
-# operational cutover (SCN: 2026-10-06 12z) swap these URLs back to the
-# noaa-rrfs-pds bucket (verify the prefix NCO ships) for hourly cycles.
+# RRFS reads NOAA's operational bucket noaa-rrfs-ops-pds (SCN 26-48),
+# which carries the pre-implementation parallel at its final layout with
+# .idx, so the 2026-10-14 go-live needs no change. It replaced NOMADS on
+# 2026-10-07 (same files: the prslev idx is byte-identical on both hosts).
+# Plain prslev/2dfld 3km CONUS files exist only for 3-HOURLY cycles
+# (00/03/../21z; the hours between are .subh. only); find_latest_run's
+# hourly walk just 404s past the missing cycles. The NOMADS pacing below
+# stays for any future NOMADS source; S3 hosts are not paced.
 MODELS = [
     {
         "key": "hrrr",
@@ -121,9 +120,9 @@ MODELS = [
         "name": "RRFS",
         "prefix": "rrfs/",
         "files": [
-            "https://nomads.ncep.noaa.gov/pub/data/nccf/com/rrfs/v1.0/"
+            "https://noaa-rrfs-ops-pds.s3.amazonaws.com/"
             "rrfs.{d}/{h}/rrfs.t{h}z.prslev.3km.f{fh:03d}.conus.grib2",
-            "https://nomads.ncep.noaa.gov/pub/data/nccf/com/rrfs/v1.0/"
+            "https://noaa-rrfs-ops-pds.s3.amazonaws.com/"
             "rrfs.{d}/{h}/rrfs.t{h}z.2dfld.3km.f{fh:03d}.conus.grib2",
         ],
     },
@@ -199,11 +198,12 @@ def _derive_dpt(per_site: list, grids: dict) -> None:
             grids[f"DPT:{mb}"] = _td_from_t_rh(grids[f"TMP:{mb}"], grids[f"RH:{mb}"])
 
 
-# NOMADS blocks IPs that exceed roughly 120 requests/minute, and one RRFS
-# run is ~700 ranged GETs (19 hours x 2 files, 137 MB/hour of 3 km
-# isobaric messages). Every NOMADS request (HEAD, idx, range, retry) is
-# spaced process-wide to stay well under the limit, and carries the same
-# contact UA as mirror_rrfs.sh. S3 hosts are unaffected.
+# NOMADS blocks IPs that exceed roughly 120 requests/minute, and an RRFS
+# run read from there was ~700 ranged GETs (19 hours x 2 files, 137
+# MB/hour of 3 km isobaric messages). Every NOMADS request (HEAD, idx,
+# range, retry) is spaced process-wide to stay well under the limit and
+# carries a contact UA. No current model reads NOMADS (RRFS moved to S3
+# 2026-10-07); S3 hosts are unaffected.
 NOMADS_HOST = "nomads.ncep.noaa.gov"
 NOMADS_UA = "SpotterToolsPro-models-renderer/1.0 (contact: dgwaynesllc@gmail.com)"
 NOMADS_MIN_INTERVAL_S = 60.0 / 90

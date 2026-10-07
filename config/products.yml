@@ -68,17 +68,18 @@
 # `prefix` is the CDN subdirectory under v1/soundings/ ('' = HRRR at the
 # root, kept flat for back-compat with the dealiaser and released apps).
 # Entries here are DECOUPLED from extract_soundings.py's MODELS list on
-# purpose: RRFS still has (frozen) data on the CDN while its extraction
-# is disabled for the NOMADS bridge, and pulling it from the picker
-# should not require touching the extractor.
+# purpose: a model can keep (frozen) data on the CDN while its extraction
+# is disabled (RRFS during the 2026 NOMADS bridge), and pulling it from
+# the picker should not require touching the extractor.
 sounding_models:
   - key: hrrr
     display: "HRRR"
     prefix: ""
     order: 10
-  # RRFS: NOMADS-fed since 2026-09-26 (3-hourly cycles until the Oct 6
-  # cutover). It sat 6 weeks frozen while listed here; SOUNDRRFS in
-  # freshness_monitor.yml now watches it.
+  # RRFS: read from NOAA's noaa-rrfs-ops-pds bucket since 2026-10-07
+  # (NOMADS 2026-09-26 → 10-07), 3-hourly cycles. It once sat 6 weeks
+  # frozen while listed here; SOUNDRRFS in freshness_monitor.yml now
+  # watches it.
   - key: rrfs
     display: "RRFS"
     prefix: "rrfs/"
@@ -3479,8 +3480,8 @@ models:
     retain_runs: 5
 
   RRFS:
-    # NOAA's next-gen 3 km rapid-refresh model (operational Aug 31 2026;
-    # pre-operational rrfs_a feed until then). The 2dfld CONUS file carries
+    # NOAA's next-gen 3 km rapid-refresh model (operational 2026-10-14,
+    # replacing NAM). The 2dfld CONUS file carries
     # every HRRR surface product PLUS a running-total APCP accumulation, so
     # RRFS publishes precipTotal too. wind500 lives in the separate
     # prslev.3km.na file (different key template) — not rendered in v1.
@@ -3566,26 +3567,21 @@ models:
     # rrfs_a bucket, July 2026).
     forecast_hours_default: { start: 0, end: 18, step: 1 }
     forecast_hours_synoptic: { start: 0, end: 84, step: 1, runs: [0, 6, 12, 18] }
-    # ── NOMADS BRIDGE (2026-08-13 → cutover 2026-10-06) ────────────────
-    # NOAA froze the rrfs_a/rrfs_public prototype feeds at 2026-08-12 11z
-    # (SCN 26-48 pre-implementation parallel). The live source is NOMADS,
-    # which rate-limits per IP, so mirror_rrfs.sh is its ONE paced client:
-    # it byte-range fetches only our products' messages via the NOMADS
-    # .idx and publishes slim grib+idx pairs under v1/RRFS/_src/ on our
-    # own bucket. This template points the (unchanged) byte-range
-    # pipeline at that mirror via the CDN. 3-hourly cycles during the
-    # bridge: NOMADS publishes the hours between as sub-hourly files only
-    # (see mirror_rrfs.sh).
-    base_url: "https://models.dgwaynes.com"
-    s3_key_template: "v1/RRFS/_src/{date}{run:02d}/F{fh:03d}.grib2"
+    # Source: NOAA's operational RRFS bucket (SCN 26-48; NOT the old
+    # noaa-rrfs-pds, whose rrfs_a/ prefix is gone). It already carries the
+    # pre-implementation parallel at the final layout with idx, so the
+    # 2026-10-14 go-live needs no change here. Replaced the NOMADS slim
+    # mirror (mirror_rrfs.sh, 2026-08-13 → 2026-10-07): every product and
+    # derived input matched the same messages in NOAA's idx as in the
+    # mirror's, checked at f000/f001/f006/f018/f048/f084.
+    # ⚠ Plain 2dfld files exist only for 00/03/../21z (the hours between
+    # are .subh. 15-min files), hence the 3-hourly filters in
+    # render_rrfs.sh and plan_model_work.py.
+    s3_bucket: "noaa-rrfs-ops-pds"
+    s3_key_template: "rrfs.{date}/{run:02d}/rrfs.t{run:02d}z.2dfld.3km.f{fh:03d}.conus.grib2"
     display: "RRFS 3km"
     picker_group: "CONUS"
     picker_order: 12
-    # ⚠ RESTORE AT CUTOVER (2026-10-06 12z): delete base_url + the mirror
-    # job, re-enable hourly cycles in render_rrfs.sh, and swap back to the
-    # operational bucket path (verify the prefix NCO actually ships):
-    #   s3_bucket: "noaa-rrfs-pds"
-    #   s3_key_template: "rrfs.{date}/{run:02d}/rrfs.t{run:02d}z.2dfld.3km.f{fh:03d}.conus.grib2"
     runs_per_day: 24
     retain_runs: 5
 

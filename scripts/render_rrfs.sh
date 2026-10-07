@@ -11,14 +11,13 @@
 # The only model-specific bits are MODEL and the forecast-hour window:
 # hourly runs go to f18, synoptic runs (00/06/12/18z) to f84.
 #
-# ⚠ NOMADS BRIDGE (2026-08-13 → cutover 2026-10-06): the rrfs_a feed froze
-# at 2026-08-12 11z; frames now come from the slim mirror that
-# mirror_rrfs.sh publishes under v1/RRFS/_src/ (see products.yml). Two
-# bridge-only changes in this script, both to revert at cutover:
-#   1. Only 3-HOURLY cycles (00/03/../21z) are swept. NOMADS publishes
-#      the hours between as sub-hourly files only, which the mirror
-#      doesn't ingest. (Synoptic-only until 2026-09-26, when NOMADS
-#      started serving .idx for the 3-hourly cycles.)
+# ⚠ 3-HOURLY FOR NOW: frames come straight from NOAA's noaa-rrfs-ops-pds
+# bucket (see products.yml; the 2026-08-13 → 2026-10-07 NOMADS mirror is
+# retired). The pre-implementation parallel there publishes plain 2dfld
+# files only for 00/03/../21z; the hours between are .subh. 15-min files.
+# Two changes follow from that, both to revisit after the 2026-10-14
+# go-live if plain hourly files appear:
+#   1. Only 3-HOURLY cycles (00/03/../21z) are swept.
 #   2. HOURS_BACK is widened for the 3-hourly cadence (see below).
 
 set -euo pipefail
@@ -30,12 +29,11 @@ CONFIG="${REPO_ROOT}/config/products.yml"
 
 # Number of recent run-hours to sweep on every tick.
 #
-# BRIDGE VALUE (revert to 4 at cutover): offsets 0..9 contain four
-# 3-hourly cycles, enough for a synoptic run's f84 tail (~4 h of
-# publish + one mirror tick). The July-25 render/prune-thrash trap
-# (window wider than retention) can't bite: retain_runs=5 three-hourly
-# runs span 12 h, wider than this 9 h window. mirror_rrfs.sh's
-# CYCLES_BACK must cover the same window.
+# 3-HOURLY VALUE (back to 4 if hourly cycles return): offsets 0..9
+# contain four 3-hourly cycles, enough for a synoptic run's f84 tail
+# (~3.6 h after init). The July-25 render/prune-thrash trap (window wider
+# than retention) can't bite: retain_runs=5 three-hourly runs span 12 h,
+# wider than this 9 h window.
 HOURS_BACK=9
 
 # The product-list read is shared and concurrency-safe: see
@@ -110,8 +108,8 @@ for offset in $(seq 0 "${HOURS_BACK}"); do
   TARGET_EPOCH=$(( NOW_EPOCH - offset * 3600 ))
   RUN_DATE=$(date -u -d "@${TARGET_EPOCH}" +%Y%m%d)
   RUN_HOUR=$(date -u -d "@${TARGET_EPOCH}" +%H)
-  # BRIDGE: only 3-hourly cycles exist on the mirror (see header).
-  # Delete this skip at cutover to restore hourly runs.
+  # Only 3-hourly cycles have plain 2dfld files (see header). Delete
+  # this skip (and plan_model_work.py's RRFS hour filter) for hourly runs.
   if [ $(( 10#${RUN_HOUR} % 3 )) -ne 0 ]; then
     continue
   fi
