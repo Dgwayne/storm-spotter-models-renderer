@@ -28,7 +28,7 @@ Usage:
                      --bbox W S E N --size WIDTH HEIGHT
                      --scale FLOAT --sentinel-lt FLOAT
                      --data-min FLOAT --data-max FLOAT
-                     [--warped-tif merc.tif]
+                     [--resample near|max] [--warped-tif merc.tif]
 """
 
 from __future__ import annotations
@@ -92,7 +92,7 @@ def build(args) -> tuple[np.ndarray, gdal.Dataset]:
       [gdal_edit.py -a_ullr ...]              (0-360 longitude guard)
       gdal_calc  where(A<sentinel,-9999,A*scale)  --NoDataValue=-9999
       gdalwarp -t_srs EPSG:3857 -te_srs EPSG:4326 -te BBOX -ts W H
-               -r near -dstnodata -9999
+               -r <near|max> -dstnodata -9999
     """
     src, gt, scaled = read_scaled(args.grib, args.sentinel_lt, args.scale)
 
@@ -114,10 +114,11 @@ def build(args) -> tuple[np.ndarray, gdal.Dataset]:
         outputBounds=(w, s, e, n),
         width=args.size[0],
         height=args.size[1],
-        # DATA products warp with NEAREST — the app's crisp renderer
-        # interpolates in data space client-side, and cubic here would
-        # pre-blur real values (and invent overshoot ones).
-        resampleAlg="near",
+        # DATA products warp with NEAREST or MAX, never an averaging
+        # kernel: the app's crisp renderer interpolates in data space
+        # client-side, and cubic here would pre-blur real values (and
+        # invent overshoot ones). See --resample for when MAX.
+        resampleAlg=args.resample,
         srcNodata=NODATA,
         dstNodata=NODATA,
     )
@@ -173,6 +174,16 @@ def main() -> int:
     p.add_argument("--sentinel-lt", type=float, default=0.0)
     p.add_argument("--data-min", type=float, required=True)
     p.add_argument("--data-max", type=float, required=True)
+    p.add_argument(
+        "--resample",
+        choices=("near", "max"),
+        default="near",
+        help="near keeps one source cell per output pixel. The 4096-wide "
+        "frame is ~1.7x coarser than MRMS's 0.01 deg grid (3.4x for "
+        "0.005 deg azimuthal shear), so near silently drops 40-70%% of "
+        "source cells, peaks included. max keeps the strongest value under "
+        "each pixel: products.yml `resample: max` for intensity products",
+    )
     p.add_argument(
         "--warped-tif",
         help="also write the warped Float32 grid here (sample_point_values.py "

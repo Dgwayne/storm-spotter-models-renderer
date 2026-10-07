@@ -33,6 +33,7 @@ for product in "${PRODUCTS[@]}"; do
   dmax=$(yq -r ".products.${product}.data_png.max // \"\"" "$CONFIG")
   scale=$(yq -r ".products.${product}.scale // 1" "$CONFIG")
   sentinel_lt=$(yq -r ".products.${product}.sentinel_lt // 0" "$CONFIG")
+  resample=$(yq -r ".products.${product}.resample // \"near\"" "$CONFIG")
   if [ -z "$mrms_dir" ] || [ -z "$dmin" ]; then
     echo "SKIP ${product} (no mrms_dir or no data_png)"
     continue
@@ -55,7 +56,7 @@ for product in "${PRODUCTS[@]}"; do
     --grib "${work}/in.grib2" --out "${work}/new.png" \
     --bbox ${BBOX} --size "$IMG_W" "$IMG_H" \
     --scale "$scale" --sentinel-lt "$sentinel_lt" \
-    --data-min "$dmin" --data-max "$dmax"
+    --data-min "$dmin" --data-max "$dmax" --resample "$resample"
   s1=$(date +%s%N)
 
   # ── classic five-spawn chain, verbatim from render_mrms_obs.sh ───────
@@ -76,7 +77,7 @@ subprocess.check_call(['gdal_edit.py','-a_ullr',str(ulx-360),str(uly),str(lrx-36
     --calc="where(A<(${sentinel_lt}),-9999,A*${scale})" \
     --NoDataValue=-9999 --type=Float32 --overwrite
   gdalwarp -q -overwrite -t_srs EPSG:3857 -te_srs EPSG:4326 -te ${BBOX} \
-    -ts "$IMG_W" "$IMG_H" -r near -dstnodata -9999 \
+    -ts "$IMG_W" "$IMG_H" -r "$resample" -dstnodata -9999 \
     "${work}/raw.tif" "${work}/merc.tif"
   gdal_calc.py --quiet -A "${work}/merc.tif" --outfile="${work}/ga.tif" \
     --calc="where(A==-9999,0,minimum(255,maximum(1,1+round((A-(${dmin}))*254.0/((${dmax})-(${dmin}))))))" \

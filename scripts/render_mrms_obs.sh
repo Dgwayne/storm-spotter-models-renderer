@@ -251,13 +251,14 @@ render_one() {
   # common tick is one where the source has published nothing new: at 41
   # products on a 2-minute timer that was 410 process spawns an hour to
   # answer a question the idempotency check above had already answered.
-  local scale sentinel_lt units_out clr_file dmin dmax point_values decimals grid_w grid_h
+  local scale sentinel_lt units_out clr_file dmin dmax point_values decimals grid_w grid_h data_resample
   scale=$(yq -r ".products.${product}.scale // 1" "$CONFIG")
   sentinel_lt=$(yq -r ".products.${product}.sentinel_lt // 0" "$CONFIG")
   units_out=$(yq -r ".products.${product}.units_out // \"\"" "$CONFIG")
   clr_file=$(yq -r ".products.${product}.clr" "$CONFIG")
   dmin=$(yq -r ".products.${product}.data_png.min // \"\"" "$CONFIG")
   dmax=$(yq -r ".products.${product}.data_png.max // \"\"" "$CONFIG")
+  data_resample=$(yq -r ".products.${product}.resample // \"near\"" "$CONFIG")
   point_values=$(yq -r ".products.${product}.point_values // false" "$CONFIG")
   decimals=$(yq -r ".products.${product}.point_decimals // 2" "$CONFIG")
   grid_w=$(yq -r ".products.${product}.point_grid[0] // 512" "$CONFIG")
@@ -297,10 +298,11 @@ render_one() {
       --grib "${grib}" --out "${work}/F000.png" \
       --bbox ${BBOX} --size "${IMG_W}" "${IMG_H}" \
       --scale "${scale}" --sentinel-lt "${sentinel_lt}" \
-      --data-min "${dmin}" --data-max "${dmax}" "${pass_args[@]}"
+      --data-min "${dmin}" --data-max "${dmax}" \
+      --resample "${data_resample}" "${pass_args[@]}"
   else
     render_gdal_classic "${work}" "${grib}" "${scale}" "${sentinel_lt}" \
-      "${dmin}" "${dmax}" "${clr_file}"
+      "${dmin}" "${dmax}" "${clr_file}" "${data_resample}"
   fi
 
   if [ "${point_values}" = "true" ]; then
@@ -364,7 +366,7 @@ render_one() {
 # and the reference the single pass is validated against.
 render_gdal_classic() {
   local work="$1" grib="$2" scale="$3" sentinel_lt="$4"
-  local dmin="$5" dmax="$6" clr_file="$7"
+  local dmin="$5" dmax="$6" clr_file="$7" data_resample="${8:-near}"
 
   # GRIB â†’ Float32 GTiff (applies any packing scale/offset).
   gdal_translate -q -of GTiff -ot Float32 -b 1 "${grib}" "${work}/native.tif"
@@ -401,8 +403,10 @@ PY
   # DATA products warp with NEAREST â€” the app's crisp renderer
   # interpolates in data space client-side, and cubic here would
   # pre-blur real values (and invent overshoot ones).
+  # (or MAX where products.yml says `resample: max`, see
+  # mrms_render_one.py --resample)
   local resample="cubic"
-  [ -n "${dmin}" ] && resample="near"
+  [ -n "${dmin}" ] && resample="${data_resample}"
   # shellcheck disable=SC2086
   gdalwarp -q -overwrite -t_srs EPSG:3857 -te_srs EPSG:4326 -te ${BBOX} \
     -ts "${IMG_W}" "${IMG_H}" -r "${resample}" -dstnodata -9999 \

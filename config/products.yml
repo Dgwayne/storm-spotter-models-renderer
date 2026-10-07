@@ -33,6 +33,16 @@
 #                   look reasonable' silently flattens every stronger value onto
 #                   the top legend bin - see the rotation family, where 0.03
 #                   clipped 9 of 14 products.
+#   resample:       near (default) | max - how a data_png frame is shrunk from
+#                   the source grid. The 4096-wide frame is ~1.7x coarser than
+#                   MRMS 0.01 deg (3.4x for 0.005 deg azimuthal shear), so near
+#                   keeps one source cell per pixel and drops the rest, peaks
+#                   included: measured 2026-10-06, a 1-hr rotation track lost
+#                   its 0.058 peak (frame max 0.049) and a whole couplet
+#                   vanished from its crop. max keeps the strongest value
+#                   under each pixel; set it on intensity products (rotation,
+#                   hail, echo tops, VIL). Features grow by up to one pixel at
+#                   their edges. ~same render time on azimuthal shear.
 #   gpu_data:       {min, max} — when present, ALSO bake a value-encoded data
 #                   PNG next to the colored one (F###.data.png): gray 1..255 =
 #                   min..max linear in DISPLAY units, 0/alpha-0 = nodata. The
@@ -1780,6 +1790,7 @@ products:
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
     data_png: { min: 0.0, max: 5.0 }
+    resample: max
     units_in: "mm"
     units_out: "in"
     scale: 0.0393701
@@ -1795,6 +1806,7 @@ products:
     mrms_dir: "MESH_Max_60min_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 5.0 }
+    resample: max
     units_in: "mm"
     units_out: "in"
     scale: 0.0393701
@@ -1810,6 +1822,7 @@ products:
     mrms_dir: "MESH_Max_240min_00.50"
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 5.0 }
+    resample: max
     units_in: "mm"
     units_out: "in"
     scale: 0.0393701
@@ -1825,6 +1838,7 @@ products:
     mrms_dir: "MESH_Max_1440min_00.50"
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 5.0 }
+    resample: max
     units_in: "mm"
     units_out: "in"
     scale: 0.0393701
@@ -1840,6 +1854,7 @@ products:
     mrms_dir: "POSH_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 100.0 }
+    resample: max
     units_in: "%"
     units_out: "%"
     clr: "posh.clr"
@@ -1855,6 +1870,7 @@ products:
     mrms_dir: "EchoTop_18_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 75.0 }
+    resample: max
     units_in: "km"
     units_out: "kft"
     scale: 3.28084
@@ -1870,6 +1886,7 @@ products:
     mrms_dir: "EchoTop_30_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 75.0 }
+    resample: max
     units_in: "km"
     units_out: "kft"
     scale: 3.28084
@@ -1885,6 +1902,7 @@ products:
     mrms_dir: "EchoTop_50_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 75.0 }
+    resample: max
     units_in: "km"
     units_out: "kft"
     scale: 3.28084
@@ -1900,6 +1918,7 @@ products:
     mrms_dir: "EchoTop_60_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 75.0 }
+    resample: max
     units_in: "km"
     units_out: "kft"
     scale: 3.28084
@@ -1916,6 +1935,7 @@ products:
     mrms_dir: "VIL_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 100.0 }
+    resample: max
     units_in: "kg/m^2"
     units_out: "kg/m²"
     clr: "vil.clr"
@@ -1930,6 +1950,7 @@ products:
     mrms_dir: "VIL_Density_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 8.0 }
+    resample: max
     units_in: "g/m^3"
     units_out: "g/m³"
     clr: "vild.clr"
@@ -1944,6 +1965,7 @@ products:
     mrms_dir: "VII_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 60.0 }
+    resample: max
     units_in: "kg/m^2"
     units_out: "kg/m²"
     clr: "vii.clr"
@@ -1968,6 +1990,7 @@ products:
     # exact round trip, no clipping. 0.03 clipped the strongest
     # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
     data_png: { min: 0.0, max: 0.254 }
+    resample: max
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -1990,6 +2013,7 @@ products:
     # exact round trip, no clipping. 0.03 clipped the strongest
     # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
     data_png: { min: 0.0, max: 0.254 }
+    resample: max
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -2012,6 +2036,7 @@ products:
     # exact round trip, no clipping. 0.03 clipped the strongest
     # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
     data_png: { min: 0.0, max: 0.254 }
+    resample: max
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -2034,6 +2059,7 @@ products:
     # exact round trip, no clipping. 0.03 clipped the strongest
     # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
     data_png: { min: 0.0, max: 0.254 }
+    resample: max
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -2916,6 +2942,7 @@ products:
     mrms_dir: "SHI_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 300.0 }
+    resample: max
     units_in: "index"
     units_out: ""
     clr: "qpe.clr"
@@ -2930,6 +2957,7 @@ products:
     mrms_dir: "MESH_Max_30min_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: 0.0, max: 5.0 }
+    resample: max
     units_in: "mm"
     units_out: "in"
     scale: 0.0393701
@@ -2945,6 +2973,7 @@ products:
     mrms_dir: "MESH_Max_120min_00.50"
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 5.0 }
+    resample: max
     units_in: "mm"
     units_out: "in"
     scale: 0.0393701
@@ -2960,6 +2989,7 @@ products:
     mrms_dir: "MESH_Max_360min_00.50"
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 5.0 }
+    resample: max
     units_in: "mm"
     units_out: "in"
     scale: 0.0393701
@@ -2975,6 +3005,7 @@ products:
     mrms_dir: "VIL_Max_120min_00.50"
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 100.0 }
+    resample: max
     units_in: "kg/m^2"
     units_out: "kg/m²"
     clr: "qpe.clr"
@@ -2989,6 +3020,7 @@ products:
     mrms_dir: "VIL_Max_1440min_00.50"
     cadence_tier: slow      # source publishes >=30 min (measured 30.0 min)
     data_png: { min: 0.0, max: 100.0 }
+    resample: max
     units_in: "kg/m^2"
     units_out: "kg/m²"
     clr: "qpe.clr"
@@ -3012,6 +3044,7 @@ products:
     # exact round trip, no clipping. 0.03 clipped the strongest
     # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
     data_png: { min: 0.0, max: 0.254 }
+    resample: max
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     sentinel_lt: -1.0
@@ -3035,6 +3068,7 @@ products:
     # exact round trip, no clipping. 0.03 clipped the strongest
     # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
     data_png: { min: 0.0, max: 0.254 }
+    resample: max
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -3057,6 +3091,7 @@ products:
     # exact round trip, no clipping. 0.03 clipped the strongest
     # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
     data_png: { min: 0.0, max: 0.254 }
+    resample: max
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -3080,6 +3115,7 @@ products:
     # exact round trip, no clipping. 0.03 clipped the strongest
     # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
     data_png: { min: 0.0, max: 0.254 }
+    resample: max
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     sentinel_lt: -1.0
@@ -3104,6 +3140,7 @@ products:
     # exact round trip, no clipping. 0.03 clipped the strongest
     # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
     data_png: { min: 0.0, max: 0.254 }
+    resample: max
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -3126,6 +3163,7 @@ products:
     # exact round trip, no clipping. 0.03 clipped the strongest
     # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
     data_png: { min: 0.0, max: 0.254 }
+    resample: max
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -3148,6 +3186,7 @@ products:
     # exact round trip, no clipping. 0.03 clipped the strongest
     # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
     data_png: { min: 0.0, max: 0.254 }
+    resample: max
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -3170,6 +3209,7 @@ products:
     # exact round trip, no clipping. 0.03 clipped the strongest
     # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
     data_png: { min: 0.0, max: 0.254 }
+    resample: max
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -3192,6 +3232,7 @@ products:
     # exact round trip, no clipping. 0.03 clipped the strongest
     # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
     data_png: { min: 0.0, max: 0.254 }
+    resample: max
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
@@ -3214,6 +3255,7 @@ products:
     # exact round trip, no clipping. 0.03 clipped the strongest
     # couplets flat (measured 2026-08-19: peaks to 0.073 on rot1440).
     data_png: { min: 0.0, max: 0.254 }
+    resample: max
     units_in: "0.001 s^-1"   # 8-bit packed milli-s^-1; see scale below
     units_out: "s⁻¹"
     clr: "rot.clr"
