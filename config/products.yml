@@ -41,8 +41,10 @@
 #                   its 0.058 peak (frame max 0.049) and a whole couplet
 #                   vanished from its crop. max keeps the strongest value
 #                   under each pixel; set it on intensity products (rotation,
-#                   hail, echo tops, VIL). Features grow by up to one pixel at
-#                   their edges. ~same render time on azimuthal shear.
+#                   hail, echo tops, VIL, the dBZ reflectivity layers, where a
+#                   hail core one cell wide is the point). Features grow by up
+#                   to one pixel at their edges. ~same render time on
+#                   azimuthal shear.
 #   gpu_data:       {min, max} — when present, ALSO bake a value-encoded data
 #                   PNG next to the colored one (F###.data.png): gray 1..255 =
 #                   min..max linear in DISPLAY units, 0/alpha-0 = nodata. The
@@ -2727,6 +2729,7 @@ products:
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     fast_cadence: true
     data_png: { min: -30.0, max: 80.0 }
+    resample: max
     units_in: "dBZ"
     units_out: "dBZ"
     sentinel_lt: -35.0
@@ -2774,6 +2777,7 @@ products:
     mrms_dir: "LayerCompositeReflectivity_Low_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: -30.0, max: 80.0 }
+    resample: max
     units_in: "dBZ"
     units_out: "dBZ"
     sentinel_lt: -35.0
@@ -2789,6 +2793,7 @@ products:
     mrms_dir: "LayerCompositeReflectivity_High_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: -30.0, max: 80.0 }
+    resample: max
     units_in: "dBZ"
     units_out: "dBZ"
     sentinel_lt: -35.0
@@ -2804,6 +2809,7 @@ products:
     mrms_dir: "LayerCompositeReflectivity_Super_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: -30.0, max: 80.0 }
+    resample: max
     units_in: "dBZ"
     units_out: "dBZ"
     sentinel_lt: -35.0
@@ -2819,6 +2825,7 @@ products:
     mrms_dir: "Reflectivity_0C_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: -30.0, max: 80.0 }
+    resample: max
     units_in: "dBZ"
     units_out: "dBZ"
     sentinel_lt: -35.0
@@ -2834,6 +2841,7 @@ products:
     mrms_dir: "Reflectivity_-5C_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: -30.0, max: 80.0 }
+    resample: max
     units_in: "dBZ"
     units_out: "dBZ"
     sentinel_lt: -35.0
@@ -2849,6 +2857,7 @@ products:
     mrms_dir: "Reflectivity_-10C_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: -30.0, max: 80.0 }
+    resample: max
     units_in: "dBZ"
     units_out: "dBZ"
     sentinel_lt: -35.0
@@ -2864,6 +2873,7 @@ products:
     mrms_dir: "Reflectivity_-15C_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: -30.0, max: 80.0 }
+    resample: max
     units_in: "dBZ"
     units_out: "dBZ"
     sentinel_lt: -35.0
@@ -2879,6 +2889,7 @@ products:
     mrms_dir: "Reflectivity_-20C_00.50"
     cadence_tier: fast      # source publishes ~2 min (measured 2.0 min)
     data_png: { min: -30.0, max: 80.0 }
+    resample: max
     units_in: "dBZ"
     units_out: "dBZ"
     sentinel_lt: -35.0
@@ -2894,6 +2905,7 @@ products:
     mrms_dir: "CREF_1HR_MAX_00.50"
     cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: -30.0, max: 80.0 }
+    resample: max
     units_in: "dBZ"
     units_out: "dBZ"
     sentinel_lt: -35.0
@@ -2909,6 +2921,7 @@ products:
     mrms_dir: "BREF_1HR_MAX_00.50"
     cadence_tier: slow      # source publishes >=30 min (measured 60.0 min)
     data_png: { min: -30.0, max: 80.0 }
+    resample: max
     units_in: "dBZ"
     units_out: "dBZ"
     sentinel_lt: -35.0
