@@ -56,6 +56,16 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SITES_CSV = REPO_ROOT / "config" / "nexrad_sites.csv"
 
 LEVELS = list(range(1000, 99, -50))  # 1000,950,...,150,100  (19 levels)
+# 25 hPa from 1000 to 500 hPa, 50 hPa above: 29 levels. The lowest ~5 km is
+# where the cap, the low-level jet and the 0-1 km SRH live, and at 50 hPa
+# spacing a high-terrain column (sfc ~880 hPa) had only two levels inside its
+# lowest kilometre, so inversions like a 825 hPa warm nose vanished. Above
+# 500 hPa the 50 hPa spacing already resolves lapse rates and the EL. HRRR
+# wrfprs and RRFS prslev carry every 25 hPa level; GFS pgrb2 does not (no
+# 875/825/775/...), so it keeps LEVELS via the per-model "levels" knob.
+# The app and the dealiaser are level-count agnostic (they read pres_hpa).
+FINE_LEVELS = list(range(1000, 499, -25)) + list(range(450, 99, -50))
+_COARSE_LEVELS = list(LEVELS)
 ISOBARIC_VARS = ("UGRD", "VGRD", "HGT", "TMP", "DPT")
 # Forecast hours to emit: HOURLY out to +18 h. Both HRRR and RRFS publish
 # every forecast hour for every cycle, so the app's scrubber steps 1 h.
@@ -83,6 +93,7 @@ MODELS = [
         "key": "hrrr",
         "name": "HRRR",
         "prefix": "",
+        "levels": FINE_LEVELS,
         "files": [
             "https://noaa-hrrr-bdp-pds.s3.amazonaws.com/"
             "hrrr.{d}/conus/hrrr.t{h}z.wrfprsf{fh:02d}.grib2",
@@ -119,6 +130,7 @@ MODELS = [
         "key": "rrfs",
         "name": "RRFS",
         "prefix": "rrfs/",
+        "levels": FINE_LEVELS,
         "files": [
             "https://noaa-rrfs-ops-pds.s3.amazonaws.com/"
             "rrfs.{d}/{h}/rrfs.t{h}z.prslev.3km.f{fh:03d}.conus.grib2",
@@ -614,7 +626,7 @@ def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir,
                    sfc_u_ms[], sfc_v_ms[],
                    temp_c[], dewpoint_c[], hgt_msl_m[], u_ms[], v_ms[] } ] }
     Below-ground isobaric values are NOT filtered here — each column keeps all
-    19 levels and the app drops levels with p > that column's sfc pressure
+    len(LEVELS) levels and the app drops levels with p > that column's sfc pressure
     after interpolating, mirroring build_profile's semantics.
     """
     import numpy as np
@@ -631,7 +643,7 @@ def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir,
     ny, nx = lats.shape
     var_map = {"temp_c": "TMP", "dewpoint_c": "DPT", "hgt_msl_m": "HGT",
                "u_ms": "UGRD", "v_ms": "VGRD"}
-    hour_stacks = {}   # fh -> {json_key: array (ny, nx, 19) or None}
+    hour_stacks = {}   # fh -> {json_key: array (ny, nx, len(LEVELS)) or None}
     for fh, grids in grids_by_hour.items():
         stacks = {}
         for jk, var in var_map.items():
@@ -734,8 +746,10 @@ def process_model(model: dict, sites, out_root: Path, work_root: Path) -> int:
     name = model["name"]
     # Per-model knobs land in the module globals the helpers read
     # (classify -> ISOBARIC_VARS, extract_all/grid_latlon -> TILE_STRIDE,
-    # build_tiles -> STRIDE_KM). Single-threaded, set fresh per model.
-    global ISOBARIC_VARS, TILE_STRIDE, STRIDE_KM
+    # build_tiles -> STRIDE_KM, everything isobaric -> LEVELS).
+    # Single-threaded, set fresh per model.
+    global ISOBARIC_VARS, TILE_STRIDE, STRIDE_KM, LEVELS
+    LEVELS = list(model.get("levels", _COARSE_LEVELS))
     ISOBARIC_VARS = tuple(model.get("isobaric_vars", ("UGRD", "VGRD", "HGT", "TMP", "DPT")))
     TILE_STRIDE = int(model.get("tile_stride", 8))
     STRIDE_KM = int(model.get("stride_km", TILE_STRIDE * 3))
@@ -752,7 +766,8 @@ def process_model(model: dict, sites, out_root: Path, work_root: Path) -> int:
     # only the manifest.
     cdn = cdn_manifest(model["prefix"])
     if (cdn is not None and cdn.get("run") == run_iso
-            and cdn.get("forecastHours") == FHOURS):
+            and cdn.get("forecastHours") == FHOURS
+            and cdn.get("levelsMb") == LEVELS):
         out_dir = out_root / model["prefix"] if model["prefix"] else out_root
         out_dir.mkdir(parents=True, exist_ok=True)
         cdn["generatedAt"] = dt.datetime.now(dt.timezone.utc).isoformat()
