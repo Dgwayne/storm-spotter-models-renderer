@@ -40,6 +40,7 @@ Env:    R2_BUCKET (+ a working `rclone` r2: remote), FORCE_RERENDER opt.
 
 from __future__ import annotations
 
+import collections
 import concurrent.futures
 import datetime as dt
 import json
@@ -48,6 +49,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 
 import yaml  # PyYAML
@@ -185,15 +187,41 @@ def idx_url(model_cfg: dict, run: str, fh: int) -> str:
     return grib + ".idx"
 
 
-def probe_one(url: str) -> bool:
+PROBE_ERRORS: collections.Counter = collections.Counter()
+
+
+def _probe_once(url: str) -> str:
+    """'ok', 'missing' (definite 403/404) or an error label (unknown)."""
     req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": PROBE_UA})
     try:
         with urllib.request.urlopen(req, timeout=PROBE_TIMEOUT_S) as resp:
-            return 200 <= resp.status < 300
-    except Exception:
-        # Unpublished, transient error, whatever — treated as "not there
-        # yet"; the next tick re-probes. Never let a probe kill the plan.
-        return False
+            return "ok" if 200 <= resp.status < 300 else f"http{resp.status}"
+    except urllib.error.HTTPError as e:
+        # S3 answers 404 for a missing key in a listable bucket and 403
+        # in one without ListBucket: both mean "not published yet".
+        return "missing" if e.code in (403, 404) else f"http{e.code}"
+    except Exception as e:  # timeout, DNS, reset...
+        return type(e).__name__
+
+
+def probe_one(url: str, fail_open: bool = False) -> bool:
+    """True when the idx is published.
+
+    Only a definite 403/404 counts as unpublished. Anything else (timeout,
+    5xx throttle, DNS) gets one retry; if it still fails, fail_open decides.
+    Before 2026-10-14 every error read as "unpublished", and box 1's HRRR
+    gate idled 00:10-00:50Z every night with the 23z run sitting at 4/19
+    frames while NOAA had all of it (all 64 probes failed, cause unlogged).
+    Failing open costs at most one cheap decode_pipeline skip per tuple.
+    """
+    res = _probe_once(url)
+    if res not in ("ok", "missing"):
+        time.sleep(1)
+        res = _probe_once(url)
+    if res in ("ok", "missing"):
+        return res == "ok"
+    PROBE_ERRORS[res] += 1
+    return fail_open
 
 
 def frontier_published(model_cfg: dict, run: str, expected: list[int]) -> set[int]:
@@ -350,11 +378,15 @@ def main() -> None:
         if targets:
             urls = {t: idx_url(model_cfg, t[0], t[1]) for t in targets}
             with concurrent.futures.ThreadPoolExecutor(PROBE_WORKERS) as ex:
-                results = dict(zip(targets, ex.map(lambda t: probe_one(urls[t]), targets)))
+                results = dict(zip(targets, ex.map(
+                    lambda t: probe_one(urls[t], fail_open=True), targets)))
             for (run, fh), ok in results.items():
                 if ok:
                     published[run].add(fh)
         log(f"==> probed {len(targets)} source idx URLs")
+        if PROBE_ERRORS:
+            log(f"::warning::probe errors (failed open, counted as published): "
+                f"{dict(PROBE_ERRORS)}")
 
     # ── 5. Pending work per group ────────────────────────────────────────
     pending_products: set[str] = set()
