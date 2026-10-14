@@ -22,9 +22,8 @@ compatibility_date = "2025-01-01"
 # GOES piggybacks on this slot (free plan caps at 5 cron triggers): satellite
 # frames land in IEM's archive on the quarter-hours, so :02/:17/:32/:47
 # catches each one a few minutes after publish.
-# NAM: every 15 min on the remaining :00 slot — only 4 cycles/day, but each
-# cycle's frames trail in for ~1.5 h so frequent sweeps keep the newest
-# cycle fresh (idempotent skips make the idle ticks nearly free).
+# :00 slot: was NAM's (retired 2026-10-14); now RRFS 15-min, RAP, wildfire
+# and the om batches (see CRON_TO_WORKFLOW).
 # ECMWF: twice hourly — 2 runs/day with a ~7-9 h publish latency doesn't
 # need the NOAA models' cadence.
 [triggers]

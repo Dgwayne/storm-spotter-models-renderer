@@ -87,14 +87,9 @@ const CRON_TO_WORKFLOW = {
     "render_rrfs.yml",
     { wf: "render_gefs.yml", minutes: [25, 55] },
     { wf: "render_om_15min.yml", minutes: [10, 40] },
-    // HREF ensemble pair: 4 cycles/day to f48, hourly dispatch is ample.
-    // Box is primary; these are the gated fallback legs.
-    { wf: "render_hrefpmmn.yml", minutes: [55] },
-    { wf: "render_hrefprob.yml", minutes: [10] },
-    // REFS pair (HREF's successor, 4 cycles/day to f60): same hourly
-    // fallback cadence on the two minutes HREF leaves free, so no tick
-    // gains more than one job. Box 2 is primary. When HREF retires
-    // (2026-10-14) these can move onto :55/:10.
+    // REFS pair (HREF's successor, 4 cycles/day to f60): hourly fallback
+    // cadence, one job per tick. Box 2 is primary. HREF (which held :55
+    // and :10) retired 2026-10-14.
     { wf: "render_refspmmn.yml", minutes: [25] },
     { wf: "render_refsprob.yml", minutes: [40] },
   ],
@@ -113,17 +108,15 @@ const CRON_TO_WORKFLOW = {
     { wf: "render_gfs.yml", minutes: [17, 47] },
     { wf: "render_aifs.yml", minutes: [2, 32] },
   ],
-  // Slot D. NAM every 15 min (4 cycles/day, idempotent sweep). Wildfire rides
+  // Slot D. Was NAM's slot (NAM retired 2026-10-14). Wildfire rides
   // it because the bake is short (three HTTP fetches, no gdal) and WFIGS
   // refreshes every 5 min upstream. The batch-2 om matrix moved here on
   // [15,45] and the batch-5 matrix on [30]; both are 6-12 h cycle models.
   "0,15,30,45 * * * *": [
-    "render_nam.yml",
     "wildfire.yml",
     // RRFS 15-min (2026-10-14): Actions is its ONLY renderer (no box task),
     // so it takes a full q15 cadence. Hourly cycles, f018 ~1h45m after
-    // init; the plan gate idles it between publishes. Shares the slot NAM
-    // vacates when NAM retires (2026-10-14).
+    // init; the plan gate idles it between publishes.
     "render_rrfs15.yml",
     // RAP: hourly CONUS model (HRRR's parent), full q15 slot. Gated
     // like every model workflow, and the box is primary — these ticks

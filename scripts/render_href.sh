@@ -9,13 +9,13 @@
 # next ~1.5 h. decode_pipeline.sh skips frames already on R2 and forecast
 # hours whose idx hasn't published yet, so sweeping "too early" is free.
 #
-# REFSPMMN/REFSPROB (HREF's successor, same 4-cycle cadence) reuse this
-# sweep unchanged. HREFPMMN/HREFPROB retire 2026-10-14 (SCN 26-47) — see
-# the model notes in config/products.yml.
+# Now drives only REFSPMMN/REFSPROB (HREF's successor, same 4-cycle
+# cadence). HREFPMMN/HREFPROB were retired 2026-10-14 (SCN 26-47); the
+# name stays because the sweep logic is unchanged.
 
 set -euo pipefail
 
-MODEL="${1:?usage: render_href.sh <HREFPMMN|HREFPROB|REFSPMMN|REFSPROB>}"
+MODEL="${1:?usage: render_href.sh <REFSPMMN|REFSPROB>}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CONFIG="${REPO_ROOT}/config/products.yml"

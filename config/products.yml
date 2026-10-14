@@ -3749,93 +3749,6 @@ models:
     runs_per_day: 96
     retain_runs: 12
 
-  NAM:
-    # NAM 3 km CONUS nest ("NAM NEST") — the chaser-standard day-2 CAM:
-    # hourly output to f60 on all four cycles bridges HRRR's 18/48 h limit.
-    # idx gotchas found on integration (2026-07-12):
-    #   * U/V pairs are packed as SUBFIELD idx lines (624.1/624.2, one
-    #     byte offset) — see compute_ranges in decode_pipeline.sh.
-    #   * REFC uses the RRFS-style "(considered as a single layer)" text
-    #     (prefix match already handles it).
-    #   * APCP is 3-hour-reset buckets → precip3h with fh_step, and no
-    #     running total → no precipTotal.
-    # ⚠ NAM is slated for retirement after RRFS's operational cutover
-    # (2026-08-31) — keep until NOAA actually stops publishing; symptom
-    # will be runs silently going stale (idx HEAD 404s by design).
-    products:
-      - refc
-      - refd1km
-      - t2m
-      - td2m
-      - wind10m
-      - gust10m
-      - mslp
-      - sfccape
-      - sbcin
-      - precip3h
-      # 2026-08-05 expansion (Pivotal parity, mirrors HRRR where the
-      # conusnest file carries the field — verified in the 12z f09 idx).
-      # NOT here because the nest genuinely lacks them: cape3km, shear1
-      # (no VUCSH 0-1000), asnow/frzr (no accum fields), smoke, SBT/irsat.
-      # No precipTotal either (3-hour-reset buckets only — see precip3h).
-      - tcc
-      - lcc
-      - mcc
-      - hcc
-      - ltng
-      # Severe-parameter forecasts. The whole point of carrying these on NAM
-      # is range: HRRR stops at f18 (f48 synoptic), NAM runs hourly to f60 on
-      # every cycle, so this is the day-2 severe view. NAM has no `also_meso`
-      # consequence worth worrying about — the app's Mesoanalysis layer reads
-      # the HRRR manifest only.
-      - srh1
-      - srh3
-      - ehi1
-      - ehi3
-      - uh25
-      - mlcape
-      - mucape
-      - mlcin
-      - shear6
-      - stp
-      - scp
-      - liftedIdx
-      - lapse75
-      - lclHgt
-      - stormMotion
-      - pwat
-      - echoTops
-      - ptype
-      - frzLvl
-      - rh2m
-      - vis
-      - snod
-    # Parallel render groups — same contract as HRRR's (plan job enforces
-    # exact coverage of the products list).
-    render_groups:
-      core:     [refc, t2m, td2m, wind10m, gust10m, mslp, sfccape, precip3h]
-      sky:      [tcc, lcc, mcc, hcc, refd1km]
-      severe-a: [srh1, srh3, ehi1, ehi3, shear6, stormMotion, uh25]
-      severe-b: [mlcape, mucape, mlcin, sbcin, liftedIdx, lapse75, lclHgt]
-      hazards:  [stp, scp, ltng, ptype, frzLvl]
-      enviro:   [pwat, echoTops, rh2m, vis, snod]
-    # Same CONUS render box + raster size as HRRR/RRFS (3 km native; see
-    # the HRRR image_size note for the 2048 scrub-smoothness tradeoff).
-    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
-    image_size: [2048, 2048]
-    point_grid: [128, 128]
-    # All four cycles publish the full hourly f00-f60 range (verified
-    # against the bucket 2026-07-12: f60 exists, f61 does not).
-    forecast_hours_default: { start: 0, end: 60, step: 1 }
-    s3_bucket: "noaa-nam-pds"
-    s3_key_template: "nam.{date}/nam.t{run:02d}z.conusnest.hiresf{fh:02d}.tm00.grib2"
-    display: "NAM 3km"
-    picker_group: "CONUS"
-    picker_order: 11
-    runs_per_day: 4
-    runs: [0, 6, 12, 18]
-    retain_runs: 5
-
   ECMWF:
     # ECMWF IFS open data ("the Euro"), 0.25° global — data.ecmwf.int,
     # free under CC-BY-4.0 (attribution: "Contains modified ECMWF IFS
@@ -5325,47 +5238,12 @@ models:
       upper-wind: [wind925, wind850, wind700, wind500, wind300, wind250, wind200]
       upper-dyn:  [rh925, rh850, rh700, rh500, vort500, vv700]
 
-  # ── HREF ensemble (High-Resolution Ensemble Forecast) ─────────────
-  # NOMADS-only (no AWS bucket), but NOMADS serves .idx for the
-  # ensprod files (verified 2026-08-23) so byte-range subsetting works
-  # directly — no mirror bridge. Two pseudo-models, one per source
-  # file, mirroring the one-key-template-per-model architecture:
-  # pmmn = probability-matched mean (the "ensemble radar"), prob =
-  # neighborhood probabilities. 00/06/12/18z cycles to f48, no f00.
-  # ⚠ NOMADS retains ~2 days — retain_runs must stay ≤ 7.
-  # ⚠ RETIRES 2026-10-14 (SCN 26-47) on the day REFS (below) goes
-  # operational. Delete both HREF entries once their feed stops.
-  HREFPMMN:
-    display: "HREF PMM 3km"
-    picker_group: "Ensembles"
-    picker_order: 30
-    base_url: "https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod"
-    s3_key_template: "href.{date}/ensprod/href.t{run:02d}z.conus.pmmn.f{fh:02d}.grib2"
-    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
-    image_size: [2048, 2048]
-    forecast_hours_default: { start: 1, end: 48, step: 1 }
-    retain_runs: 4
-    products: [refc, refd1km, echoTops, uh25, precip1h]
-
-  HREFPROB:
-    display: "HREF Prob 3km"
-    picker_group: "Ensembles"
-    picker_order: 31
-    base_url: "https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod"
-    s3_key_template: "href.{date}/ensprod/href.t{run:02d}z.conus.prob.f{fh:02d}.grib2"
-    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
-    image_size: [2048, 2048]
-    forecast_hours_default: { start: 1, end: 48, step: 1 }
-    retain_runs: 4
-    products: [probRefc40, probUh25, probUh75, probRain05, probRain1,
-               probWind40, probSnow1h, probCape2k]
-
   # ── REFS ensemble (RRFS Ensemble Forecast System) ─────────────────
   # HREF's operational successor (SCN 26-48, go-live 2026-10-14). NOAA's
   # ops bucket already carries the pre-implementation parallel at its
-  # final layout, idx included, so REFS renders beside HREF until HREF
-  # goes dark and nothing has to change on cutover day. Same two-file
-  # split as HREF. 00/06/12/18z to f60 (HREF stops at f48), no f00;
+  # final layout, idx included. HREF (and NAM) were retired from this
+  # file 2026-10-14 (SCN 26-47); see git history for their configs.
+  # Same two-file split HREF used. 00/06/12/18z to f60 (HREF stops at f48), no f00;
   # f01 lands ~2 h after init, ~50 min sooner than HREF.
   # ⚠ Membership thins late: the prob idx reports 14 members at f24, 13
   # at f48 but only 6 at f60 (the time-lagged and HRRR members end

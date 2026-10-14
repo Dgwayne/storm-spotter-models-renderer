@@ -156,8 +156,6 @@ jobs:
           # slot. Idle ticks touch generatedAt, so 60 catches a dead dispatch.
           check RRFS15    "https://models.dgwaynes.com/v1/RRFS15/manifest.json"    60
           check RAP       "https://models.dgwaynes.com/v1/RAP/manifest.json"       120
-          check HREFPMMN  "https://models.dgwaynes.com/v1/HREFPMMN/manifest.json"  240
-          check HREFPROB  "https://models.dgwaynes.com/v1/HREFPROB/manifest.json"  240
           check REFSPMMN  "https://models.dgwaynes.com/v1/REFSPMMN/manifest.json"  240
           check REFSPROB  "https://models.dgwaynes.com/v1/REFSPROB/manifest.json"  240
           # GeoColor writes its OWN manifest, so a SAT/manifest.json check

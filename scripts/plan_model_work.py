@@ -60,21 +60,18 @@ import yaml  # PyYAML
 #     (RRFS renders 3-hourly cycles only, the only ones with plain 2dfld
 #     files; delete that filter here when render_rrfs.sh drops its own).
 #   mode "cycle":  snap now to the interval, step back 0..span cycles
-#     (render_nam.sh / render_gfs.sh / render_gefs_mean.sh /
+#     (render_gfs.sh / render_gefs_mean.sh /
 #      render_aifs.sh / render_ecmwf.sh).
 SWEEP_RUNS = {
     "HRRR": ("hourly", 4, None),
     "RRFS": ("hourly", 9, set(range(0, 24, 3))),
     # Minute-scheme GRIB model (om_step_minutes): "fh" below is MINUTES.
     "RRFS15": ("hourly", 4, None),
-    "NAM": ("cycle", 2, 6),
     "GFS": ("cycle", 2, 6),
     "GEFS": ("cycle", 2, 6),
     "AIFS": ("cycle", 2, 6),
     "ECMWF": ("cycle", 2, 12),
     "RAP": ("hourly", 4, None),
-    "HREFPMMN": ("cycle", 2, 6),
-    "HREFPROB": ("cycle", 2, 6),
     "REFSPMMN": ("cycle", 2, 6),
     "REFSPROB": ("cycle", 2, 6),
 }

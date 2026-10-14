@@ -20,7 +20,7 @@ ck() { if [ "$2" = "$3" ]; then echo "  PASS $1"; pass=$((pass+1)); else echo " 
 echo "== 1. real read returns the full list =="
 ck "45 HRRR products" "$( . "$LIB"; load_model_products HRRR "$CONFIG"; printf '%s' "$PRODUCTS" | grep -c . )" "$(yq -r '.models.HRRR.products | length' "$CONFIG")"
 ck "the codes the short reads used to reject are present" "$( . "$LIB"; load_model_products HRRR "$CONFIG"; printf '%s\n' "$PRODUCTS" | grep -cx 'mslp\|ehi1\|mlcin\|precipTotal' )" "4"
-ck "a different model reads its own list" "$( . "$LIB"; load_model_products NAM "$CONFIG"; printf '%s' "$PRODUCTS" | grep -c . )" "$(yq -r '.models.NAM.products | length' "$CONFIG")"
+ck "a different model reads its own list" "$( . "$LIB"; load_model_products RAP "$CONFIG"; printf '%s' "$PRODUCTS" | grep -c . )" "$(yq -r '.models.RAP.products | length' "$CONFIG")"
 
 echo "== 2. custom target variable =="
 ck "ALL_PRODUCTS populated" "$( . "$LIB"; load_model_products HRRR "$CONFIG" ALL_PRODUCTS; printf '%s' "$ALL_PRODUCTS" | grep -c . )" "$(yq -r '.models.HRRR.products | length' "$CONFIG")"
@@ -32,7 +32,7 @@ ck "uses the exported list" "$( export PATH="${WORK}/bin:$PATH" MODEL_PRODUCTS=$
 ck "yq never invoked" "$([ -f "${WORK}/yq_was_called" ] && echo called || echo no)" "no"
 
 echo "== 4. a list exported for ANOTHER model is refused =="
-ck "HRRR ignores a list exported for NAM" "$( export MODEL_PRODUCTS=$'aaa\nbbb\nccc' MODEL_PRODUCTS_FOR=NAM; . "$LIB"; load_model_products HRRR "$CONFIG"; printf '%s' "$PRODUCTS" | grep -c . )" "$(yq -r '.models.HRRR.products | length' "$CONFIG")"
+ck "HRRR ignores a list exported for RAP" "$( export MODEL_PRODUCTS=$'aaa\nbbb\nccc' MODEL_PRODUCTS_FOR=RAP; . "$LIB"; load_model_products HRRR "$CONFIG"; printf '%s' "$PRODUCTS" | grep -c . )" "$(yq -r '.models.HRRR.products | length' "$CONFIG")"
 
 echo "== 5. a PARTIAL read is rejected (the bug this lib exists for) =="
 cat > "${WORK}/bin/yq" <<'MOCK'
