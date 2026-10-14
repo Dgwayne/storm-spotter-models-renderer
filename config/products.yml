@@ -5169,11 +5169,21 @@ models:
       - precip15m
       - snow15m
       - ptype15
+      - refc
+      - refd1km
+      - echoTops
     source_type: "openmeteo_spatial"
     # ptype15 alone comes from NOAA's sub-hourly GRIB (the om bucket has
     # no precip-type flags): decode_pipeline.sh flips this one product to
     # the grib path and resolves {fhour} = ceil(minutes / 60).
-    grib_products: [ptype15]
+    grib_products: [ptype15, refc, refd1km, echoTops]
+    # Reflectivity (2026-10-14): Open-Meteo's 15-min set has none, but
+    # NOAA's wrfsubhf carries REFC/REFD/RETOP at every step (WeatherWise's
+    # HRRR sub-hourly radar). subh_time_filter picks the step's message
+    # out of the file's four; grib_fh_cap stops these products at f18
+    # (1080 min), where wrfsubhf ends.
+    subh_time_filter: true
+    grib_fh_cap: 1080
     s3_bucket: "noaa-hrrr-bdp-pds"
     s3_key_template: "hrrr.{date}/conus/hrrr.t{run:02d}z.wrfsubhf{fhour:02d}.grib2"
     om_model_path: "ncep_hrrr_conus_15min"

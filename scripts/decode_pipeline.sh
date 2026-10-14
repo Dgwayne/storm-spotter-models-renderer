@@ -56,6 +56,8 @@ if [ "${SUBH_TIME_FILTER}" = "true" ]; then
     STEP_RE="${FH} min"
   fi
   TIME_FIELD_RE="(?:0-)?${STEP_RE}(?: acc)? fcst"
+  # Minute 0 is the analysis: HRRR's wrfsubhf00 labels it ":anl:".
+  [ "${FH}" -eq 0 ] && TIME_FIELD_RE="anl|${TIME_FIELD_RE}"
   WGRIB2_MATCH="${WGRIB2_MATCH//\{fh\} min fcst/${STEP_RE} fcst}"
 fi
 export TIME_FIELD_RE
@@ -126,6 +128,13 @@ SOURCE_TYPE=$(yq -r ".models.${MODEL}.source_type // \"grib\"" "$CONFIG")
 if [ "${SOURCE_TYPE}" = "openmeteo_spatial" ] && \
    [ "$(yq -r ".models.${MODEL}.grib_products // [] | contains([\"${PRODUCT}\"])" "$CONFIG")" = "true" ]; then
   SOURCE_TYPE="grib"
+  # grib_fh_cap: NOAA's sub-hourly files stop at f18 (1080 min) while the
+  # om range can run longer (HRRR15 to 1125). Shared codes can't carry a
+  # minute cap, so the model does (build_manifest.py mirrors it).
+  GRIB_FH_CAP=$(yq -r ".models.${MODEL}.grib_fh_cap // \"\"" "$CONFIG")
+  if [ -n "${GRIB_FH_CAP}" ] && [ "${FH}" -gt "${GRIB_FH_CAP}" ]; then
+    exit 0
+  fi
 fi
 OM_MODEL_PATH=$(yq -r ".models.${MODEL}.om_model_path // \"\"" "$CONFIG")
 OM_BASE_URL=$(yq -r ".models.${MODEL}.om_base_url // \"https://openmeteo.s3.amazonaws.com/data_spatial\"" "$CONFIG")

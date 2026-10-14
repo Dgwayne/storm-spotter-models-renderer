@@ -169,6 +169,12 @@ def expected_for(code: str, run_expected: list[int]) -> list[int]:
     # fh_step: product renders only every Nth hour (NAM's 3-hour APCP
     # buckets on an hourly-output model). Must mirror decode_pipeline.sh's
     # skip or the scrub bar paints the skipped hours as missing.
+    # grib_fh_cap: an om model's NOAA-GRIB products stop where NOAA's files
+    # do (decode_pipeline.sh skips past it); mirror it or the tail paints
+    # as permanently missing.
+    gcap = model_cfg.get("grib_fh_cap")
+    if gcap is not None and code in (model_cfg.get("grib_products") or []):
+        cap = gcap if cap is None else min(cap, gcap)
     step = products_cfg[code].get("fh_step")
     if cap is None and floor is None and step is None:
         return run_expected
