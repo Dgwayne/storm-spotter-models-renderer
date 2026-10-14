@@ -65,6 +65,8 @@ import yaml  # PyYAML
 SWEEP_RUNS = {
     "HRRR": ("hourly", 4, None),
     "RRFS": ("hourly", 9, set(range(0, 24, 3))),
+    # Minute-scheme GRIB model (om_step_minutes): "fh" below is MINUTES.
+    "RRFS15": ("hourly", 4, None),
     "NAM": ("cycle", 2, 6),
     "GFS": ("cycle", 2, 6),
     "GEFS": ("cycle", 2, 6),
@@ -83,7 +85,8 @@ PROBE_WORKERS = 16
 # urllib's default User-Agent, so always send a real one.
 PROBE_UA = "stp-plan-gate"
 
-FRAME_RE = re.compile(r"^(?P<prod>[^/]+)/(?P<run>\d{10})/F(?P<fh>\d{3})\.png$")
+# F###.png = forecast hour; M#####.png = minutes (om_step_minutes models).
+FRAME_RE = re.compile(r"^(?P<prod>[^/]+)/(?P<run>\d{10})/(?:F(?P<fh>\d{3})|M(?P<min>\d{5}))\.png$")
 FH_MINUS_RE = re.compile(r"\{fh_minus_(\d+)\}")
 
 
@@ -93,6 +96,9 @@ def log(msg: str) -> None:
 
 def expected_fhs(model_cfg: dict, run_hour: int) -> list[int]:
     """Canonical expected forecast hours — same rules as build_manifest.py."""
+    if model_cfg.get("om_step_minutes"):
+        d = model_cfg["forecast_minutes_default"]
+        return list(range(d["start"], d["end"] + 1, d.get("step", model_cfg["om_step_minutes"])))
     segs = model_cfg.get("forecast_hours_segments")
     if segs:
         hours: set[int] = set()
@@ -174,8 +180,10 @@ def candidate_runs(model: str, now_epoch: int) -> list[str]:
 
 def idx_url(model_cfg: dict, run: str, fh: int) -> str:
     """Source idx/index URL for one (run, fh) — mirrors decode_pipeline.sh."""
+    # {fhour}: the hour file a minute step lives in (decode_pipeline.sh).
+    fhour = -(-fh // 60) if model_cfg.get("om_step_minutes") else fh
     key = model_cfg["s3_key_template"].format(
-        date=run[:8], run=int(run[8:10]), fh=fh
+        date=run[:8], run=int(run[8:10]), fh=fh, fhour=fhour
     )
     base = model_cfg.get("base_url")
     if base:
@@ -330,7 +338,7 @@ def main() -> None:
     for line in listing.splitlines():
         m = FRAME_RE.match(line)
         if m:
-            rendered.setdefault((m["prod"], m["run"]), set()).add(int(m["fh"]))
+            rendered.setdefault((m["prod"], m["run"]), set()).add(int(m["fh"] or m["min"]))
 
     # ── 2+3. Candidate runs and per-product needs ────────────────────────
     plan_knobs = {
@@ -377,13 +385,15 @@ def main() -> None:
         targets = [(run, fh) for run in runs for fh in sorted(need[run])]
         if targets:
             urls = {t: idx_url(model_cfg, t[0], t[1]) for t in targets}
+            # Minute models keep 4 steps in one file: probe each URL once.
+            uniq = sorted(set(urls.values()))
             with concurrent.futures.ThreadPoolExecutor(PROBE_WORKERS) as ex:
-                results = dict(zip(targets, ex.map(
-                    lambda t: probe_one(urls[t], fail_open=True), targets)))
-            for (run, fh), ok in results.items():
-                if ok:
+                by_url = dict(zip(uniq, ex.map(
+                    lambda u: probe_one(u, fail_open=True), uniq)))
+            for (run, fh), url in urls.items():
+                if by_url[url]:
                     published[run].add(fh)
-        log(f"==> probed {len(targets)} source idx URLs")
+        log(f"==> probed {len(set(urls.values())) if targets else 0} source idx URLs")
         if PROBE_ERRORS:
             log(f"::warning::probe errors (failed open, counted as published): "
                 f"{dict(PROBE_ERRORS)}")

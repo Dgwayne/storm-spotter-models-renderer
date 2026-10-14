@@ -152,6 +152,9 @@ jobs:
           # over normal queue delay while still catching starvation.
           check HRRR15    "https://models.dgwaynes.com/v1/HRRR15/manifest.json"    45
           check AROMEFR15 "https://models.dgwaynes.com/v1/AROMEFR15/manifest.json" 45
+          # RRFS 15-min: Actions-only GRIB sweep on the Worker's :00/:15/:30/:45
+          # slot. Idle ticks touch generatedAt, so 60 catches a dead dispatch.
+          check RRFS15    "https://models.dgwaynes.com/v1/RRFS15/manifest.json"    60
           check RAP       "https://models.dgwaynes.com/v1/RAP/manifest.json"       120
           check HREFPMMN  "https://models.dgwaynes.com/v1/HREFPMMN/manifest.json"  240
           check HREFPROB  "https://models.dgwaynes.com/v1/HREFPROB/manifest.json"  240

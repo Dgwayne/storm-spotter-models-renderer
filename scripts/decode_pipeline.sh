@@ -39,6 +39,26 @@ MATCH_OVERRIDE=$(yq -r ".models.${MODEL}.match_overrides.${PRODUCT} // \"\"" "$C
 if [ -n "${MATCH_OVERRIDE}" ]; then
   WGRIB2_MATCH="${MATCH_OVERRIDE}"
 fi
+# subh_time_filter: a minute-scheme model fed by NOAA sub-hourly GRIBs
+# (RRFS15). Each file holds four steps of every field, so a match like
+# ":REFC:entire atmosphere" hits all four; the filter in compute_ranges
+# keeps only idx lines whose time field is this step. RRFS labels the
+# whole hour ":5 hour fcst:" / ":0-5 hour acc fcst:" and the quarters
+# ":255 min fcst:" / ":0-255 min acc fcst:", so a whole-hour step accepts
+# either spelling. HRRR15's ptype15 inputs spell ":{fh} min fcst:"
+# themselves and the model sets no filter: untouched.
+SUBH_TIME_FILTER=$(yq -r ".models.${MODEL}.subh_time_filter // false" "$CONFIG")
+TIME_FIELD_RE=""
+if [ "${SUBH_TIME_FILTER}" = "true" ]; then
+  if [ $(( FH % 60 )) -eq 0 ]; then
+    STEP_RE="(?:${FH} min|$(( FH / 60 )) hour)"
+  else
+    STEP_RE="${FH} min"
+  fi
+  TIME_FIELD_RE="(?:0-)?${STEP_RE}(?: acc)? fcst"
+  WGRIB2_MATCH="${WGRIB2_MATCH//\{fh\} min fcst/${STEP_RE} fcst}"
+fi
+export TIME_FIELD_RE
 # Substitute fh placeholders so per-hour accumulation products work.
 WGRIB2_MATCH="${WGRIB2_MATCH//\{fh\}/${FH}}"
 WGRIB2_MATCH="${WGRIB2_MATCH//\{fh_minus_1\}/$((FH - 1))}"
@@ -274,6 +294,8 @@ PY
   MATCH_RE="$1" IDX_FILE="${WORK}/file.idx" python3 - <<'PY'
 import os, re
 match_re = re.compile(os.environ["MATCH_RE"])
+# subh_time_filter models: keep only this step's messages (field 6).
+time_re = re.compile(os.environ["TIME_FIELD_RE"]) if os.environ.get("TIME_FIELD_RE") else None
 lines = open(os.environ["IDX_FILE"]).read().splitlines()
 parsed = []
 for ln in lines:
@@ -298,6 +320,8 @@ range_end = {
 }
 emitted = set()
 for msgnum, offset, ln in parsed:
+    if time_re and not (len(ln.split(":")) > 5 and time_re.fullmatch(ln.split(":")[5])):
+        continue  # filtered AFTER range_end: ends still use every offset
     if match_re.search(ln) and offset not in emitted:
         emitted.add(offset)
         print(f"{offset}-{range_end[offset]}")
@@ -452,6 +476,7 @@ elif [ "${DERIVED}" = "true" ]; then
   while IFS=$'\t' read -r letter match; do
     # Same {fh} placeholder wgrib2_match gets: a sub-hourly file holds one
     # message per 15-min step, told apart only by ":<minutes> min fcst:".
+    [ -n "${TIME_FIELD_RE}" ] && match="${match//\{fh\} min fcst/${STEP_RE} fcst}"
     match="${match//\{fh\}/${FH}}"
     mapfile -t IN_RANGES < <(compute_ranges "${match}")
     if [ "${#IN_RANGES[@]}" -eq 0 ]; then

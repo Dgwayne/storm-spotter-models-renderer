@@ -5193,6 +5193,55 @@ models:
     forecast_minutes_default: { start: 0, end: 1125, step: 15 }
     retain_runs: 3
 
+  RRFS15:
+    # RRFS sub-hourly (2026-10-14): NOAA's 2dfld.3km.subh files, which every
+    # HOURLY cycle publishes for f001-f018 (no f000; synoptic cycles stop at
+    # f018 too). This is WeatherWise's "RRFS (Sub-Hourly)". Pure GRIB
+    # source on the minute-frame scheme: om_step_minutes makes every fh
+    # MINUTES (M#####.png, schema 2) and {fhour} = ceil(minutes / 60) picks
+    # the file a step lives in. subh_time_filter keeps only that step's
+    # messages (decode_pipeline.sh). The products are the 12 shared codes
+    # whose field exists in subh (checked against a live f005 idx) plus
+    # ptype15; there is no CAPE/shear/SRH/cloud/1-h precip in these files.
+    # A separate model (not hourly runs inside RRFS) because the app opens
+    # manifest.latestRun, and thin runs there would blank RRFS's severe
+    # products. Latency (2026-10-13): f001 ~1h20m after init, f018 ~25 min
+    # later; synoptic cycles ~35 min slower.
+    products:
+      - refc
+      - refd1km
+      - t2m
+      - td2m
+      - wind10m
+      - gust10m
+      - mslp
+      - vis
+      - echoTops
+      - precipTotal
+      - asnow
+      - frzr
+      - ptype15
+    render_groups:
+      core: [refc, refd1km, ptype15, echoTops]
+      surface: [t2m, td2m, wind10m, gust10m, mslp]
+      precip: [precipTotal, asnow, frzr, vis]
+    s3_bucket: "noaa-rrfs-ops-pds"
+    s3_key_template: "rrfs.{date}/{run:02d}/rrfs.t{run:02d}z.2dfld.3km.subh.f{fhour:03d}.conus.grib2"
+    subh_time_filter: true
+    om_step_minutes: 15
+    min_schema: 2
+    display: "RRFS 15-min"
+    picker_group: "CONUS"
+    picker_order: 17
+    bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
+    image_size: [2048, 2048]
+    point_grid: [128, 128]
+    forecast_minutes_default: { start: 15, end: 1080, step: 15 }
+    runs_per_day: 24
+    # 5 hourly runs span wider than render_rrfs15.sh's 4 h window (the
+    # render/prune thrash rule in rrfs notes).
+    retain_runs: 5
+
   AROMEFR15:
     # Météo-France AROME 15-min nowcast set: 6 h range at 15-min steps,
     # refreshed HOURLY (~35 min latency). Sourced from the *_hd_15min

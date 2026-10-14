@@ -120,6 +120,11 @@ const CRON_TO_WORKFLOW = {
   "0,15,30,45 * * * *": [
     "render_nam.yml",
     "wildfire.yml",
+    // RRFS 15-min (2026-10-14): Actions is its ONLY renderer (no box task),
+    // so it takes a full q15 cadence. Hourly cycles, f018 ~1h45m after
+    // init; the plan gate idles it between publishes. Shares the slot NAM
+    // vacates when NAM retires (2026-10-14).
+    "render_rrfs15.yml",
     // RAP: hourly CONUS model (HRRR's parent), full q15 slot. Gated
     // like every model workflow, and the box is primary — these ticks
     // idle at the plan gate while the Dell keeps the bucket full.
