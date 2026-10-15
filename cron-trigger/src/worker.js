@@ -191,10 +191,17 @@ const LIGHTNING_STALE_SEC = 300;
 // imports, so the two can never disagree on what "changed" means.
 const OUTLOOKS_WORKFLOW = "outlooks.yml";
 
+// A queued run older than this is a GitHub ghost, not a real pending bake:
+// run 37655514929 sat "queued" with zero jobs from 2026-10-07 16:54Z on,
+// could be neither cancelled nor deleted, and blocked every gate dispatch
+// for 8 days. Real queued runs start well inside this even when the runner
+// queue is busy with model renders.
+const QUEUED_RUN_MAX_AGE_MS = 60 * 60 * 1000;
+
 async function workflowHasQueuedRun(workflow, token) {
   const url =
     `https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/` +
-    `${workflow}/runs?status=queued&per_page=1`;
+    `${workflow}/runs?status=queued&per_page=10`;
   const resp = await fetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -204,7 +211,10 @@ async function workflowHasQueuedRun(workflow, token) {
     },
   });
   if (!resp.ok) throw new Error(`runs list HTTP ${resp.status}`);
-  return ((await resp.json()).total_count || 0) > 0;
+  const cutoff = Date.now() - QUEUED_RUN_MAX_AGE_MS;
+  return ((await resp.json()).workflow_runs || []).some(
+    (r) => Date.parse(r.created_at) > cutoff,
+  );
 }
 
 // Fail-quiet like checkLightning: nothing here may break the tick's other
