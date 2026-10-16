@@ -219,5 +219,5 @@ jobs:
           check_cc OUTLOOKS   "https://models.dgwaynes.com/outlooks/v1/manifest.json"
           check_cc AIRQUALITY "https://models.dgwaynes.com/airquality/v1/conus.json"
           check_cc WIND       "https://models.dgwaynes.com/wind/v1/latest.json"
-          check_cc SFCOBS     "https://models.dgwaynes.com/sfcobs/v1/stations.json.gz"
+          check_cc SFCOBS     "https://models.dgwaynes.com/sfcobs/v1/stations.json"
           exit $fail

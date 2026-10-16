@@ -8,16 +8,23 @@ of `sfcobs_bake.py`.
 
 | Object | Cache-Control | What |
 |---|---|---|
-| `models.dgwaynes.com/sfcobs/v1/stations.json.gz` | max-age=60 | real gzip (`application/gzip`, no Content-Encoding), the app gunzips it |
+| `models.dgwaynes.com/sfcobs/v1/stations.json` | max-age=60 | stored gzipped, `Content-Encoding: gzip`; ~0.9 MB on the wire, ~3 MB decoded |
 | `models.dgwaynes.com/sfcobs/v1/manifest.json` | max-age=30 | `generatedAt`, counts, bytes, sha1, MADIS hours used, host |
 
-`stations.json.gz` is columnar: `fields` names the columns of every row in
+`stations.json` is columnar: `fields` names the columns of every row in
 `rows`:
 `id, name, type, net, lat, lon, elev, obs, t, td, rh, wd, ws, wg, pr, pp, rank`.
 Units are in `units` (C, %, deg from, kt, mm, m, unix seconds). `type` is
 `a` airport / `r` RAWS / `g` gov & mesonet / `c` citizen. `net` keys into
 `networks` (display names). `pp` is the precip period (`24h`, `1h`,
 `local-midnight`, ...); `pr` is null when the provider's period is unknown.
+Like every bare `.json` on the zone, Cloudflare rewrites the browser-facing
+Cache-Control to max-age=14400; the edge itself honours the origin's 60 s.
+Do not rename it `.json.gz`: only `*.json` is covered by the zone cache rule
+that refuses to pin a header-less response for 4 h. Clients that send
+`Accept-Encoding: gzip` (dart:io does) get the gzip body and decode it
+transparently; the rest get plain JSON decoded at the edge.
+
 `rank` 2..5 shows from zoom `rankMinZoom[rank]` (5, 7, 8, 9); ranks 0-1 are
 reserved for AWC airports, which the app ranks itself.
 

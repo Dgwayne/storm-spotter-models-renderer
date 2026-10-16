@@ -33,7 +33,7 @@ T0=$(date +%s)
 OUT=$(python -I "$(dirname "$0")/sfcobs_bake.py" 2>&1)
 RC=$?
 printf '%s\n' "$OUT" > ~/stp-sfcobs/logs/last.log
-SUMMARY=$(printf '%s\n' "$OUT" | grep -E '^(stations:|stations.json.gz|ERROR)' | tr '\n' ' ')
+SUMMARY=$(printf '%s\n' "$OUT" | grep -E '^(stations:|stations.json |ERROR)' | tr '\n' ' ')
 tick_line "$RC" "wall=$(( $(date +%s) - T0 ))s $SUMMARY"
 # Keep the tick log bounded (~2 weeks at 288 ticks/day).
 tail -n 4000 ~/stp-sfcobs/logs/ticks.log > ~/stp-sfcobs/logs/ticks.tmp && mv ~/stp-sfcobs/logs/ticks.tmp ~/stp-sfcobs/logs/ticks.log

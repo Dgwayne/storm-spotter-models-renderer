@@ -3,7 +3,7 @@
 
   python3 sfcobs/verify_feed.py [STATION_ID ...]
 
-Fetches models.dgwaynes.com/sfcobs/v1/{manifest.json,stations.json.gz} and
+Fetches models.dgwaynes.com/sfcobs/v1/{manifest.json,stations.json} and
 the MADIS public station table, then checks:
   * freshness: manifest generatedAt age and the newest ob in the file
   * licensing: every station's provider is in the bake's allow list, and no
@@ -32,20 +32,23 @@ RESTRICTED_PROVIDERS = {"OK-Meso", "WT-Meso", "NYSM", "SYNOPTIC_N", "CAIC", "CO_
 RESTRICTED_TAGS = {"WTEXAS", "DAVIS", "APS", "ISWS", "KSU-MESO"}
 
 
-def get(url: str) -> bytes:
+def get(url: str, extra: dict | None = None) -> bytes:
     req = urllib.request.Request(f"{url}?_v={int(time.time())}",
-                                 headers={"User-Agent": "sfcobs-verify", "Cache-Control": "no-cache"})
+                                 headers={"User-Agent": "sfcobs-verify", "Cache-Control": "no-cache",
+                                          **(extra or {})})
     return urllib.request.urlopen(req, timeout=120).read()
 
 
 def main() -> int:
     man = json.loads(get(f"{BASE}/manifest.json"))
-    gz = get(f"{BASE}/stations.json.gz")
-    data = json.loads(gzip.decompress(gz))
+    # Ask for gzip explicitly to measure the stored (wire) size; Cloudflare
+    # decodes for clients that do not, and urllib never asks on its own.
+    gz = get(f"{BASE}/stations.json", {"Accept-Encoding": "gzip"})
+    data = json.loads(gzip.decompress(gz) if gz[:2] == b"\x1f\x8b" else gz)
     gen = dt.datetime.fromisoformat(man["generatedAt"].replace("Z", "+00:00"))
     age = (dt.datetime.now(dt.timezone.utc) - gen).total_seconds() / 60
     print(f"manifest generatedAt {man['generatedAt']} ({age:.1f} min old), host {man.get('host')}")
-    print(f"stations.json.gz {len(gz):,} bytes ({len(gz) / 1024:.0f} KB), "
+    print(f"stations.json {len(gz):,} bytes gzipped ({len(gz) / 1024:.0f} KB), "
           f"raw {man.get('rawBytes', 0):,} bytes, {data['count']:,} stations, newest ob {man.get('newestObs')}")
     rows = [dict(zip(data["fields"], r)) for r in data["rows"]]
     print("by type:", dict(collections.Counter(r["type"] for r in rows)))

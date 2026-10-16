@@ -6,7 +6,14 @@ bake adds everything else that is legal to redistribute: RAWS fire-weather
 stations, NWS HADS, state DOT / agricultural / university mesonets, and CWOP
 citizen stations, from the NOAA MADIS PUBLIC feed. One compact gz JSON:
 
-  sfcobs/v1/stations.json.gz   every station, newest ob, server-side zoom rank
+  sfcobs/v1/stations.json      every station, newest ob, server-side zoom rank.
+                               Stored GZIPPED with Content-Encoding: gzip (real
+                               gzip, so not the 2026-07 false-gzip trap): the
+                               CDN hands gzip clients the 0.9 MB body as is and
+                               decodes for the rest. Named .json, not .json.gz,
+                               so the zone's "Cache JSON feeds" rule covers it
+                               (edge caching + bypass-if-no-header); a .gz key
+                               has no rule and is exposed to the 4 h edge pin.
   sfcobs/v1/manifest.json      generatedAt + counts (freshness monitor + app)
 
 SOURCE
@@ -103,7 +110,7 @@ UA = "SpotterToolsPro-sfcobs/1.0 (models.dgwaynes.com; spottertoolspro@gmail.com
 
 OUT_PREFIX = "sfcobs/v1"
 SCHEMA_VERSION = 1
-CACHE_DATA_S = 60        # stations.json.gz: rebaked every 5 min
+CACHE_DATA_S = 60        # stations.json: rebaked every 5 min
 CACHE_MANIFEST_S = 30
 
 # Same North America bbox the app applies to AWC METARs (app_constants.dart).
@@ -457,16 +464,20 @@ def assign_ranks(rows: list[dict], awc: list[tuple[str, float, float]]) -> None:
 
 # ── Publish ──────────────────────────────────────────────────────────
 
-def rclone_upload(local: Path, key: str, cache_s: int, content_type: str) -> None:
+def rclone_upload(local: Path, key: str, cache_s: int, content_type: str,
+                  gzipped: bool = False) -> None:
     bucket = os.environ["R2_BUCKET"]
-    subprocess.check_call([
+    cmd = [
         "rclone", "copyto", str(local), f"r2:{bucket}/{key}",
         "--s3-no-check-bucket", "--no-traverse",
         # Header-less objects get BYPASSed by the zone's cache rule and every
         # request falls through to B2 (freshness_monitor.yml asserts this).
         "--header-upload", f"Cache-Control: public, max-age={cache_s}",
         "--header-upload", f"Content-Type: {content_type}",
-    ])
+    ]
+    if gzipped:
+        cmd += ["--header-upload", "Content-Encoding: gzip"]
+    subprocess.check_call(cmd)
 
 
 def main() -> int:
@@ -549,7 +560,8 @@ def main() -> int:
     manifest = {
         "schemaVersion": SCHEMA_VERSION,
         "generatedAt": gen_iso,
-        "file": "stations.json.gz",
+        "file": "stations.json",
+        "contentEncoding": "gzip",
         "count": len(rows),
         "byType": by_type,
         "bytes": len(gz),
@@ -560,7 +572,7 @@ def main() -> int:
                      .strftime("%Y-%m-%dT%H:%M:%SZ"),
         "host": os.environ.get("SFCOBS_HOST", os.uname().nodename if hasattr(os, "uname") else "?"),
     }
-    log(f"stations.json.gz {len(gz) / 1024:.0f} KB (raw {len(body) / 1024:.0f} KB)")
+    log(f"stations.json {len(gz) / 1024:.0f} KB gzipped (raw {len(body) / 1024:.0f} KB)")
 
     out_dir = Path(os.environ.get("SFCOBS_OUT_DIR", cache_dir / "out"))
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -570,8 +582,8 @@ def main() -> int:
         log(f"SFCOBS_NO_UPLOAD=1: wrote {out_dir}, skipping upload")
     else:
         # Data first, manifest second: a manifest never points at an older file.
-        rclone_upload(out_dir / "stations.json.gz", f"{OUT_PREFIX}/stations.json.gz",
-                      CACHE_DATA_S, "application/gzip")
+        rclone_upload(out_dir / "stations.json.gz", f"{OUT_PREFIX}/stations.json",
+                      CACHE_DATA_S, "application/json", gzipped=True)
         rclone_upload(out_dir / "manifest.json", f"{OUT_PREFIX}/manifest.json",
                       CACHE_MANIFEST_S, "application/json")
     log(f"done in {time.time() - t_start:.1f}s")
