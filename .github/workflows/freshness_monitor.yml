@@ -197,6 +197,10 @@ jobs:
           # re-dispatches it within ~5 min of a stall, so 30 min stale here
           # means BOTH recovery layers failed — email the owner.
           check LIGHTNING "https://models.dgwaynes.com/lightning/v1/flashes.json" 30
+          # Surface Obs (MADIS mesonets): the Astrol box bakes every 5 min and
+          # the cron Worker's dead-man dispatches sfcobs.yml past 15 min, so
+          # 20 min stale means the box AND the fallback have both failed.
+          check SFCOBS "https://models.dgwaynes.com/sfcobs/v1/manifest.json" 20
 
           # ── Cache-Control assertions ──────────────────────────────────
           # Scoped to the objects where losing the header would actually
@@ -215,4 +219,5 @@ jobs:
           check_cc OUTLOOKS   "https://models.dgwaynes.com/outlooks/v1/manifest.json"
           check_cc AIRQUALITY "https://models.dgwaynes.com/airquality/v1/conus.json"
           check_cc WIND       "https://models.dgwaynes.com/wind/v1/latest.json"
+          check_cc SFCOBS     "https://models.dgwaynes.com/sfcobs/v1/stations.json.gz"
           exit $fail

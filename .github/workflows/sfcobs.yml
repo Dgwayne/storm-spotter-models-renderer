@@ -1,0 +1,83 @@
+name: Surface Obs (MADIS mesonets) fallback
+
+# FALLBACK writer of sfcobs/v1/ (see sfcobs/sfcobs_bake.py for the feed).
+#
+# The steady-state writer is the Astrol VPS (sfcobs/stp-sfcobs.timer, every
+# 5 min, warm hour-file cache so a tick is a few seconds). This workflow has
+# NO schedule on purpose, the lightning pattern: a native cron would make
+# Actions a second writer racing the box. The stp-models-cron Worker's
+# sfcobs dead-man dispatches it when sfcobs/v1/manifest.json is more than
+# 15 min old AND no sfcobs run is queued or in progress, so a dead box
+# degrades the layer to ~5-15 min freshness instead of stalling it.
+#
+# One bake per dispatch: a cold run downloads the 2-3 MADIS hour files it
+# needs (~30 MB gz each), so it is ~1 min of runner time. Public repo =>
+# free Actions minutes; B2 uploads and CDN egress are free.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: sfcobs
+  cancel-in-progress: false
+
+jobs:
+  sfcobs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      SFCOBS_HOST: github-actions
+      PYTHONUNBUFFERED: '1'
+
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore micromamba binary (cache)
+        id: mmbin
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Set up micromamba (netCDF4 + rclone)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: sfcobs
+          create-args: >-
+            python=3.11
+            netcdf4
+            numpy
+            rclone
+          cache-environment: true
+          init-shell: bash
+          download-micromamba: ${{ steps.mmbin.outputs.cache-hit != 'true' }}
+          micromamba-binary-path: ~/micromamba-bin/micromamba
+
+      - name: Save micromamba binary (cache)
+        if: steps.mmbin.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Configure rclone for Backblaze B2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Bake Surface Obs
+        run: python sfcobs/sfcobs_bake.py

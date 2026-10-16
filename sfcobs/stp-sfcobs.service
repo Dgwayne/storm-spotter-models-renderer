@@ -1,0 +1,22 @@
+[Unit]
+Description=STP Surface Obs bake (NOAA MADIS mesonets -> sfcobs/v1/)
+Documentation=https://github.com/Dgwayne/storm-spotter-models-renderer/tree/main/sfcobs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# SYSTEM unit running as ubuntu (the Astrol layout). %h would be /root in a
+# system unit even with User=, so paths are spelled out.
+User=ubuntu
+Type=oneshot
+ExecStart=/bin/bash /home/ubuntu/stp-sfcobs/renderer/sfcobs/run-sfcobs.sh
+# Below the L2 ingest and the volume pilot, which are latency-critical.
+Nice=10
+# A warm tick is a few seconds; a cold one downloads ~3 x 30 MB.
+TimeoutStartSec=4min
+# Measured 1.0 GB peak decoding a full hour file (~450 MB raw netCDF in
+# memory). The cap keeps a runaway tick from pressuring the L2 ingest.
+MemoryMax=2500M
+
+[Install]
+WantedBy=multi-user.target

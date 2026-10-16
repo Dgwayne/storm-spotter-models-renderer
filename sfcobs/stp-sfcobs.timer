@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the STP Surface Obs bake every 5 minutes
+
+[Timer]
+# MADIS rewrites the current hour file every few minutes; the app refreshes
+# the layer every 5. Offset from the sightings timer (*:2/5).
+OnCalendar=*:4/5
+Persistent=false
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

@@ -182,6 +182,14 @@ const LIGHTNING_FEED_URL =
   "https://models.dgwaynes.com/lightning/v1/flashes.json";
 const LIGHTNING_STALE_SEC = 300;
 
+// Surface Obs (sfcobs) uses the same dead-man. Its steady-state writer is the
+// Astrol VPS (5-min systemd timer, see sfcobs/run-sfcobs.sh); sfcobs.yml has
+// no schedule and only runs when this check finds the manifest stale. 15 min
+// = three missed box ticks, so a slow MADIS download never triggers it.
+const SFCOBS_WORKFLOW = "sfcobs.yml";
+const SFCOBS_MANIFEST_URL = "https://models.dgwaynes.com/sfcobs/v1/manifest.json";
+const SFCOBS_STALE_SEC = 900;
+
 // Outlook cache gate. Outlooks change a few dozen times a day across ~110
 // layers, so a fixed dispatch would mostly run empty bakes in a runner queue
 // shared with the model renders. Instead, on every 5-minute tick this probes
@@ -275,7 +283,7 @@ const KNOWN_WORKFLOWS = new Set(
   Object.values(CRON_TO_WORKFLOW)
     .flat()
     .map(entryName)
-    .concat(DEFAULT_WORKFLOW, LIGHTNING_WORKFLOW, OUTLOOKS_WORKFLOW),
+    .concat(DEFAULT_WORKFLOW, LIGHTNING_WORKFLOW, OUTLOOKS_WORKFLOW, SFCOBS_WORKFLOW),
 );
 
 async function dispatch(workflow, token, inputs) {
@@ -299,31 +307,32 @@ async function dispatch(workflow, token, inputs) {
   console.log(`dispatched ${workflow}`);
 }
 
-// Dead-man check for the lightning feed. Fail-quiet by design: a transient
-// fetch error here must never break the tick's normal dispatches.
-async function checkLightning(token) {
+// Dead-man check for a feed whose writer is not a Worker cron slot (the
+// lightning loop, the Surface Obs box timer). Fail-quiet by design: a
+// transient fetch error here must never break the tick's normal dispatches.
+async function checkDeadman(label, feedUrl, workflow, staleSec, token) {
   let generatedAt;
   try {
-    // Cache-bust: the edge caches flashes.json (max-age=6) per POP; a
-    // stale-POP copy could mask a real stall.
-    const resp = await fetch(`${LIGHTNING_FEED_URL}?_deadman=${Date.now()}`, {
+    // Cache-bust: the edge caches these feeds per POP; a stale-POP copy
+    // could mask a real stall.
+    const resp = await fetch(`${feedUrl}?_deadman=${Date.now()}`, {
       headers: { "Cache-Control": "no-cache", "User-Agent": "stp-models-cron" },
     });
     if (!resp.ok) throw new Error(`feed HTTP ${resp.status}`);
     generatedAt = (await resp.json()).generatedAt;
   } catch (e) {
-    console.log(`lightning deadman: feed check failed (${e}), skipping`);
+    console.log(`${label} deadman: feed check failed (${e}), skipping`);
     return;
   }
   const ageSec = (Date.now() - Date.parse(generatedAt)) / 1000;
-  if (!(ageSec > LIGHTNING_STALE_SEC)) return; // fresh (or unparseable date)
+  if (!(ageSec > staleSec)) return; // fresh (or unparseable date)
 
-  // Stale. Dispatch only if GitHub has no lightning run queued or running —
-  // a queued run under runner starvation will start eventually, and piling
-  // more 2h30m loops behind it would make the starvation worse.
+  // Stale. Dispatch only if GitHub has no run of this workflow queued or
+  // running — a queued run under runner starvation will start eventually,
+  // and piling more behind it would make the starvation worse.
   const runsUrl =
     `https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/` +
-    `${LIGHTNING_WORKFLOW}/runs?per_page=10`;
+    `${workflow}/runs?per_page=10`;
   try {
     const resp = await fetch(runsUrl, {
       headers: {
@@ -335,25 +344,35 @@ async function checkLightning(token) {
     });
     if (!resp.ok) throw new Error(`runs list HTTP ${resp.status}`);
     const runs = (await resp.json()).workflow_runs || [];
+    // Same ghost guard as the outlooks gate: a "queued" run older than an
+    // hour never starts and must not block recovery forever.
+    const cutoff = Date.now() - QUEUED_RUN_MAX_AGE_MS;
     const active = runs.some(
-      (r) => r.status === "queued" || r.status === "in_progress",
+      (r) =>
+        r.status === "in_progress" ||
+        (r.status === "queued" && Date.parse(r.created_at) > cutoff),
     );
     if (active) {
       console.log(
-        `lightning deadman: feed ${Math.round(ageSec)}s stale but a run is ` +
+        `${label} deadman: feed ${Math.round(ageSec)}s stale but a run is ` +
           `already queued/in progress — waiting`,
       );
       return;
     }
   } catch (e) {
-    console.log(`lightning deadman: runs check failed (${e}), skipping`);
+    console.log(`${label} deadman: runs check failed (${e}), skipping`);
     return;
   }
   console.log(
-    `lightning deadman: feed ${Math.round(ageSec)}s stale, no active run — dispatching`,
+    `${label} deadman: feed ${Math.round(ageSec)}s stale, no active run — dispatching`,
   );
-  await dispatch(LIGHTNING_WORKFLOW, token);
+  await dispatch(workflow, token);
 }
+
+const checkLightning = (token) =>
+  checkDeadman("lightning", LIGHTNING_FEED_URL, LIGHTNING_WORKFLOW, LIGHTNING_STALE_SEC, token);
+const checkSfcobs = (token) =>
+  checkDeadman("sfcobs", SFCOBS_MANIFEST_URL, SFCOBS_WORKFLOW, SFCOBS_STALE_SEC, token);
 
 export default {
   async scheduled(event, env, ctx) {
@@ -376,6 +395,7 @@ export default {
           // Piggybacks on every tick (the 5 slots' union fires every few
           // minutes) — detection within ~5 min at zero extra cron slots.
           .concat(checkLightning(env.GH_DISPATCH_TOKEN))
+          .concat(checkSfcobs(env.GH_DISPATCH_TOKEN))
           // Slots A, B and D together tick on every multiple of 5 minutes;
           // the :02/:07 slots are skipped so the gate runs exactly every 5.
           .concat(minute % 5 === 0 ? checkOutlooks(env.GH_DISPATCH_TOKEN, minute) : []),
