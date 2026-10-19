@@ -28,11 +28,20 @@ export SFCOBS_CACHE_DIR=$HOME/stp-sfcobs/cache
 export SFCOBS_OUT_DIR=$HOME/stp-sfcobs/out
 export SFCOBS_HOST="${SFCOBS_HOST:-$(hostname)}"
 export PYTHONUNBUFFERED=1
+# Fail-fast B2 uploads (rclone's default 5 min idle timeout outlives a stalled
+# PUT; see render_mrms_obs.sh). Caller env wins.
+export RCLONE_CONTIMEOUT="${RCLONE_CONTIMEOUT:-15s}"
+export RCLONE_TIMEOUT="${RCLONE_TIMEOUT:-30s}"
 
 T0=$(date +%s)
 OUT=$(python -I "$(dirname "$0")/sfcobs_bake.py" 2>&1)
 RC=$?
 printf '%s\n' "$OUT" > ~/stp-sfcobs/logs/last.log
+# A failed tick's traceback would be overwritten 5 min later; keep it.
+if [ "$RC" -ne 0 ]; then
+  cp ~/stp-sfcobs/logs/last.log ~/stp-sfcobs/logs/fail-$(date -u +%Y%m%dT%H%M%S).log
+  ls -t ~/stp-sfcobs/logs/fail-*.log 2>/dev/null | tail -n +51 | xargs -r rm -f
+fi
 SUMMARY=$(printf '%s\n' "$OUT" | grep -E '^(stations:|stations.json |ERROR)' | tr '\n' ' ')
 tick_line "$RC" "wall=$(( $(date +%s) - T0 ))s $SUMMARY"
 # Keep the tick log bounded (~2 weeks at 288 ticks/day).

@@ -73,6 +73,13 @@ PREFIX="${OBS_PREFIX:-$MODEL}"
 LIVE_PREFIX="OBS"
 JOBS="${OBS_JOBS:-1}"
 
+# Fail-fast uploads. B2 PUTs occasionally stall in bursts (2026-10-19
+# 03-11Z on Astrol); rclone's default 5 min idle timeout let ONE hung PUT
+# hold a whole fast tick for ~5 min. A stalled transfer now drops after
+# 30 s idle and rclone's low-level retry resends it. Caller env wins.
+export RCLONE_CONTIMEOUT="${RCLONE_CONTIMEOUT:-15s}"
+export RCLONE_TIMEOUT="${RCLONE_TIMEOUT:-30s}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # shellcheck source=lib/scratch.sh

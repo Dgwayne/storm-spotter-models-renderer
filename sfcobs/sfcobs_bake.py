@@ -191,8 +191,24 @@ def log(msg: str) -> None:
 
 
 def http_get(url: str, timeout: int = 120, headers: dict | None = None):
+    """GET with one retry for a dropped connection.
+
+    ~0.8% of Astrol ticks (Oct 2026) died ~30 s in on a connection-level
+    error, and the next tick 5 min later always worked. HTTP status errors
+    (304/404 are meaningful to callers) are never retried, and a slow first
+    attempt is not retried either, so the unit's 4 min budget holds."""
     req = urllib.request.Request(url, headers={"User-Agent": UA, **(headers or {})})
-    return urllib.request.urlopen(req, timeout=timeout)
+    t0 = time.time()
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError:
+        raise
+    except (urllib.error.URLError, OSError) as exc:
+        if time.time() - t0 > 60:
+            raise
+        log(f"  GET {url.split('?')[0]} failed ({exc}); retrying once")
+        time.sleep(3)
+        return urllib.request.urlopen(req, timeout=timeout)
 
 
 # ── Provider category check ──────────────────────────────────────────
