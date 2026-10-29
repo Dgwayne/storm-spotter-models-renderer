@@ -41,6 +41,7 @@ import csv
 import datetime as dt
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -72,6 +73,22 @@ ISOBARIC_VARS = ("UGRD", "VGRD", "HGT", "TMP", "DPT")
 # (The original 3-hourly cut was a conservative first pass, not a data limit.)
 FHOURS = list(range(0, 19))
 LOOKBACK_HOURS = 8
+
+# Stored runs (app run picker). Every fresh extract is ALSO staged under
+# v1/soundings/<prefix>runs/<YYYYMMDDHH>/ with the same layout as the live
+# root (<SID>.json, <SID>.fc.json, tiles/, tiles.json, manifest.json), and
+# v1/soundings/<prefix>runs.json lists what is kept, newest first. The live
+# root stays exactly as it was (dealiaser + released apps read it).
+# Retention per model: the newest `runs_keep` runs of any length, plus the
+# newest `runs_keep_long` long (48 h) runs so day-2 runs outlive the hourly
+# churn. ~0.4 GB per HRRR run on B2 at $6.95/TB: cents a month, independent
+# of user count.
+RUNS_KEEP_DEFAULT = 4
+# Synoptic long runs: HRRR's 00/06/12/18Z cycles run to f48. Extracted in a
+# second pass (after the live upload, so the hourly refresh never waits on
+# it) into the stored-runs tree only. The live root stays at 19 hours: a
+# 49-hour tile is ~2.6x the download, so it is opt-in from the run picker.
+LONG_FHOURS = list(range(0, 49))
 BUCKET = os.environ["R2_BUCKET"]
 
 # Models to extract. Each source file is fetched with the same .idx
@@ -94,6 +111,11 @@ MODELS = [
         "name": "HRRR",
         "prefix": "",
         "levels": FINE_LEVELS,
+        # Hourly cycles: 8 h of runs to step back through, plus the last
+        # two synoptic 48 h runs.
+        "runs_keep": 8,
+        "runs_keep_long": 2,
+        "long_cycles": (0, 6, 12, 18),
         "files": [
             "https://noaa-hrrr-bdp-pds.s3.amazonaws.com/"
             "hrrr.{d}/conus/hrrr.t{h}z.wrfprsf{fh:02d}.grib2",
@@ -298,7 +320,7 @@ def cdn_manifest(prefix: str):
         return None
 
 
-def find_latest_run(model: dict):
+def find_latest_run(model: dict, fhours=None, cycles=None):
     """Latest run whose furthest forecast hour (max FHOURS) is published for
     EVERY source file, so all the forecast hours we need exist for a single
     consistent run.
@@ -308,9 +330,11 @@ def find_latest_run(model: dict):
     — starting at 2 h was wasting an hour of freshness on the profile users
     see as "now". Older offsets remain the fallback for late NOAA runs."""
     now = dt.datetime.now(dt.timezone.utc)
-    maxfh = max(FHOURS)
+    maxfh = max(fhours or FHOURS)
     for off in range(1, LOOKBACK_HOURS + 1):
         t = (now - dt.timedelta(hours=off)).replace(minute=0, second=0, microsecond=0)
+        if cycles is not None and t.hour not in cycles:
+            continue
         d, h = t.strftime("%Y%m%d"), t.strftime("%H")
         if all(_head_ok(u + ".idx") for u in grib_urls(model, d, h, maxfh)):
             return t
@@ -739,11 +763,18 @@ def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir,
     return n
 
 
-def process_model(model: dict, sites, out_root: Path, work_root: Path) -> int:
+def process_model(model: dict, sites, out_root: Path, work_root: Path,
+                  fhours=None, run_dt=None, out_dir=None) -> int:
     """Extract one model end-to-end into out_root/<prefix>. Returns the number
     of site profiles written; 0 = model failed / nothing published; -1 = the
-    CDN already serves the newest run (healthy no-op, manifest touched)."""
+    CDN already serves the newest run (healthy no-op, manifest touched).
+
+    With [run_dt] + [out_dir] (the long-run pass) it extracts that run's
+    [fhours] straight into out_dir: no latest-run search, no CDN skip.
+    A fresh extract leaves its run stamp in model["_run_id"]."""
     name = model["name"]
+    fhours = list(fhours or FHOURS)
+    model["_run_id"] = None
     # Per-model knobs land in the module globals the helpers read
     # (classify -> ISOBARIC_VARS, extract_all/grid_latlon -> TILE_STRIDE,
     # build_tiles -> STRIDE_KM, everything isobaric -> LEVELS).
@@ -753,7 +784,9 @@ def process_model(model: dict, sites, out_root: Path, work_root: Path) -> int:
     ISOBARIC_VARS = tuple(model.get("isobaric_vars", ("UGRD", "VGRD", "HGT", "TMP", "DPT")))
     TILE_STRIDE = int(model.get("tile_stride", 8))
     STRIDE_KM = int(model.get("stride_km", TILE_STRIDE * 3))
-    run_dt = find_latest_run(model)
+    long_pass = run_dt is not None
+    if run_dt is None:
+        run_dt = find_latest_run(model, fhours)
     if run_dt is None:
         print(f"==> {name}: no run with all forecast hours published; skip")
         return 0
@@ -764,9 +797,9 @@ def process_model(model: dict, sites, out_root: Path, work_root: Path) -> int:
     # late, or an extra dispatch). Touch generatedAt so the freshness monitor
     # measures OUR liveness rather than NOAA's publish cadence, and stage
     # only the manifest.
-    cdn = cdn_manifest(model["prefix"])
+    cdn = None if long_pass else cdn_manifest(model["prefix"])
     if (cdn is not None and cdn.get("run") == run_iso
-            and cdn.get("forecastHours") == FHOURS
+            and cdn.get("forecastHours") == fhours
             and cdn.get("levelsMb") == LEVELS):
         out_dir = out_root / model["prefix"] if model["prefix"] else out_root
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -776,7 +809,8 @@ def process_model(model: dict, sites, out_root: Path, work_root: Path) -> int:
               "manifest touched, extract skipped")
         return -1
 
-    print(f"==> {name} run {run_dt:%Y%m%d%H}Z, forecast hours {FHOURS}")
+    print(f"==> {name} run {run_dt:%Y%m%d%H}Z, forecast hours "
+          f"{fhours[0]}-{fhours[-1]}")
 
     offs = utc_offsets(sites, run_dt)
 
@@ -784,7 +818,7 @@ def process_model(model: dict, sites, out_root: Path, work_root: Path) -> int:
     by_site: dict[str, dict[int, dict]] = {sid: {} for (sid, _, _) in sites}
     grids_by_hour: dict[int, dict] = {}   # point-sounding tile inputs
     lats = lons = None
-    for fh in FHOURS:
+    for fh in fhours:
         # A model's fields may span several files (RRFS: prslev isobaric +
         # 2dfld surface); classify() only matches each file's relevant
         # messages, so fetch each and merge the band dicts.
@@ -846,7 +880,8 @@ def process_model(model: dict, sites, out_root: Path, work_root: Path) -> int:
                 n += 1
         print(f"  F{fh:02d}: {n}/{len(sites)} site profiles")
 
-    out_dir = out_root / model["prefix"] if model["prefix"] else out_root
+    if out_dir is None:
+        out_dir = out_root / model["prefix"] if model["prefix"] else out_root
     out_dir.mkdir(parents=True, exist_ok=True)
     n_now = n_fc = 0
     coord = {sid: (lat, lon) for (sid, lat, lon) in sites}
@@ -897,13 +932,122 @@ def process_model(model: dict, sites, out_root: Path, work_root: Path) -> int:
         "run": run_iso,
         "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
         "levelsMb": LEVELS,
-        "forecastHours": FHOURS,
+        "forecastHours": fhours,
         "sites": n_now,
         "pointTiles": n_tiles,
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest))
     print(f"  {name}: {n_now} sites + {n_tiles} tiles staged")
+    model["_run_id"] = run_dt.strftime("%Y%m%d%H")
     return n_now
+
+
+# ── Stored runs ───────────────────────────────────────────────────────────
+
+def stage_stored_run(model: dict, out_root: Path, runs_root: Path) -> None:
+    """Hard-link a fresh live extract into runs_root/<prefix>runs/<id>/ (same
+    bytes, no extra disk) so it uploads as a stored run too. Only the
+    model's own files: HRRR stages at the root, next to the other models'
+    prefix directories."""
+    rid = model.get("_run_id")
+    if not rid:
+        return
+    src = out_root / model["prefix"] if model["prefix"] else out_root
+    dst = runs_root / f"{model['prefix']}runs" / rid
+    files = [(f, Path(f.name)) for f in src.iterdir() if f.is_file()]
+    if (src / "tiles").is_dir():
+        files += [(f, Path("tiles") / f.name) for f in (src / "tiles").iterdir()]
+    for f, rel in files:
+        t = dst / rel
+        t.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.link(f, t)
+        except OSError:
+            shutil.copy2(f, t)
+
+
+def _rclone_lsf_dirs(remote: str) -> list[str]:
+    r = subprocess.run(["rclone", "lsf", remote, "--dirs-only"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return []
+    return [ln.strip().rstrip("/") for ln in r.stdout.splitlines() if ln.strip()]
+
+
+def _rclone_cat_json(remote: str):
+    try:
+        r = subprocess.run(["rclone", "cat", remote], capture_output=True,
+                           timeout=60)
+        return json.loads(r.stdout.decode()) if r.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def update_runs_index(model: dict, stage_root: Path) -> None:
+    """Rebuild <prefix>runs.json from the stored runs on B2, apply retention
+    (rclone purge of dropped run folders) and stage the index for upload.
+
+    Truth is the bucket listing, not the previous index, so a crashed sweep
+    never leaves the index pointing at missing folders, and orphans are
+    cleaned up on the next one. Forecast-hour counts come from each run's
+    manifest.json (one small read per run)."""
+    prefix = model["prefix"]
+    base = f"r2:{BUCKET}/v1/soundings/{prefix}runs"
+    ids = sorted((d for d in _rclone_lsf_dirs(base + "/")
+                  if len(d) == 10 and d.isdigit()), reverse=True)
+    entries = []
+    for rid in ids:
+        man = _rclone_cat_json(f"{base}/{rid}/manifest.json")
+        if not man or not man.get("pointTiles"):
+            continue  # partial upload / failed tile pass: purged below
+        entries.append({
+            "id": rid,
+            "run": man.get("run"),
+            "forecastHours": len(man.get("forecastHours") or []),
+        })
+    keep_n = int(model.get("runs_keep", RUNS_KEEP_DEFAULT))
+    keep_long = int(model.get("runs_keep_long", 0))
+    longs = [e for e in entries if e["forecastHours"] > len(FHOURS)]
+    keep = {e["id"] for e in entries[:keep_n]} | {e["id"] for e in longs[:keep_long]}
+    for rid in ids:
+        if rid not in keep:
+            print(f"  [runs] {model['name']}: purging stored run {rid}")
+            subprocess.call(["rclone", "purge", f"{base}/{rid}"])
+    kept = [e for e in entries if e["id"] in keep]
+    out = stage_root / f"{prefix}runs.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({
+        "schemaVersion": 1,
+        "model": model["name"],
+        "generatedAt": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "runs": kept,
+    }, separators=(",", ":")))
+    print(f"  [runs] {model['name']}: {len(kept)} stored: " + ", ".join(
+        e["id"] + (" (48h)" if e["forecastHours"] > len(FHOURS) else "")
+        for e in kept))
+
+
+def process_long(model: dict, sites, long_root: Path, work_root: Path) -> bool:
+    """Extract the newest complete synoptic 48 h run into the stored-runs
+    tree, unless it is already stored with all its hours. True when a run
+    was staged."""
+    cycles = model.get("long_cycles")
+    if not cycles:
+        return False
+    run_dt = find_latest_run(model, LONG_FHOURS, cycles)
+    if run_dt is None:
+        print(f"==> {model['name']} long: no synoptic run with "
+              f"f{max(LONG_FHOURS)} published yet")
+        return False
+    rid = run_dt.strftime("%Y%m%d%H")
+    man = _rclone_cat_json(
+        f"r2:{BUCKET}/v1/soundings/{model['prefix']}runs/{rid}/manifest.json")
+    if man and man.get("forecastHours") == LONG_FHOURS and man.get("pointTiles"):
+        print(f"==> {model['name']} long: {rid} already stored at 48 h")
+        return False
+    out_dir = long_root / f"{model['prefix']}runs" / rid
+    return process_model(model, sites, long_root, work_root,
+                         fhours=LONG_FHOURS, run_dt=run_dt, out_dir=out_dir) > 0
 
 
 def main() -> int:
@@ -930,16 +1074,53 @@ def main() -> int:
         print("no model produced any profiles; exit 1")
         return 1
 
+    # Every fresh extract is also a stored run (hard links, staged before
+    # the upload so both go up in this sweep).
+    runs_root = work / "runs"
+    runs_root.mkdir()
+    for model in MODELS:
+        if results.get(model["key"], 0) > 0:
+            stage_stored_run(model, out_root, runs_root)
+
+    def upload(src: Path, cache: str = "public, max-age=600") -> None:
+        subprocess.check_call([
+            "rclone", "copy", str(src), f"r2:{BUCKET}/v1/soundings/",
+            "--s3-no-check-bucket", "--no-traverse",
+            "--header-upload", f"Cache-Control: {cache}",
+        ])
+
     # Upload whatever was staged — full extracts and/or touched manifests
     # from idempotent skips (the skip path stages only manifest.json).
-    subprocess.check_call([
-        "rclone", "copy", str(out_root), f"r2:{BUCKET}/v1/soundings/",
-        "--s3-no-check-bucket", "--no-traverse",
-        "--header-upload", "Cache-Control: public, max-age=600",
-    ])
+    # A stored run never changes once written, so it caches for a day.
+    upload(out_root)
+    upload(runs_root, "public, max-age=86400")
     print("==> uploaded soundings to v1/soundings/ — " +
           ", ".join(f"{k}: {'fresh (skip)' if v < 0 else f'{v} sites'}"
                     for k, v in results.items()))
+
+    # Second pass: synoptic 48 h runs, stored-runs tree only. After the live
+    # upload on purpose, so the hourly refresh never waits on it; failures
+    # here never fail the job (the live data is already up).
+    for model in MODELS:
+        long_root = work / f"long_{model['key']}"
+        long_root.mkdir()
+        try:
+            if process_long(model, sites, long_root, work):
+                upload(long_root, "public, max-age=86400")
+        except Exception as e:
+            print(f"==> {model['name']} long FAILED: {e!r}; continuing")
+        shutil.rmtree(long_root, ignore_errors=True)
+
+    # Runs index + retention, every sweep (one listing + one small read per
+    # stored run), which also self-heals after a crashed sweep.
+    index_root = work / "index"
+    index_root.mkdir()
+    for model in MODELS:
+        try:
+            update_runs_index(model, index_root)
+        except Exception as e:
+            print(f"==> {model['name']} runs index FAILED: {e!r}; continuing")
+    upload(index_root, "public, max-age=60")
     # HRRR is the load-bearing output (dealiaser + app default): flag its
     # absence as a failure even when RRFS succeeded. -1 (already current)
     # counts as success.
