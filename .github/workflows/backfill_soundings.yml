@@ -1,0 +1,86 @@
+name: Backfill Soundings
+
+# One-off utility: re-extract every STORED sounding run (v1/soundings/
+# <prefix>runs/<id>/) that predates a new tile field, in place, so older runs
+# in the app's run picker carry it too. First use 2026-10-29: the refl_dbz /
+# qpf_mm storm fields. Skips runs whose manifest already lists stormFields,
+# so re-running it is cheap. The runs index is untouched (ids do not change).
+#
+# Own concurrency group ON PURPOSE: sharing extract-soundings would make this
+# the one PENDING run there, and the hourly dispatch would cancel it (see the
+# note in extract_soundings.yml). Writes only runs/<id>/ folders, which the
+# hourly sweep never rewrites. NOT cron-dispatched.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: backfill-soundings
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [hrrr, rrfs, gfs]
+    env:
+      R2_BUCKET: ${{ secrets.B2_BUCKET }}
+      R2_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+
+    defaults:
+      run:
+        shell: bash -el {0}    # activate the conda env for every step
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore micromamba binary (cache)
+        id: mmbin
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Set up micromamba (gdal + rclone + python)
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: soundings
+          create-args: >-
+            python=3.11
+            gdal
+            libgdal-grib
+            rclone
+            timezonefinder
+          cache-environment: true
+          init-shell: bash
+          download-micromamba: ${{ steps.mmbin.outputs.cache-hit != 'true' }}
+          micromamba-binary-path: ~/micromamba-bin/micromamba
+
+      - name: Save micromamba binary (cache)
+        if: steps.mmbin.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/micromamba-bin/micromamba
+          key: micromamba-bin-linux64-v1
+
+      - name: Configure rclone for Cloudflare R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Other
+          region = us-west-004
+          no_check_bucket = true
+          access_key_id = ${{ secrets.B2_KEY_ID }}
+          secret_access_key = ${{ secrets.B2_APP_KEY }}
+          endpoint = ${{ secrets.B2_S3_ENDPOINT }}
+          EOF
+
+      - name: Backfill stored runs
+        run: python3 scripts/extract_soundings.py --backfill ${{ matrix.model }}

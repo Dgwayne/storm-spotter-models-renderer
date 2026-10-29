@@ -873,7 +873,9 @@ def process_model(model: dict, sites, out_root: Path, work_root: Path,
     cdn = None if long_pass else cdn_manifest(model["prefix"])
     if (cdn is not None and cdn.get("run") == run_iso
             and cdn.get("forecastHours") == fhours
-            and cdn.get("levelsMb") == LEVELS):
+            and cdn.get("levelsMb") == LEVELS
+            # Runs written before the storm fields existed get one rewrite.
+            and "stormFields" in cdn):
         out_dir = out_root / model["prefix"] if model["prefix"] else out_root
         out_dir.mkdir(parents=True, exist_ok=True)
         cdn["generatedAt"] = dt.datetime.now(dt.timezone.utc).isoformat()
@@ -1008,6 +1010,11 @@ def process_model(model: dict, sites, out_root: Path, work_root: Path,
         "forecastHours": fhours,
         "sites": n_now,
         "pointTiles": n_tiles,
+        # Optional tile fields written (empty when the source lacks them);
+        # its presence also marks a run as extracted by storm-aware code.
+        "stormFields": [f for f, keys in (
+            ("refl_dbz", ("MAXREF:1km", "REFC:col")), ("qpf_mm", ("APCP:total",)))
+            if n_tiles and any(k in g for g in grids_by_hour.values() for k in keys)],
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest))
     print(f"  {name}: {n_now} sites + {n_tiles} tiles staged")
@@ -1123,6 +1130,46 @@ def process_long(model: dict, sites, long_root: Path, work_root: Path) -> bool:
                          fhours=LONG_FHOURS, run_dt=run_dt, out_dir=out_dir) > 0
 
 
+def backfill(sites, models) -> int:
+    """Re-extract every stored run that predates the storm fields (no
+    "stormFields" in its manifest), in place under <prefix>runs/<id>/.
+    One-off utility (backfill_soundings.yml); the hourly sweep never calls
+    it. The runs index is left to the hourly sweep: the ids do not change."""
+    work = Path(tempfile.mkdtemp())
+    failed = 0
+    for model in models:
+        prefix = model["prefix"]
+        idx = _rclone_cat_json(f"r2:{BUCKET}/v1/soundings/{prefix}runs.json")
+        for e in (idx or {}).get("runs", []):
+            rid = e["id"]
+            base = f"r2:{BUCKET}/v1/soundings/{prefix}runs/{rid}"
+            man = _rclone_cat_json(f"{base}/manifest.json")
+            if man and "stormFields" in man:
+                print(f"==> {model['name']} {rid}: already has storm fields")
+                continue
+            fhours = LONG_FHOURS if e.get("forecastHours", 0) > len(FHOURS) else FHOURS
+            run_dt = dt.datetime.strptime(rid, "%Y%m%d%H").replace(
+                tzinfo=dt.timezone.utc)
+            root = work / f"bf_{model['key']}_{rid}"
+            out_dir = root / f"{prefix}runs" / rid
+            try:
+                n = process_model(model, sites, root, work, fhours=list(fhours),
+                                  run_dt=run_dt, out_dir=out_dir)
+                if n <= 0:
+                    raise RuntimeError("no profiles")
+                subprocess.check_call([
+                    "rclone", "copy", str(root), f"r2:{BUCKET}/v1/soundings/",
+                    "--s3-no-check-bucket", "--no-traverse",
+                    "--header-upload", "Cache-Control: public, max-age=86400",
+                ])
+                print(f"==> {model['name']} {rid}: backfilled ({len(fhours)} h)")
+            except Exception as ex:
+                failed += 1
+                print(f"==> {model['name']} {rid} backfill FAILED: {ex!r}")
+            shutil.rmtree(root, ignore_errors=True)
+    return 1 if failed else 0
+
+
 def main() -> int:
     sites = []
     with open(SITES_CSV) as f:
@@ -1201,4 +1248,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--backfill":
+        keys = set(sys.argv[2:]) or {m["key"] for m in MODELS}
+        _sites = []
+        with open(SITES_CSV) as f:
+            for row in csv.DictReader(f):
+                _sites.append((row["id"], float(row["lat"]), float(row["lon"])))
+        sys.exit(backfill(_sites, [m for m in MODELS if m["key"] in keys]))
     sys.exit(main())
