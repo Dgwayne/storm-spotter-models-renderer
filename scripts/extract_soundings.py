@@ -312,7 +312,11 @@ def cdn_manifest(prefix: str):
     edge caches manifest.json."""
     url = (f"https://models.dgwaynes.com/v1/soundings/{prefix}manifest.json"
            f"?_={int(time.time())}")
-    req = urllib.request.Request(url, headers={"Cache-Control": "no-cache"})
+    # Cloudflare 403s python-urllib's default UA, which left this returning
+    # None on every sweep: the skip never fired and a repeat dispatch
+    # re-extracted a run the CDN already served.
+    req = urllib.request.Request(url, headers={"Cache-Control": "no-cache",
+                                               "User-Agent": NOMADS_UA})
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
             return json.loads(r.read().decode())
