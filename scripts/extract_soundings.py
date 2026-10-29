@@ -180,7 +180,42 @@ TILE_COLS = 16
 STRIDE_KM = TILE_STRIDE * 3  # per-model override via MODELS "stride_km"
 
 
-def classify(var: str, lvl: str):
+# "Did the model make storms" fields for the box meteogram. They are 2D and
+# reduced over each tile column's whole TILE_STRIDE block (not point-sampled):
+# a storm is a few km wide, so a point every 24 km would miss most of them.
+#   MAXREF:1km  hourly-max 1 km reflectivity (HRRR, RRFS): storms that occurred
+#               at any time in the hour, not just at the top of it
+#   REFC:col    instantaneous composite reflectivity (fallback; GFS has no MAXREF)
+#   APCP:total  run-total precipitation (0-N h); the tile writes hour-to-hour
+#               differences, since bucket layouts differ per model
+BLOCK_REDUCE = {"MAXREF:1km": "max", "REFC:col": "max", "APCP:total": "mean"}
+
+
+def _block_reduce(arr, stride: int, how: str):
+    """Reduce every stride x stride block CENTERED on a subsampled pixel
+    (arr[::stride, ::stride] positions), so the result has exactly the point
+    subsample's shape and lines up with grid_latlon's column centers."""
+    import numpy as np
+    s = stride
+    ny, nx = -(-arr.shape[0] // s), -(-arr.shape[1] // s)
+    h = s // 2
+    p = np.pad(arr, ((h, max(0, ny * s - h - arr.shape[0])),
+                     (h, max(0, nx * s - h - arr.shape[1]))), mode="edge")
+    b = p[:ny * s, :nx * s].reshape(ny, s, nx, s)
+    return b.max(axis=(1, 3)) if how == "max" else b.mean(axis=(1, 3))
+
+
+def classify(var: str, lvl: str, step: str = ""):
+    # Storm fields need the step text (hour-max vs instant, total vs bucket);
+    # callers without it (the archive extractor) never select them.
+    if step:
+        if var == "MAXREF" and lvl == "1000 m above ground" and "max" in step:
+            return "MAXREF:1km"
+        if var == "REFC" and lvl.startswith("entire atmosphere"):
+            return "REFC:col"
+        if var == "APCP" and lvl == "surface" and step.startswith("0-") \
+                and " acc" in step:
+            return "APCP:total"
     if var in ISOBARIC_VARS and lvl.endswith(" mb"):
         try:
             mb = int(lvl.split()[0])
@@ -353,15 +388,22 @@ def fetch_subset(url: str, work: Path):
         a = line.split(":")
         if len(a) >= 5:
             try:
-                parsed.append((int(a[0]), int(a[1]), a[3], a[4]))
+                parsed.append((int(a[0]), int(a[1]), a[3], a[4],
+                               a[5] if len(a) > 5 else ""))
             except ValueError:
                 pass
     parsed.sort()
+    # Hour-max reflectivity beats the instantaneous one; skip the fallback's
+    # bytes when the file has both.
+    has_maxref = any(classify(v, l, s) == "MAXREF:1km"
+                     for (_, _, v, l, s) in parsed)
     sel, band_keys = [], []   # sel: (start, end or None for "to EOF")
-    for i, (_, off, var, lvl) in enumerate(parsed):
-        key = classify(var, lvl)
-        if key is None:
+    for i, (_, off, var, lvl, step) in enumerate(parsed):
+        key = classify(var, lvl, step)
+        if key is None or (key == "REFC:col" and has_maxref):
             continue
+        if key in band_keys and key in BLOCK_REDUCE:
+            continue  # GFS repeats the 0-N total; one copy is enough
         end = parsed[i + 1][1] - 1 if i + 1 < len(parsed) else None
         sel.append((off, end))
         band_keys.append(key)
@@ -471,6 +513,14 @@ def extract_all(grib: Path, band_keys, sites, want_grid=False):
             if abs(v) > 9.9e19:  # GRIB missing/fill
                 continue
             res[j][key] = v
+        if want_grid and key in BLOCK_REDUCE:
+            a = arr.astype(np.float32)
+            # Fill / no-echo sentinels: no echo for reflectivity, no rain.
+            a = np.where(np.abs(a) > 9.9e19, np.float32(-10 if key != "APCP:total" else 0), a)
+            if key != "APCP:total":
+                a = np.maximum(a, np.float32(-10))
+            grids[key] = _block_reduce(a, TILE_STRIDE, BLOCK_REDUCE[key])
+            continue
         if want_grid:
             g = arr[::TILE_STRIDE, ::TILE_STRIDE].astype(np.float32)
             # HRRR prs fields are fully populated over CONUS; sanitize any
@@ -652,7 +702,8 @@ def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir,
         hours: [ { fhour, valid,
                    sfc_pres_hpa[], sfc_temp_c[], sfc_dewpoint_c[],
                    sfc_u_ms[], sfc_v_ms[],
-                   temp_c[], dewpoint_c[], hgt_msl_m[], u_ms[], v_ms[] } ] }
+                   temp_c[], dewpoint_c[], hgt_msl_m[], u_ms[], v_ms[],
+                   refl_dbz[]?, qpf_mm[]? } ] }   (? = optional, per column)
     Below-ground isobaric values are NOT filtered here — each column keeps all
     len(LEVELS) levels and the app drops levels with p > that column's sfc pressure
     after interpolating, mirroring build_profile's semantics.
@@ -697,6 +748,23 @@ def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir,
         return 0
     f0g = grids_by_hour[good_hours[0]]
 
+    def storm_fields(fh, sl):
+        """Optional per-column storm fields (older apps ignore them):
+        refl_dbz = strongest reflectivity anywhere in the column's block
+        (hour max where the model has it), qpf_mm = block-mean rain in the
+        hour ending at this valid time. Omitted when the source lacks them."""
+        g = grids_by_hour[fh]
+        out = {}
+        refl = g.get("MAXREF:1km", g.get("REFC:col"))
+        if refl is not None:
+            out["refl_dbz"] = [int(v) for v in rnd(refl[sl], 0)]
+        prev = grids_by_hour.get(fh - 1)
+        if (fh > 0 and "APCP:total" in g and prev is not None
+                and "APCP:total" in prev):
+            q = np.maximum(g["APCP:total"][sl] - prev["APCP:total"][sl], 0)
+            out["qpf_mm"] = rnd(q, 1)
+        return out
+
     tiles_dir = out_dir / "tiles"
     tiles_dir.mkdir()
     # Bbox padding: bboxes come from column CENTERS, so unpadded neighbors
@@ -737,6 +805,7 @@ def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir,
                                   rnd(st["hgt_msl_m"][sl], 0)],
                     "u_ms": rnd(st["u_ms"][sl], 1),
                     "v_ms": rnd(st["v_ms"][sl], 1),
+                    **storm_fields(fh, sl),
                 })
             (tiles_dir / f"{tid}.json").write_text(json.dumps({
                 "model": model, "run": run_iso,
