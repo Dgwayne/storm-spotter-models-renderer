@@ -758,10 +758,12 @@ def build_tiles(grids_by_hour, lats, lons, offs, run_dt, run_iso, out_dir,
         refl = g.get("MAXREF:1km", g.get("REFC:col"))
         if refl is not None:
             out["refl_dbz"] = [int(v) for v in rnd(refl[sl], 0)]
-        prev = grids_by_hour.get(fh - 1)
-        if (fh > 0 and "APCP:total" in g and prev is not None
-                and "APCP:total" in prev):
-            q = np.maximum(g["APCP:total"][sl] - prev["APCP:total"][sl], 0)
+        prev = grids_by_hour.get(fh - 1) or {}
+        # The run total is zero at the analysis hour by definition; most
+        # models just do not write an f00 APCP message.
+        p_tot = prev.get("APCP:total", 0.0 if fh == 1 else None)
+        if fh > 0 and "APCP:total" in g and p_tot is not None:
+            q = np.maximum(g["APCP:total"][sl] - (p_tot if np.isscalar(p_tot) else p_tot[sl]), 0)
             out["qpf_mm"] = rnd(q, 1)
         return out
 
