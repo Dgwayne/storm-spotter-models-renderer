@@ -92,6 +92,9 @@ const CRON_TO_WORKFLOW = {
     // and :10) retired 2026-10-14.
     { wf: "render_refspmmn.yml", minutes: [25] },
     { wf: "render_refsprob.yml", minutes: [40] },
+    // REFS box-meteogram probabilities (extract_refs_box.yml): hourly, so a
+    // cycle fills in as NOAA publishes it; the script skips when current.
+    { wf: "extract_refs_box.yml", minutes: [55] },
   ],
   // Slot C. Satellite frames land in IEM's archive on the quarter-hours, so
   // this catches each one a few minutes after it publishes. GeoColor shares
