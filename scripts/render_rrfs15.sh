@@ -89,6 +89,55 @@ else
   : > "$EXISTING_KEYS_FILE"
 fi
 
+# ── Parallel frame renders + rolling manifest (2026-11-04) ─────────
+# Serial rendering measured ~10 s/frame on the 4-vCPU runner (the
+# gdal_calc.py data-PNG bake alone is 4-7 s, mostly Python start-up),
+# so the 5-product surface group needed ~60 min per HOURLY run: zero
+# headroom. Any backlog then ran the job into its 90-min timeout, the
+# 15-min cron ticks queued behind it were evicted, and the manifest
+# (written only at job start + finalize) sat ~1 h stale while finished
+# frames were invisible. RENDER_JOBS frames now render concurrently
+# (decode_pipeline.sh is concurrency-safe: own mktemp WORK dir, no
+# shared files for GRIB models), and the manifest is rebuilt every
+# MANIFEST_EVERY_S while frames are landing plus at each run boundary.
+# Dispatch order stays minute-major, so partial runs still read
+# "all products out to minute N" (at most RENDER_JOBS frames ragged).
+RENDER_JOBS="${RENDER_JOBS:-$(nproc 2>/dev/null || echo 4)}"
+MANIFEST_EVERY_S="${MANIFEST_EVERY_S:-240}"
+echo "==> Parallel renders: ${RENDER_JOBS}; manifest refresh every ${MANIFEST_EVERY_S}s"
+RUNNING=0
+RENDERED_SINCE_MANIFEST=0
+LAST_MANIFEST_EPOCH=$(date -u +%s)
+
+refresh_manifest() {
+  # $1 = reason. Only when something new landed since the last build.
+  [ "${RENDERED_SINCE_MANIFEST}" -gt 0 ] || return 0
+  echo "==> Manifest refresh ($1, ${RENDERED_SINCE_MANIFEST} frames dispatched since last)"
+  python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}" \
+    || echo "  (manifest refresh failed; next refresh/finalize retries)"
+  RENDERED_SINCE_MANIFEST=0
+  LAST_MANIFEST_EPOCH=$(date -u +%s)
+}
+
+render_frame() {
+  # Buffer each frame's log and print it whole, so parallel output
+  # stays readable (one frame block at a time, not interleaved lines).
+  local log
+  log=$(mktemp)
+  bash "${SCRIPT_DIR}/decode_pipeline.sh" "${MODEL}" "$1" \
+    "${RUN_DATE}" "${RUN_HOUR}" "$2" > "${log}" 2>&1 \
+    || echo "  fh=$2 $1 FAILED (continuing)" >> "${log}"
+  cat "${log}"
+  rm -f "${log}"
+}
+
+drain_renders() {
+  # `|| true`: a failed frame already logged itself; errexit must not
+  # take wait's status as fatal (render_mrms_obs.sh lesson).
+  wait || true
+  RUNNING=0
+}
+
 # ── Sweep recent runs newest → oldest ──────────────────────────────
 NOW_EPOCH=$(date -u +%s)
 ATTEMPTED_RUNS=()
@@ -131,22 +180,27 @@ for offset in $(seq 0 "${HOURS_BACK}"); do
           continue
         fi
       fi
-      bash "${SCRIPT_DIR}/decode_pipeline.sh" "${MODEL}" "${product}" \
-        "${RUN_DATE}" "${RUN_HOUR}" "${fh}" || {
-          echo "  fh=${fh} ${product} FAILED (continuing)"
-        }
+      render_frame "${product}" "${fh}" &
+      RUNNING=$((RUNNING + 1))
+      RENDERED_SINCE_MANIFEST=$((RENDERED_SINCE_MANIFEST + 1))
+      if [ "${RUNNING}" -ge "${RENDER_JOBS}" ]; then
+        wait -n || true
+        RUNNING=$((RUNNING - 1))
+      fi
     done
+    # Rolling manifest while frames land. In-flight frames simply show
+    # up in the next refresh (their PNG isn't listed until uploaded).
+    if [ $(( $(date -u +%s) - LAST_MANIFEST_EPOCH )) -ge "${MANIFEST_EVERY_S}" ]; then
+      refresh_manifest "periodic"
+    fi
   done
 
+  # Run boundary: let this run's frames finish, then publish it, so a
+  # finished run never waits on older runs or the other render groups
+  # (finalize only runs after EVERY group is done).
+  drain_renders
   ATTEMPTED_RUNS+=("${RUN_DATE}${RUN_HOUR}")
-
-  # Publish the manifest as soon as the newest run is rendered so the app
-  # sees it 10-20 min earlier than waiting for the full sweep + prune.
-  if [ "${#ATTEMPTED_RUNS[@]}" -eq 1 ]; then
-    echo "==> Publishing manifest early (newest run rendered)"
-    python3 "${SCRIPT_DIR}/build_manifest.py" "${MODEL}" \
-      || echo "  (early manifest build failed; will retry at end of tick)"
-  fi
+  refresh_manifest "run ${RUN_DATE}${RUN_HOUR} done"
 done
 
 # ── Prune + final manifest (single finalize job when fanned out) ───
