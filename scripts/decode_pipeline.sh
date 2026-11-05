@@ -501,10 +501,51 @@ elif [ "${DERIVED}" = "true" ]; then
     GDAL_INPUT_ARGS+=("-${letter}" "${WORK}/in_${letter}.tif")
   done < <(yq -r ".products.${PRODUCT}.inputs | to_entries[] | [.key, .value] | @tsv" "$CONFIG")
 
-  gdal_calc.py --quiet "${GDAL_INPUT_ARGS[@]}" --outfile="${RAW_TIF}" \
-    --calc="${CALC_EXPR}" --NoDataValue=-9999 --type=Float32 --overwrite
-  echo "  raw.tif stats:"
-  gdalinfo -stats "${RAW_TIF}" 2>/dev/null | grep -E "Min|Max|Mean|StdDev" | head -4 | sed 's/^/    /'
+  # input_resample: {letter: kernel} warps EACH input to the mercator
+  # target on its own kernel and evaluates the calc there (writing
+  # merc.tif directly, so step 6 is skipped). For products that mix a
+  # continuous field with categories (ptypeRefl: cubic dBZ + nearest type
+  # flags) — one warp of the combined value would interpolate between
+  # category codes. Absent = the classic calc-then-warp below, unchanged.
+  INPUT_RESAMPLE=$(yq -r ".products.${PRODUCT}.input_resample // {} | to_entries[] | [.key, .value] | @tsv" "$CONFIG")
+  if [ -n "${INPUT_RESAMPLE}" ]; then
+    MERC_INPUT_ARGS=()
+    SCRIPT_INPUT_ARGS=()
+    while IFS=$'\t' read -r letter kernel; do
+      # shellcheck disable=SC2086
+      gdalwarp -q -overwrite \
+        -t_srs EPSG:3857 \
+        -te_srs EPSG:4326 \
+        -te ${BBOX} \
+        -ts "${IMG_W}" "${IMG_H}" \
+        -r "${kernel}" \
+        -dstnodata -9999 \
+        "${WORK}/in_${letter}.tif" "${WORK}/merc_${letter}.tif"
+      MERC_INPUT_ARGS+=("-${letter}" "${WORK}/merc_${letter}.tif")
+      SCRIPT_INPUT_ARGS+=("--${letter}" "${WORK}/merc_${letter}.tif")
+    done <<< "${INPUT_RESAMPLE}"
+    # merc_script: a combine step that needs neighbourhoods (gdal_calc is
+    # per-pixel only), e.g. ptype_refl_combine.py's fringe fill. Gets each
+    # warped input as --<letter> <path> plus merc_script_args.
+    MERC_SCRIPT=$(yq -r ".products.${PRODUCT}.merc_script // \"\"" "$CONFIG")
+    if [ -n "${MERC_SCRIPT}" ]; then
+      MERC_SCRIPT_ARGS=$(yq -r ".products.${PRODUCT}.merc_script_args // [] | join(\" \")" "$CONFIG")
+      # shellcheck disable=SC2086
+      python3 "${REPO_ROOT}/scripts/${MERC_SCRIPT}" --out "${WORK}/merc.tif" \
+        "${SCRIPT_INPUT_ARGS[@]}" ${MERC_SCRIPT_ARGS}
+    else
+      gdal_calc.py --quiet "${MERC_INPUT_ARGS[@]}" --outfile="${WORK}/merc.tif" \
+        --calc="${CALC_EXPR}" --NoDataValue=-9999 --type=Float32 --overwrite
+    fi
+    MERC_READY=true
+    echo "  merc.tif stats (per-input warp):"
+    gdalinfo -stats "${WORK}/merc.tif" 2>/dev/null | grep -E "Min|Max|Mean|StdDev" | head -4 | sed 's/^/    /'
+  else
+    gdal_calc.py --quiet "${GDAL_INPUT_ARGS[@]}" --outfile="${RAW_TIF}" \
+      --calc="${CALC_EXPR}" --NoDataValue=-9999 --type=Float32 --overwrite
+    echo "  raw.tif stats:"
+    gdalinfo -stats "${RAW_TIF}" 2>/dev/null | grep -E "Min|Max|Mean|StdDev" | head -4 | sed 's/^/    /'
+  fi
 elif [ "${COMPOSITE_UV}" = "true" ]; then
   # Composite UV: two GRIB messages (UGRD + VGRD), each as a band.
   # The byte-range GET preserves idx ordering (UGRD first, then VGRD)
@@ -551,15 +592,19 @@ fi
 # Categorical products override the kernel via `resample: near` (see the
 # RESAMPLE read at the top).
 MERC_TIF="${WORK}/merc.tif"
-# shellcheck disable=SC2086
-gdalwarp -q -overwrite \
-  -t_srs EPSG:3857 \
-  -te_srs EPSG:4326 \
-  -te ${BBOX} \
-  -ts "${IMG_W}" "${IMG_H}" \
-  -r "${RESAMPLE}" \
-  -dstnodata -9999 \
-  "${RAW_TIF}" "${MERC_TIF}"
+# A per-input-warp derived product (input_resample, step 4b) already wrote
+# merc.tif in the target projection.
+if [ "${MERC_READY:-false}" != "true" ]; then
+  # shellcheck disable=SC2086
+  gdalwarp -q -overwrite \
+    -t_srs EPSG:3857 \
+    -te_srs EPSG:4326 \
+    -te ${BBOX} \
+    -ts "${IMG_W}" "${IMG_H}" \
+    -r "${RESAMPLE}" \
+    -dstnodata -9999 \
+    "${RAW_TIF}" "${MERC_TIF}"
+fi
 
 # --- 6b. Point-value grid JSON (Pivotal-style on-map numbers) ------------------
 # Sampled from the same Float32 mercator raster the PNG is color-mapped from,

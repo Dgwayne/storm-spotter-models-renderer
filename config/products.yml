@@ -1622,6 +1622,92 @@ products:
     pal: ""
     point_values: false
 
+  ptypeRefl:
+    display: "Reflectivity + Precip Type"
+    group: "Surface & Precipitation/Radar"
+    derived: true
+    # Simulated radar coloured by precip type: 1 km AGL reflectivity
+    # painted on one of four dBZ ramps (rain greens, snow blues, sleet
+    # pinks, freezing-rain oranges) picked by the model's dominant-type
+    # flags. The model-side twin of the app's radar Precip Type product,
+    # with the same four ramps (ptype_refl.clr mirrors the app LUT).
+    #
+    # Why 1 km and not composite: the flags describe what reaches the
+    # ground, and composite takes the column max, so in winter a melting
+    # layer aloft would paint a bright band that has nothing to do with
+    # the surface type.
+    #
+    # ENCODING: value = 100 * type + dBZ (dBZ clipped 0..75), so rain is
+    # 100..175, snow 200..275, sleet 300..375, freezing rain 400..475.
+    # Same most-hazardous-flag-wins priority as ptype. Echo with no flag
+    # nearby = nodata (transparent): echo the model says never reaches
+    # the ground is not drawn, which is also why this starts at f01
+    # (every flag is zero at f00).
+    #
+    # input_resample: each input is warped to the mercator target on its
+    # OWN kernel before the calc (decode_pipeline.sh step 4b), so the
+    # reflectivity keeps its smooth cubic gradient while the type flags
+    # warp nearest. One cubic warp of the ENCODED value would interpolate
+    # across a rain/sleet edge (175 -> 300) through invented snow values.
+    fh_min: 1
+    inputs:
+      R: ":REFD:1000 m above ground:"
+      A: ":CRAIN:surface:"
+      B: ":CSNOW:surface:"
+      C: ":CICEP:surface:"
+      D: ":CFRZR:surface:"
+    input_resample: { R: cubic, A: near, B: near, C: near, D: near }
+    # scripts/ptype_refl_combine.py does the encode (gdal_calc is per-pixel
+    # only): priority type, then a FRINGE FILL so pixels with echo but no
+    # flag take the type within 3 px. The flags are stair-stepped 3 km
+    # cells; without the fill they cut every smooth echo edge into blocks.
+    merc_script: "ptype_refl_combine.py"
+    merc_script_args: ["--floor", "0", "--fill-px", "3"]
+    units_in: ""
+    units_out: "dBZ"
+    convert: ""
+    clr: "ptype_refl.clr"
+    pal: ""
+    # Smooth within each type's ramp; the 75 -> 100 gaps between ramps
+    # are never encoded, so no pixel lands between two types.
+    interpolate_color: true
+    # The value grid feeds the app's crosshair readout ("Snow, 28 dBZ"),
+    # but the numbers are ENCODED, so the manifest must not advertise
+    # them as on-map numbers: typed_values publishes the grid while
+    # build_manifest reports pointValues false + typedValues true. Apps
+    # that predate the product therefore never draw "228" on the map.
+    point_values: true
+    typed_values: true
+    point_grid: [256, 256]
+
+  ptypeRefl15:
+    display: "Reflectivity + Precip Type"
+    group: "Surface & Precipitation/Radar"
+    derived: true
+    # The 15-minute twin of ptypeRefl (minute-unit product code) for
+    # HRRR15 and RRFS15, from NOAA's sub-hourly files like ptype15.
+    # Encoding, priority, ramps and per-input warp are identical.
+    fh_min: 15
+    fh_cap: 1080
+    inputs:
+      R: ":REFD:1000 m above ground:{fh} min fcst:"
+      A: ":CRAIN:surface:{fh} min fcst:"
+      B: ":CSNOW:surface:{fh} min fcst:"
+      C: ":CICEP:surface:{fh} min fcst:"
+      D: ":CFRZR:surface:{fh} min fcst:"
+    input_resample: { R: cubic, A: near, B: near, C: near, D: near }
+    merc_script: "ptype_refl_combine.py"
+    merc_script_args: ["--floor", "0", "--fill-px", "3"]
+    units_in: ""
+    units_out: "dBZ"
+    convert: ""
+    clr: "ptype_refl.clr"
+    pal: ""
+    interpolate_color: true
+    point_values: true
+    typed_values: true
+    point_grid: [256, 256]
+
   frzLvl:
     display: "Freezing Level"
     group: "Winter Weather"
@@ -3430,6 +3516,7 @@ models:
       - pwat
       - echoTops
       - ptype
+      - ptypeRefl
       - frzLvl
       - rh2m
       - vis
@@ -3459,7 +3546,7 @@ models:
       winter:   [snod, asnow, frzr, precipTotal]
       severe-a: [srh1, srh3, ehi1, ehi3, shear1, shear6, stormMotion]
       severe-b: [mlcape, mucape, mlcin, cape3km, liftedIdx, lapse75, lclHgt]
-      enviro:   [stp, scp, pwat, echoTops, ptype, frzLvl, rh2m, vis]
+      enviro:   [stp, scp, pwat, echoTops, ptype, ptypeRefl, frzLvl, rh2m, vis]
     # CONUS bbox (Lambert -> reprojected to EPSG:3857 by gdalwarp at render time)
     bbox_lonlat: [-134.0, 21.0, -60.0, 53.0]
     # Smoothness over sharpness (decided after testing). Animation scrub
@@ -3544,6 +3631,7 @@ models:
       - pwat
       - echoTops
       - ptype
+      - ptypeRefl
       - frzLvl
       - rh2m
       - vis
@@ -3566,7 +3654,7 @@ models:
       sky:      [tcc, lcc, mcc, hcc, refd1km]
       severe-a: [srh1, srh3, ehi1, ehi3, shear1, shear6]
       severe-b: [mlcape, mucape, mlcin, cape3km, sbcin, liftedIdx]
-      hazards:  [stp, scp, ltng, uh25, ptype, stormMotion]
+      hazards:  [stp, scp, ltng, uh25, ptype, ptypeRefl, stormMotion]
       enviro:   [pwat, echoTops, frzLvl, rh2m, vis, lclHgt]
       winter:   [snod, asnow, frzr, precipTotal]
     # Same CONUS render box + raster size as HRRR (both 3 km native; see the
@@ -4991,6 +5079,7 @@ models:
       - mcc
       - hcc
       - ptype
+      - ptypeRefl
       - srh3
       - ehi3
       - mlcape
@@ -5027,7 +5116,7 @@ models:
       core:       [refc, t2m, td2m, wind10m, gust10m, mslp, sfccape, precipTotal]
       sky:        [tcc, lcc, mcc, hcc, refd1km]
       severe:     [srh3, ehi3, mlcape, mucape, mlcin, sbcin, liftedIdx, lapse75, stormMotion, shearSfc500]
-      enviro:     [pwat, frzLvl, rh2m, vis, snod, ptype, precip6h]
+      enviro:     [pwat, frzLvl, rh2m, vis, snod, ptype, ptypeRefl, precip6h]
       upper-wind: [wind925, wind850, wind700, wind500, wind300, wind250, wind200]
       upper-dyn:  [rh925, rh850, rh700, rh500, vort500, vv700]
     # Global; we still render CONUS for app-side overlay parity. App can request
@@ -5082,6 +5171,7 @@ models:
       - precip15m
       - snow15m
       - ptype15
+      - ptypeRefl15
       - refc
       - refd1km
       - echoTops
@@ -5089,7 +5179,7 @@ models:
     # ptype15 alone comes from NOAA's sub-hourly GRIB (the om bucket has
     # no precip-type flags): decode_pipeline.sh flips this one product to
     # the grib path and resolves {fhour} = ceil(minutes / 60).
-    grib_products: [ptype15, refc, refd1km, echoTops]
+    grib_products: [ptype15, ptypeRefl15, refc, refd1km, echoTops]
     # Reflectivity (2026-10-14): Open-Meteo's 15-min set has none, but
     # NOAA's wrfsubhf carries REFC/REFD/RETOP at every step (WeatherWise's
     # HRRR sub-hourly radar). subh_time_filter picks the step's message
@@ -5145,8 +5235,9 @@ models:
       - precipTotal
       - asnow
       - ptype15
+      - ptypeRefl15
     render_groups:
-      core: [refc, refd1km, ptype15, echoTops]
+      core: [refc, refd1km, ptype15, ptypeRefl15, echoTops]
       surface: [t2m, td2m, wind10m, gust10m, mslp]
       precip: [precipTotal, asnow, vis]
     s3_bucket: "noaa-rrfs-ops-pds"
@@ -5225,7 +5316,7 @@ models:
       [refc, refd1km, t2m, td2m, wind10m, gust10m, mslp, sfccape, sbcin,
        precip1h, precipTotal, tcc, lcc, mcc, hcc, irsat, smokesfc, ltng,
        srh1, srh3, ehi1, ehi3, mlcape, mucape, mlcin, shear6, scp,
-       cape3km, liftedIdx, lapse75, stormMotion, pwat, echoTops, ptype,
+       cape3km, liftedIdx, lapse75, stormMotion, pwat, echoTops, ptype, ptypeRefl,
        frzLvl, rh2m, vis, snod, asnow, frzr, precip3h, precip6h,
        shearSfc500, wind925, wind850, wind700, wind500, wind300, wind250,
        wind200, rh925, rh850, rh700, rh500, vort500, vv700]
@@ -5234,7 +5325,7 @@ models:
       severe-a: [sfccape, sbcin, mlcape, mucape, mlcin, cape3km, liftedIdx]
       severe-b: [srh1, srh3, ehi1, ehi3, shear6, shearSfc500, scp, stormMotion]
       sky:      [tcc, lcc, mcc, hcc, irsat, vis, echoTops, lapse75]
-      precip:   [precip1h, precip3h, precip6h, precipTotal, pwat, ptype, frzLvl]
+      precip:   [precip1h, precip3h, precip6h, precipTotal, pwat, ptype, ptypeRefl, frzLvl]
       winter:   [snod, asnow, frzr, smokesfc, ltng]
       upper-wind: [wind925, wind850, wind700, wind500, wind300, wind250, wind200]
       upper-dyn:  [rh925, rh850, rh700, rh500, vort500, vv700]

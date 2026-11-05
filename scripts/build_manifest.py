@@ -115,6 +115,14 @@ for code in products:
         # unknown JSON keys.
         "group": pc.get("group", ""),
     }
+    # typed_values: the frames DO ship a F###.json grid, but its numbers
+    # are an encoding (ptypeRefl: 100 * type + dBZ), not a measurement.
+    # Advertising them as pointValues would make apps draw "228" on the
+    # map, so the flag stays false and typedValues tells apps that know
+    # the encoding where the grid is (crosshair readout only).
+    if pc.get("typed_values") and entry["pointValues"]:
+        entry["pointValues"] = False
+        entry["typedValues"] = True
     # Data-PNG products (gray 1..255 = min..max linear, 0/alpha-0 =
     # nodata): the app inverts values client-side and runs its crisp
     # data-space renderer instead of showing the PNG's pixels.
